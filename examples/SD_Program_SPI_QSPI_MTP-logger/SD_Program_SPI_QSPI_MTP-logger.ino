@@ -25,7 +25,7 @@ uint8_t current_store = 0;
 MTPStorage_SD storage;
 MTPD mtpd(&storage);
 
-//#define USE_BUILTIN_SDCARD
+#define USE_BUILTIN_SDCARD
 #if defined(USE_BUILTIN_SDCARD) && defined(BUILTIN_SDCARD)
 SDMTPClass mySD{mtpd, storage, "SDIO", BUILTIN_SDCARD};
 #endif

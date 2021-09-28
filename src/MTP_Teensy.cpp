@@ -2371,10 +2371,10 @@ int usb_mtp_sendEvent(const void *buffer, uint32_t len, uint32_t timeout) {
   const MTPContainer *pe = (const MTPContainer *)buffer;
   // printf("  op:%x len:%d type:%d tid:%d Params:  ", pe->op, pe->len,
   // pe->type, pe->transaction_id);
-  //if(pe->len>12) printf(" %x", pe->params[0]); \
-      //if(pe->len>16) printf(" %x", pe->params[1]); \
-      //if(pe->len>20) printf(" %x", pe->params[2]); \
-      //printf("\n"); \
+  //if(pe->len>12) printf(" %x", pe->params[0]);
+  //if(pe->len>16) printf(" %x", pe->params[1]);
+  //if(pe->len>20) printf(" %x", pe->params[2]);
+  //printf("\n");
 
   if (!usb_configuration)
     return -1;
