@@ -68,10 +68,10 @@ uint8_t current_store = 0;
 #endif
 #define SPI_SPEED SD_SCK_MHZ(16)  // adjust to sd card 
 
-#define COUNT_MYFS  2  // could do by count, but can limit how many are created...
+#define COUNT_MYFS  1  // could do by count, but can limit how many are created...
 SDMTPClass mySD[] = {
                       {mtpd, storage, "SDIO", CS_SD}, 
-//                      {mtpd, storage, "SD8", 8, 9, SHARED_SPI, SPI_SPEED}
+                      {mtpd, storage, "SD8", 8, 9, SHARED_SPI, SPI_SPEED}
                     };
 //SDMTPClass mySD(mtpd, storage, "SD10", 10, 0xff, SHARED_SPI, SPI_SPEED);
 
@@ -388,13 +388,13 @@ void loop()
   else
   {
     mtpd.loop();
+    #if USE_MSC > 0
     usbmsc.checkUSBStatus(false);
+    #endif
   }
 
   if (write_data) logData();
 }
-
-
 
 void logData()
 {
@@ -478,8 +478,9 @@ void listFiles()
 
   printDirectory(myfs);
 }
-
+#if USE_MSC > 0
 extern PFsLib pfsLIB;
+#endif
 void eraseFiles()
 {
 
