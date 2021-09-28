@@ -1010,6 +1010,15 @@ void MTPD::processIntervalTimer() {
 
       if (typ == 1) { // command
         switch (op) {
+        case MTP_OPERATION_GET_DEVICE_INFO: // GetDescription 0x1001
+          TRANSMIT(WriteDescriptor());
+          break;
+        case MTP_OPERATION_OPEN_SESSION: // open session 0x1002
+          openSession(p1);
+          break;
+        case MTP_OPERATION_GET_DEVICE_PROP_DESC: // 1014
+          TRANSMIT(GetDevicePropDesc(p1));
+          break;
         default:
           return_code = MTP_RESPONSE_DEVICE_BUSY; // operation not supported
           break;
