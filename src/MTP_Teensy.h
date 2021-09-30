@@ -112,8 +112,8 @@ private:
   uint8_t disk_buffer_[DISK_BUFFER_SIZE] __attribute__((aligned(32)));
 
 #endif
-  static time_t
-  getTeensyTime(); // callback function to allow teensy to initialize the clock
+  //static time_t
+  //getTeensyTime(); // callback function to allow teensy to initialize the clock
 
   bool write_get_length_ = false;
   uint32_t write_length_ = 0;

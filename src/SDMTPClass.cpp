@@ -79,11 +79,19 @@ uint64_t SDMTPClass::totalSizeCB(MTPStorage_SD *mtpstorage, uint32_t store,
   return us;
 }
 
-#include "TimeLib.h"
 void SDMTPClass::dateTime(uint16_t *date, uint16_t *time, uint8_t *ms10) {
-  *date = FS_DATE(year(), month(), day());
-  *time = FS_TIME(hour(), minute(), second());
-  *ms10 = second() & 1 ? 100 : 0;
+  uint32_t now = Teensy3Clock.get();
+  if (now < 315532800) { // before 1980
+    *date = 0;
+    *time = 0;
+    *ms10 = 0;
+  } else {
+    DateTimeFields datetime;
+    breakTime(now, datetime);
+    *date = FS_DATE(datetime.year + 1900, datetime.mon + 1, datetime.mday);
+    *time = FS_TIME(datetime.hour, datetime.min, datetime.sec);
+    *ms10 = datetime.sec & 1 ? 100 : 0;
+  }
   MTPD::PrintStream()->printf("### dateTime: called %x %x %x\n", *date, *time,
                               *ms10);
 }

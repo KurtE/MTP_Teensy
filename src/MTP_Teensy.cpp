@@ -27,7 +27,6 @@
 #if defined(USB_MTPDISK) || defined(USB_MTPDISK_SERIAL)
 
 #include "MTP_Teensy.h"
-#include <TimeLib.h>
 #undef USB_DESC_LIST_DEFINE
 #include "usb_desc.h"
 
@@ -290,7 +289,6 @@ const int supported_event_num =
   };
 */
 int MTPD::begin() {
-  setSyncProvider(getTeensyTime);
 
   // lets set up to check for MTP messages and tell
   // other side we are busy...  Maybe should be function:
@@ -302,7 +300,7 @@ int MTPD::begin() {
   return usb_init_events();
 }
 
-time_t MTPD::getTeensyTime() { return Teensy3Clock.get(); }
+//time_t MTPD::getTeensyTime() { return Teensy3Clock.get(); }
 
 void MTPD::write8(uint8_t x) { write((char *)&x, sizeof(x)); }
 void MTPD::write16(uint16_t x) { write((char *)&x, sizeof(x)); }

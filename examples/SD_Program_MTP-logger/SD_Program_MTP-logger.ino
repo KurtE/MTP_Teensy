@@ -7,7 +7,6 @@
   This example code is in the public domain.
 */
 #include "SD.h"
-#include "TimeLib.h"
 #include <MTP_Teensy.h>
 #include <SDMTPClass.h>
 
@@ -105,8 +104,12 @@ void setup() {
 
   DBGSerial.printf("%u Initializing MTP Storage list ...", millis());
 
-  DBGSerial.printf("Date: %u/%u/%u %u:%u:%u\n", day(), month(), year(), hour(),
-                   minute(), second());
+  DateTimeFields date;
+  breakTime(Teensy3Clock.get(), date);
+  const char *monthname[12]={
+    "Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"};
+  DBGSerial.printf("Date: %u %s %u %u:%u:%u\n",
+    date.mday, monthname[date.mon], date.year+1900, date.hour, date.min, date.sec);
 
   // Lets add the Prorgram memory version:
   // checks that the LittFS program has started with the disk size specified
