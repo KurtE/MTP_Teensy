@@ -87,16 +87,6 @@ FS *myfs = &lfsram; // current default FS...
 USB_MSC_MTP usbmsc(mtpd, storage);
 #endif
 
-#if USE_LFS_RAM==1 ||  USE_LFS_PROGM==1 || USE_LFS_QSPI==1 || USE_LFS_SPI==1 || USE_LFS_NAND==1 ||  USE_LFS_QSPI_NAND==1
-//=============================================================================
-//LittleFS classes
-//=============================================================================
-// Setup a callback class for Littlefs storages.. use this if not using a index file
-  //#include "LittleFS.h"
-  //#include <LFS_MTP_Callback.h>  //callback for LittleFS format
-  //LittleFSMTPCB lfsmtpcb;
-#endif
-
 
 // =======================================================================
 // Set up LittleFS file systems on different storage media
@@ -188,7 +178,8 @@ void storage_configure()
       storage.addFilesystem(ramfs[ii], lfs_ram_str[ii], &lfsmtpcb, (uint32_t)(LittleFS*)&ramfs[ii]);
       uint64_t totalSize = ramfs[ii].totalSize();
       uint64_t usedSize  = ramfs[ii].usedSize();
-      DBGSerial.printf("RAM Storage %d %s ",ii,lfs_ram_str[ii]); DBGSerial.print(totalSize); DBGSerial.print(" "); DBGSerial.println(usedSize);
+      DBGSerial.printf("RAM Storage %d %s %llu %llu\n", ii, lfs_ram_str[ii],
+        totalSize, usedSize);
     }
   }
 #endif
@@ -202,10 +193,8 @@ void storage_configure()
       storage.addFilesystem(progmfs[ii], lfs_progm_str[ii], &lfsmtpcb, (uint32_t)(LittleFS*)&progmfs[ii]);
       uint64_t totalSize = progmfs[ii].totalSize();
       uint64_t usedSize  = progmfs[ii].usedSize();
-      DBGSerial.printf("Program Storage %d %s ",ii,lfs_progm_str[ii]);
-      DBGSerial.print(totalSize);
-      DBGSerial.print(" ");
-      DBGSerial.println(usedSize);
+      DBGSerial.printf("Program Storage %d %s %llu %llu\n", ii, lfs_progm_str[ii],
+        totalSize, usedSize);
     }
   }
 #endif
@@ -219,10 +208,7 @@ void storage_configure()
       storage.addFilesystem(qspifs[ii], lfs_qspi_str[ii], &lfsmtpcb, (uint32_t)(LittleFS*)&qspifs[ii]);
       uint64_t totalSize = qspifs[ii].totalSize();
       uint64_t usedSize  = qspifs[ii].usedSize();
-      DBGSerial.printf("QSPI Storage %d %s ",ii,lfs_qspi_str[ii]);
-      DBGSerial.print(totalSize);
-      DBGSerial.print(" ");
-      DBGSerial.println(usedSize);
+      DBGSerial.printf("QSPI Storage %d %s %llu %llu\n", ii, lfs_qspi_str[ii], totalSize, usedSize);
     }
   }
 #endif
@@ -239,10 +225,8 @@ void storage_configure()
       storage.addFilesystem(spifs[ii], lfs_spi_str[ii], &lfsmtpcb, (uint32_t)(LittleFS*)&spifs[ii]);
       uint64_t totalSize = spifs[ii].totalSize();
       uint64_t usedSize  = spifs[ii].usedSize();
-      DBGSerial.printf("SPIFlash Storage %d %d %s ",ii,lfs_cs[ii],lfs_spi_str[ii]);
-      DBGSerial.print(totalSize);
-      DBGSerial.print(" ");
-      DBGSerial.println(usedSize);
+      DBGSerial.printf("SPIFlash Storage %d %d %s %llu %llu\n", ii, lfs_cs[ii], lfs_spi_str[ii],
+        totalSize, usedSize);
     }
   }
 #endif
@@ -259,27 +243,22 @@ void storage_configure()
       storage.addFilesystem(nspifs[ii], nspi_str[ii], &lfsmtpcb, (uint32_t)(LittleFS*)&nspifs[ii]);
       uint64_t totalSize = nspifs[ii].totalSize();
       uint64_t usedSize  = nspifs[ii].usedSize();
-      DBGSerial.printf("Storage %d %d %s ",ii,nspi_cs[ii],nspi_str[ii]);
-      DBGSerial.print(totalSize);
-      DBGSerial.print(" ");
-      DBGSerial.println(usedSize);
+      DBGSerial.printf("Storage %d %d %s %llu %llu\n", ii, nspi_cs[ii], nspi_str[ii],
+        totalSize, usedSize);
     }
   }
 #endif
 
 #if USE_LFS_QSPI_NAND == 1
   for(int ii=0; ii<qnspi_nsd;ii++) {
-    if(!qnspifs[ii].begin()) 
-    { DBGSerial.printf("QSPI NAND Storage %d %s failed or missing",ii,qnspi_str[ii]); DBGSerial.println();
-    }
-    else
-    {
+    if(!qnspifs[ii].begin()) {
+       DBGSerial.printf("QSPI NAND Storage %d %s failed or missing",ii,qnspi_str[ii]); DBGSerial.println();
+    } else {
       storage.addFilesystem(qnspifs[ii], qnspi_str[ii], &lfsmtpcb, (uint32_t)(LittleFS*)&qnspi_str[ii]);
-
       uint64_t totalSize = qnspifs[ii].totalSize();
       uint64_t usedSize  = qnspifs[ii].usedSize();
-      DBGSerial.printf("Storage %d %s ",ii,qnspi_str[ii]); DBGSerial.print(totalSize); DBGSerial.print(" "); DBGSerial.println(usedSize);
-  }
+      DBGSerial.printf("Storage %d %s %llu %llu\n", ii, qnspi_str[ii], totalSize, usedSize);
+    }
   }
 #endif
 
@@ -304,7 +283,8 @@ void setup()
     // wait for serial port to connect.
   }
 #else
-  //while(!DBGSerial.available()); // comment if you do not want to wait for terminal (otherwise press any key to continue)
+  //while(!DBGSerial.available()); // comment if you do not want to wait for
+                                   // terminal (otherwise press any key to continue)
   while (!Serial && !DBGSerial.available() && millis() < 5000) 
   //myusb.Task(); // or third option to wait up to 5 seconds and then continue
 #endif
@@ -343,14 +323,16 @@ void loop()
       fsCount = storage.getFSCount();
       DBGSerial.printf("\nDump Storage list(%u)\n", fsCount);
       for (uint32_t ii = 0; ii < fsCount; ii++) {
-        DBGSerial.printf("store:%u storage:%x name:%s fs:%x\n", ii, mtpd.Store2Storage(ii), storage.getStoreName(ii), (uint32_t)storage.getStoreFS(ii));
+        DBGSerial.printf("store:%u storage:%x name:%s fs:%x\n", ii, mtpd.Store2Storage(ii),
+          storage.getStoreName(ii), (uint32_t)storage.getStoreFS(ii));
       }
       DBGSerial.println("\nDump Index List");
       storage.dumpIndexList();
       break;
     case '2':
       if (storage_index < storage.getFSCount()) {
-        DBGSerial.printf("Storage Index %u Name: %s Selected\n", storage_index, storage.getStoreName(storage_index));
+        DBGSerial.printf("Storage Index %u Name: %s Selected\n", storage_index,
+          storage.getStoreName(storage_index));
         myfs = storage.getStoreFS(storage_index);
         current_store = storage_index;
       } else {
