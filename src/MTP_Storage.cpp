@@ -232,13 +232,14 @@ MTPStorage_SD::ConstructFilename(int i, char *out,
 }
 
 void MTPStorage_SD::OpenFileByIndex(uint32_t i, uint32_t mode) {
-  if (open_file_ == i && mode_ == mode)
+  bool file_is_open = sd_isOpen(file_);  // check to see if file is open
+  if (file_is_open && (open_file_ == i) && (mode_ == mode))
     return;
   char filename[MAX_FILENAME_LEN];
   uint16_t store = ConstructFilename(i, filename, MAX_FILENAME_LEN);
 
   mtp_lock_storage(true);
-  if (sd_isOpen(file_))
+  if (file_is_open)
     file_.close();
   file_ = sd_open(store, filename, mode);
   if (!sd_isOpen(file_)) {
@@ -463,6 +464,7 @@ bool MTPStorage_SD::updateDateTimeStamps(uint32_t handle, uint32_t dtCreated,
 #endif
 
   WriteIndexRecord(handle, r);
+  file_.close();
   mtp_lock_storage(false);
 #endif
   return true;
