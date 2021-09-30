@@ -1,7 +1,4 @@
-#include "Arduino.h"
-
-#include "SD.h"
-#include "TimeLib.h"
+#include <SD.h>
 #include <MTP_Teensy.h>
 
 //---------------------------------------------------
@@ -149,8 +146,13 @@ LittleFS_SPINAND nspifs[nspi_nsd]; // needs to be declared if LittleFS is used i
 
 void storage_configure()
 {
-  DBGSerial.printf("Date: %u/%u/%u %u:%u:%u\n", day(), month(), year(),
-                hour(), minute(), second());
+  DateTimeFields date;
+  breakTime(Teensy3Clock.get(), date);
+  const char *monthname[12]={
+    "Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"};
+  DBGSerial.printf("Date: %u %s %u %u:%u:%u\n",
+    date.mday, monthname[date.mon], date.year+1900, date.hour, date.min, date.sec);
+
 #if 1
   // lets initialize a RAM drive. 
   if (lfsram.begin(LFSRAM_SIZE)) {
