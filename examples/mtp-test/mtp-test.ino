@@ -29,18 +29,11 @@
 #define USE_SW_PU  0 //set to 1 if SPI devices does not have PUs,
             // https://www.pjrc.com/better-spi-bus-design-in-3-steps/
 
-extern "C" {
-  extern uint8_t external_psram_size;
-}
-
-bool g_lowLevelFormat = true;
-uint32_t last_storage_index = (uint32_t)-1;
 
 #define DBGSerial Serial
 File dataFile;  // Specifes that dataFile is of File type
 int record_count = 0;
 bool write_data = false;
-uint32_t diskSize;
 uint8_t current_store = 0;
 
 //=============================================================================
