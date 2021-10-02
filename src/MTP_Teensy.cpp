@@ -2022,10 +2022,11 @@ bool MTPD::SendObject() {
       write_em_max = em;
     disk_pos = 0;
   }
-  storage_->close();
 
   // lets see if we should update the date and time stamps.
   storage_->updateDateTimeStamps(object_id_, dtCreated_, dtModified_);
+
+  storage_->close();
 
   if (c_read_em)
     printf(" # USB Packets: %u total: %u avg ms: %u max: %u\n", c_read_em,
