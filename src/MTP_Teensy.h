@@ -32,6 +32,8 @@
 #error "You need to select USB Type: 'MTP Disk (Experimental)'"
 #endif
 
+#define MTP_FS_ONLY
+
 #include "core_pins.h"
 #include "usb_dev.h"
 extern "C" int usb_mtp_sendEvent(const void *buffer, uint32_t len,
@@ -57,14 +59,22 @@ extern volatile uint8_t usb_configuration;
 // MTP Responder.
 class MTPD {
 public:
+#ifdef MTP_FS_ONLY
+  explicit MTPD(MTPStorage *storage) : storage_(storage) {}
+#else
   explicit MTPD(MTPStorageInterface *storage) : storage_(storage) {}
+#endif
   int begin();
 
   static inline Stream *PrintStream(void) { return printStream_; }
   static void PrintStream(Stream *stream) { printStream_ = stream; }
 
 private:
+#ifdef MTP_FS_ONLY
+  MTPStorage *storage_;
+#else
   MTPStorageInterface *storage_;
+#endif
   static Stream *printStream_;
 
   struct MTPHeader {
