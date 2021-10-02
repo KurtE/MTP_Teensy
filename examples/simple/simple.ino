@@ -50,13 +50,13 @@ void setup()
 
   // Add the SD Card
   if (SD.begin(SD_ChipSelect)) {
-    storage.addFilesystem(ramdisk, "SD_Card");
+    storage.addFilesystem(SD, "SD_Card");
     DBGSerial.println("SD Card initialized");
   }
 
   // Add a disk with unused Program memory
   if (progdisk.begin(400000)) {
-    storage.addFilesystem(ramdisk, "Program");
+    storage.addFilesystem(progdisk, "Program");
     DBGSerial.println("Program Storage initialized");
   }
 
@@ -270,4 +270,3 @@ uint32_t CommandLineReadNextNumber(int &ch, uint32_t default_num) {
   }
   return return_value;
 }
-
