@@ -21,16 +21,17 @@
 #define USE_LFS_QSPI 1    // T4.1 QSPI
 #define USE_LFS_PROGM 1   // T4.4 Progam Flash
 #define USE_LFS_SPI 1     // SPI Flash
-#define USE_LFS_NAND 0
+#define USE_LFS_NAND 1
 #define USE_LFS_QSPI_NAND 0
 #define USE_LFS_FRAM 0
 #endif
-#define USE_MSC 3    // set to > 0 experiment with MTP (USBHost.t36 + mscFS)
+#define USE_MSC 0    // set to > 0 experiment with MTP (USBHost.t36 + mscFS)
 #define USE_SW_PU  0 //set to 1 if SPI devices does not have PUs,
-            // https://www.pjrc.com/better-spi-bus-design-in-3-steps/
+                     // https://www.pjrc.com/better-spi-bus-design-in-3-steps/
 
 
 #define DBGSerial Serial
+FS *myfs;
 File dataFile;  // Specifes that dataFile is of File type
 int record_count = 0;
 bool write_data = false;
@@ -40,15 +41,13 @@ uint8_t current_store = 0;
 // Global defines
 //=============================================================================
 
-
-MTPStorage_SD storage;
+MTPStorage storage;
 MTPD    mtpd(&storage);
 
 //=============================================================================
 // MSC & SD classes
 //=============================================================================
 #if USE_SD==1
-#include <SDMTPClass.h>
 
 #define USE_BUILTIN_SDCARD
 #if defined(USE_BUILTIN_SDCARD) && defined(BUILTIN_SDCARD)
@@ -56,41 +55,44 @@ MTPD    mtpd(&storage);
 #else
 #define CS_SD 10
 #endif
-#define SPI_SPEED SD_SCK_MHZ(16)  // adjust to sd card 
 
-#define COUNT_MYFS  1  // could do by count, but can limit how many are created...
-SDMTPClass mySD[] = {
-                      {mtpd, storage, "SDIO", CS_SD}, 
-                      {mtpd, storage, "SD8", 8, 9, SHARED_SPI, SPI_SPEED}
-                    };
-//SDMTPClass mySD(mtpd, storage, "SD10", 10, 0xff, SHARED_SPI, SPI_SPEED);
+
+///
 
 #endif
 
 
-//========================================================================
-//This puts a the index file in memory as opposed to an SD Card in memory
-//and uses it as the starting pointer to a filesystem so keep no matter
-//========================================================================
-#include "LittleFS.h"
-#define LFSRAM_SIZE 65536  // probably more than enough...
-LittleFS_RAM lfsram;
-#include <LFS_MTP_Callback.h>  //callback for LittleFS format
-LittleFSMTPCB lfsmtpcb;
-FS *myfs = &lfsram; // current default FS...
-  
-//=========================================================================
-// USB MSC Class setup
-//=========================================================================
-#if USE_MSC > 0
-#include <USB_MSC_MTP.h>
-USB_MSC_MTP usbmsc(mtpd, storage);
+// SDClasses 
+#if USE_SD==1
+  // edit SPI to reflect your configuration (following is for T4.1)
+  #define SD_MOSI 11
+  #define SD_MISO 12
+  #define SD_SCK  13
+
+  #define SPI_SPEED SD_SCK_MHZ(16)  // adjust to sd card 
+
+  #if defined (BUILTIN_SDCARD)
+    const char *sd_str[]={"sdio","sd1"}; // edit to reflect your configuration
+    const int cs[] = {BUILTIN_SDCARD,10}; // edit to reflect your configuration
+  #else
+    const char *sd_str[]={"sd1"}; // edit to reflect your configuration
+    const int cs[] = {10}; // edit to reflect your configuration
+  #endif
+  const int nsd = sizeof(sd_str)/sizeof(const char *);
+
+SDClass sdx[nsd];
 #endif
 
 
 // =======================================================================
 // Set up LittleFS file systems on different storage media
 // =======================================================================
+
+#if USE_LFS_FRAM == 1 || USE_LFS_NAND == 1 || USE_LFS_PROGM == 1 || USE_LFS_QSPI == 1 || USE_LFS_QSPI_NAND == 1 || \
+	USE_LFS_RAM == 1 || USE_LFS_SPI == 1
+#include <LittleFS.h>
+#endif
+
 #if USE_LFS_RAM==1
 const char *lfs_ram_str[] = {"RAM1", "RAM2"};  // edit to reflect your configuration
 const int lfs_ram_size[] = {200'000,4'000'000}; // edit to reflect your configuration
@@ -136,38 +138,49 @@ void storage_configure()
   DBGSerial.printf("Date: %u %s %u %u:%u:%u\n",
     date.mday, monthname[date.mon], date.year+1900, date.hour, date.min, date.sec);
 
-#if 1
-  // lets initialize a RAM drive. 
-  if (lfsram.begin(LFSRAM_SIZE)) {
-    DBGSerial.printf("Ram Drive of size: %u initialized\n", LFSRAM_SIZE);
-    lfsmtpcb.set_formatLevel(true);  //sets formating to lowLevelFormat
-    uint32_t istore = storage.addFilesystem(lfsram, "RAM", &lfsmtpcb, (uint32_t)(LittleFS*)&lfsram);
-    if (istore != 0xFFFFFFFFUL) storage.setIndexStore(istore);
-    DBGSerial.printf("Set Storage Index drive to %u\n", istore);
-  }
-#else
-   storage.setIndexStore(0);
-   DBGSerial.println("Set Storage Index to default drive 0");
-#endif
     
-#if USE_SD == 1
-  // Try to add all of them. 
-  bool storage_added = false;
-  for (uint8_t i = 0 ; i < COUNT_MYFS; i++) {
-    storage_added |= mySD[i].init(true);
-  }
-  if (!storage_added) {
-    DBGSerial.println("Failed to add any valid storage objects");
-    pinMode(13, OUTPUT);
-    while (1) {
-      digitalToggleFast(13);
-      delay(250);
-    }
-  }
-  
-  DBGSerial.println("SD initialized.");
-#endif
+  #if USE_SD==1
+    #if defined SD_SCK
+      SPI.setMOSI(SD_MOSI);
+      SPI.setMISO(SD_MISO);
+      SPI.setSCK(SD_SCK);
+    #endif
 
+    for(int ii=0; ii<nsd; ii++)
+    { 
+      #if defined(BUILTIN_SDCARD)
+        if(cs[ii] == BUILTIN_SDCARD)
+        {
+          if(!sdx[ii].begin(cs[ii]))
+          { Serial.printf("SDIO Storage %d %d %s failed or missing",ii,cs[ii],sd_str[ii]);  Serial.println();
+          }
+          else
+          {
+            storage.addFilesystem(sdx[ii], sd_str[ii]);
+            uint64_t totalSize = sdx[ii].totalSize();
+            uint64_t usedSize  = sdx[ii].usedSize();
+            Serial.printf("SDIO Storage %d %d %s ",ii,cs[ii],sd_str[ii]); 
+            Serial.print(totalSize); Serial.print(" "); Serial.println(usedSize);
+          }
+        }
+        else if(cs[ii]<BUILTIN_SDCARD)
+      #endif
+      {
+        pinMode(cs[ii],OUTPUT); digitalWriteFast(cs[ii],HIGH);
+        if(!sdx[ii].begin(cs[ii])) 
+        { Serial.printf("SD Storage %d %d %s failed or missing",ii,cs[ii],sd_str[ii]);  Serial.println();
+        }
+        else
+        {
+          storage.addFilesystem(sdx[ii], sd_str[ii]);
+          uint64_t totalSize = sdx[ii].totalSize();
+          uint64_t usedSize  = sdx[ii].usedSize();
+          Serial.printf("SD Storage %d %d %s ",ii,cs[ii],sd_str[ii]); 
+          Serial.print(totalSize); Serial.print(" "); Serial.println(usedSize);
+        }
+      }
+    }
+    #endif
 
 #if USE_LFS_RAM==1
   for (int ii=0; ii<nfs_ram;ii++) {
@@ -175,7 +188,7 @@ void storage_configure()
       DBGSerial.printf("Ram Storage %d %s failed or missing",ii,lfs_ram_str[ii]);
       DBGSerial.println();
     } else {
-      storage.addFilesystem(ramfs[ii], lfs_ram_str[ii], &lfsmtpcb, (uint32_t)(LittleFS*)&ramfs[ii]);
+      storage.addFilesystem(ramfs[ii], lfs_ram_str[ii]);
       uint64_t totalSize = ramfs[ii].totalSize();
       uint64_t usedSize  = ramfs[ii].usedSize();
       DBGSerial.printf("RAM Storage %d %s %llu %llu\n", ii, lfs_ram_str[ii],
@@ -190,7 +203,7 @@ void storage_configure()
       DBGSerial.printf("Program Storage %d %s failed or missing",ii,lfs_progm_str[ii]);
       DBGSerial.println();
     } else {
-      storage.addFilesystem(progmfs[ii], lfs_progm_str[ii], &lfsmtpcb, (uint32_t)(LittleFS*)&progmfs[ii]);
+      storage.addFilesystem(progmfs[ii], lfs_progm_str[ii]);
       uint64_t totalSize = progmfs[ii].totalSize();
       uint64_t usedSize  = progmfs[ii].usedSize();
       DBGSerial.printf("Program Storage %d %s %llu %llu\n", ii, lfs_progm_str[ii],
@@ -205,7 +218,7 @@ void storage_configure()
       DBGSerial.printf("QSPI Storage %d %s failed or missing",ii,lfs_qspi_str[ii]);
       DBGSerial.println();
     } else {
-      storage.addFilesystem(qspifs[ii], lfs_qspi_str[ii], &lfsmtpcb, (uint32_t)(LittleFS*)&qspifs[ii]);
+      storage.addFilesystem(qspifs[ii], lfs_qspi_str[ii]);
       uint64_t totalSize = qspifs[ii].totalSize();
       uint64_t usedSize  = qspifs[ii].usedSize();
       DBGSerial.printf("QSPI Storage %d %s %llu %llu\n", ii, lfs_qspi_str[ii], totalSize, usedSize);
@@ -222,7 +235,7 @@ void storage_configure()
     if (!spifs[ii].begin(lfs_cs[ii], SPI)) {
       DBGSerial.printf("SPIFlash Storage %d %d %s failed or missing",ii,lfs_cs[ii],lfs_spi_str[ii]);      DBGSerial.println();
     } else {
-      storage.addFilesystem(spifs[ii], lfs_spi_str[ii], &lfsmtpcb, (uint32_t)(LittleFS*)&spifs[ii]);
+      storage.addFilesystem(spifs[ii], lfs_spi_str[ii]);
       uint64_t totalSize = spifs[ii].totalSize();
       uint64_t usedSize  = spifs[ii].usedSize();
       DBGSerial.printf("SPIFlash Storage %d %d %s %llu %llu\n", ii, lfs_cs[ii], lfs_spi_str[ii],
@@ -240,7 +253,7 @@ void storage_configure()
       DBGSerial.printf("SPIFlash NAND Storage %d %d %s failed or missing",ii,nspi_cs[ii],nspi_str[ii]);
       DBGSerial.println();
     } else {
-      storage.addFilesystem(nspifs[ii], nspi_str[ii], &lfsmtpcb, (uint32_t)(LittleFS*)&nspifs[ii]);
+      storage.addFilesystem(nspifs[ii], nspi_str[ii]);
       uint64_t totalSize = nspifs[ii].totalSize();
       uint64_t usedSize  = nspifs[ii].usedSize();
       DBGSerial.printf("Storage %d %d %s %llu %llu\n", ii, nspi_cs[ii], nspi_str[ii],
@@ -254,7 +267,7 @@ void storage_configure()
     if(!qnspifs[ii].begin()) {
        DBGSerial.printf("QSPI NAND Storage %d %s failed or missing",ii,qnspi_str[ii]); DBGSerial.println();
     } else {
-      storage.addFilesystem(qnspifs[ii], qnspi_str[ii], &lfsmtpcb, (uint32_t)(LittleFS*)&qnspi_str[ii]);
+      storage.addFilesystem(qnspifs[ii], qnspi_str[ii]);
       uint64_t totalSize = qnspifs[ii].totalSize();
       uint64_t usedSize  = qnspifs[ii].usedSize();
       DBGSerial.printf("Storage %d %s %llu %llu\n", ii, qnspi_str[ii], totalSize, usedSize);
@@ -326,8 +339,8 @@ void loop()
         DBGSerial.printf("store:%u storage:%x name:%s fs:%x\n", ii, mtpd.Store2Storage(ii),
           storage.getStoreName(ii), (uint32_t)storage.getStoreFS(ii));
       }
-      DBGSerial.println("\nDump Index List");
-      storage.dumpIndexList();
+      //DBGSerial.println("\nDump Index List");
+      //storage.dumpIndexList();
       break;
     case '2':
       if (storage_index < storage.getFSCount()) {
@@ -458,34 +471,7 @@ extern PFsLib pfsLIB;
 #endif
 void eraseFiles()
 {
-
-#if 1
-  // Lets try asking storage for enough stuff to call it's format code
-  bool send_device_reset = false;
-  MTPStorageInterfaceCB *callback = storage.getCallback(current_store);
-  uint32_t user_token = storage.getUserToken(current_store);
-  if (callback) {
-    send_device_reset = (callback->formatStore(&storage, current_store, user_token, 
-          0, true) == MTPStorageInterfaceCB::FORMAT_SUCCESSFUL);
-  } 
-  if (send_device_reset) {
-    DBGSerial.println("\nFiles erased !");
-    mtpd.send_DeviceResetEvent();    
-  } else {
-    DBGSerial.println("\n failed !");
-  }
-
-#else  
-  PFsVolume partVol;
-  if (!partVol.begin(myfs->sdfs.card(), true, 1)) {
-    DBGSerial.println("Failed to initialize partition");
-    return;
-  }
-  if (pfsLIB.formatter(partVol)) {
-    DBGSerial.println("\nFiles erased !");
-    mtpd.send_DeviceResetEvent();
-  }
-#endif  
+  DBGSerial.println("Formating not supported at this time");
 }
 
 void printDirectory(FS *pfs) {
