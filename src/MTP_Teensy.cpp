@@ -396,6 +396,7 @@ void MTPD::GetStorageInfo(uint32_t storage) {
               : 0x0001); // filesystem type (generic hierarchical)
   write16(0x0000);       // access capability (read-write)
 
+//  elapsedMillis em;
   uint64_t ntotal = storage_->totalSize(store);
 
   write64(ntotal); // max capacity
@@ -407,6 +408,7 @@ void MTPD::GetStorageInfo(uint32_t storage) {
   //    } else write64(ntotal/2);  // free space - how about glass half empty or
   //    full
   //
+//  printf("GetStorageInfo dt:%u tot:%lu, used: %lu\n", (uint32_t)em, ntotal, nused);
   write32(0xFFFFFFFFUL); // free space (objects)
   const char *name = storage_->get_FSName(store);
   writestring(name); // storage descriptor
@@ -1933,6 +1935,7 @@ uint32_t MTPD::SendObjectInfo(uint32_t storage, uint32_t parent,
           break;
       }
     }
+    storage_->close();
   }
 
   return MTP_RESPONSE_OK;

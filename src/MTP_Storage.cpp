@@ -719,7 +719,7 @@ bool MTPStorage_SD::updateDateTimeStamps(uint32_t handle, uint32_t dtCreated,
 #endif
 
   WriteIndexRecord(handle, r);
-  file_.close();
+//  file_.close(); - let caller do this as sendObject then gets the size from the open file...
   mtp_lock_storage(false);
 #endif
   return true;
@@ -743,7 +743,7 @@ bool MTPStorage::updateDateTimeStamps(uint32_t handle, uint32_t dtCreated, uint3
 	breakTime(dtCreated, dtf);
 	file_.setCreateTime(dtf);
 	WriteIndexRecord(handle, r);
-	file_.close();
+//	file_.close();
 	mtp_lock_storage(false);
 	return true;
 }
@@ -1081,8 +1081,10 @@ void MTPStorage_SD::close() {
   //
   // update record with file size
   Record r = ReadIndexRecord(open_file_);
-  r.child = size;
-  WriteIndexRecord(open_file_, r);
+  if (!r.isdir) {
+    r.child = size;
+    WriteIndexRecord(open_file_, r);
+  }
   open_file_ = 0xFFFFFFFEUL;
 }
 
@@ -1094,8 +1096,10 @@ void MTPStorage::close()
 	mtp_lock_storage(false);
 	// update record with file size
 	Record r = ReadIndexRecord(open_file_);
-	r.child = size;
-	WriteIndexRecord(open_file_, r);
+  if (!r.isdir) {
+    r.child = size;
+    WriteIndexRecord(open_file_, r);
+  }
 	open_file_ = 0xFFFFFFFEUL;
 }
 
@@ -1608,7 +1612,7 @@ uint32_t MTPStorage::addFilesystem(FS &disk, const char *diskname)
 	if (fsCount < MTPD_MAX_FILESYSTEMS) {
 		name[fsCount] = diskname;
 		fs[fsCount] = &disk;
-		MTPD::PrintStream()->printf("addFilesystem: %d %s\n", fsCount, diskname);
+		MTPD::PrintStream()->printf("addFilesystem: %d %s %x\n", fsCount, diskname, (uint32_t)fs[fsCount]);
 		return fsCount++;
 	}
 	return 0xFFFFFFFFUL; // no room left
