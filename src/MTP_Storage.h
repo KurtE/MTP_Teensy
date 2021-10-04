@@ -123,13 +123,14 @@ public:
 		return fs[store]->totalSize();
 	}
 	uint64_t usedSize(uint32_t store) {
+//    Serial.printf("MTPStorage:usedSize %u %x\n", store, (uint32_t)fs[store]);
 		return fs[store]->usedSize();
 	}
 	bool copy(uint32_t store0, char *oldfilename, uint32_t store1, char *newfilename);
 	bool moveDir(uint32_t store0, char *oldfilename, uint32_t store1, char *newfilename);
 	//void loop();
 	uint8_t formatStore(uint32_t store, uint32_t p2, bool post_process) {
-		return 0; // FORMAT_NOT_SUPPORTED - TODO: FS.h lacks format function
+    return fs[store]->format((int)p2, '*')? 1 : 0;
 	}
 	bool readonly(uint32_t storage) {
 		return false;
