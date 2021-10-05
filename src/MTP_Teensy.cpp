@@ -884,6 +884,8 @@ uint32_t MTPD::SendObjectInfo(uint32_t storage, uint32_t parent,
                               int &object_id) {
   uint32_t len = ReadMTPHeader();
   char filename[MAX_FILENAME_LEN];
+  dtCreated_ = 0;
+  dtModified_ = 0;
 
   printf("SendObjectInfo: %u %u : ", storage, parent);
   uint32_t store = Storage2Store(storage);
@@ -925,6 +927,18 @@ uint32_t MTPD::SendObjectInfo(uint32_t storage, uint32_t parent,
   readstring(filename);
   len -= (2 * (strlen(filename) + 1) + 1);
   printf(": %s\n", filename);
+
+  // Next is DateCreated followed by DateModified
+  if (len) {
+    len -= readDateTimeString(&dtCreated_);
+    printf("Created: %x\n", dtCreated_);
+  }
+  if (len) {
+    len -= readDateTimeString(&dtModified_);
+    printf("Modified: %x\n", dtModified_);
+  }
+
+
   // ignore rest of ObjectInfo
   while (len >= 4) {
     read32();
@@ -942,7 +956,7 @@ uint32_t MTPD::SendObjectInfo(uint32_t storage, uint32_t parent,
     return MTP_RESPONSE_STORAGE_FULL;
   }
 
-  object_id = storage_->Create(store, parent, dir, filename);
+  object_id_ = object_id = storage_->Create(store, parent, dir, filename);
   if ((uint32_t)object_id == 0xFFFFFFFFUL)
     return MTP_RESPONSE_SPECIFICATION_OF_DESTINATION_UNSUPPORTED;
 
@@ -965,6 +979,8 @@ bool MTPD::SendObject() {
       data_buffer_ = NULL;
     }
   }
+  // lets see if we should update the date and time stamps.
+  storage_->updateDateTimeStamps(object_id_, dtCreated_, dtModified_);
   storage_->close();
   return true;
 }
