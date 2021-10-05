@@ -79,7 +79,7 @@ MTPD    mtpd(&storage);
     const int cs[] = {10}; // edit to reflect your configuration
   #endif
   const int nsd = sizeof(sd_str)/sizeof(const char *);
-
+  
 SDClass sdx[nsd];
 #endif
 
@@ -89,7 +89,7 @@ SDClass sdx[nsd];
 // =======================================================================
 
 #if USE_LFS_FRAM == 1 || USE_LFS_NAND == 1 || USE_LFS_PROGM == 1 || USE_LFS_QSPI == 1 || USE_LFS_QSPI_NAND == 1 || \
-	USE_LFS_RAM == 1 || USE_LFS_SPI == 1
+  USE_LFS_RAM == 1 || USE_LFS_SPI == 1
 #include <LittleFS.h>
 #endif
 
@@ -151,12 +151,12 @@ void storage_configure()
       #if defined(BUILTIN_SDCARD)
         if(cs[ii] == BUILTIN_SDCARD)
         {
-          if(!sdx[ii].begin(cs[ii]))
+          if(!SD.begin(cs[ii]))
           { Serial.printf("SDIO Storage %d %d %s failed or missing",ii,cs[ii],sd_str[ii]);  Serial.println();
           }
           else
           {
-            storage.addFilesystem(sdx[ii], sd_str[ii]);
+            storage.addFilesystem(SD, sd_str[ii]);
             uint64_t totalSize = sdx[ii].totalSize();
             uint64_t usedSize  = sdx[ii].usedSize();
             Serial.printf("SDIO Storage %d %d %s ",ii,cs[ii],sd_str[ii]); 
@@ -172,7 +172,7 @@ void storage_configure()
         }
         else
         {
-          storage.addFilesystem(sdx[ii], sd_str[ii]);
+          storage.addFilesystem(SD, sd_str[ii]);
           uint64_t totalSize = sdx[ii].totalSize();
           uint64_t usedSize  = sdx[ii].usedSize();
           Serial.printf("SD Storage %d %d %s ",ii,cs[ii],sd_str[ii]); 
