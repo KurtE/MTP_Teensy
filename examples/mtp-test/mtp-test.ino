@@ -151,12 +151,14 @@ void storage_configure()
       #if defined(BUILTIN_SDCARD)
         if(cs[ii] == BUILTIN_SDCARD)
         {
-          if(!SD.begin(cs[ii]))
-          { Serial.printf("SDIO Storage %d %d %s failed or missing",ii,cs[ii],sd_str[ii]);  Serial.println();
+          DBGSerial.printf("!! Try installing BUILTIN SD Card");
+          if(!sdx[ii].begin(BUILTIN_SDCARD))
+          { 
+            Serial.printf("SDIO Storage %d %d %s failed or missing",ii,cs[ii],sd_str[ii]);  Serial.println();
           }
           else
           {
-            storage.addFilesystem(SD, sd_str[ii]);
+            storage.addFilesystem(sdx[ii], sd_str[ii]);
             uint64_t totalSize = sdx[ii].totalSize();
             uint64_t usedSize  = sdx[ii].usedSize();
             Serial.printf("SDIO Storage %d %d %s ",ii,cs[ii],sd_str[ii]); 
@@ -172,7 +174,7 @@ void storage_configure()
         }
         else
         {
-          storage.addFilesystem(SD, sd_str[ii]);
+          storage.addFilesystem(sdx[ii], sd_str[ii]);
           uint64_t totalSize = sdx[ii].totalSize();
           uint64_t usedSize  = sdx[ii].usedSize();
           Serial.printf("SD Storage %d %d %s ",ii,cs[ii],sd_str[ii]); 
