@@ -175,6 +175,7 @@ private:
 
   uint32_t setObjectPropValue(uint32_t p1, uint32_t p2);
   uint32_t formatStore(uint32_t storage, uint32_t p2, bool post_process);
+  
   static MTPD *g_pmtpd_interval;
   static void _interval_timer_handler();
   static IntervalTimer g_intervaltimer;

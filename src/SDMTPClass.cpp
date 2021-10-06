@@ -1,3 +1,4 @@
+
 #include <SDMTPClass.h>
 #include <mscFS.h>
 
@@ -13,30 +14,25 @@
 // one...
 // Here is for LittleFS...
 PFsLib pfsLIB;
-uint8_t SDMTPClass::formatStore(MTPStorage_SD *mtpstorage, uint32_t store,
-                                uint32_t user_token, uint32_t p2,
-                                bool post_process) {
+bool SDMTPClass::formatStore(MTPStorage_SD *mtpstorage, uint32_t store,
+                                uint32_t user_token, uint32_t p2) {
   // Lets map the user_token back to oint to our object...
   MTPD::PrintStream()->printf(
-      "Format Callback: user_token:%x store: %u p2:%u post:%u \n", user_token,
-      store, p2, post_process);
+      "Format Callback: user_token:%x store: %u p2:%u \n", user_token,
+      store, p2);
   SDClass *psd = (SDClass *)user_token;
 
   if (psd->sdfs.fatType() == FAT_TYPE_FAT12) {
     MTPD::PrintStream()->printf("    Fat12 not supported\n");
-    return MTPStorageInterfaceCB::FORMAT_NOT_SUPPORTED;
+    return false;
   }
 
   // For all of these the fat ones will do on post_process
-  if (!post_process)
-    return MTPStorageInterfaceCB::FORMAT_NEEDS_CALLBACK;
-
   PFsVolume partVol;
   if (!partVol.begin(psd->sdfs.card(), true, 1))
-    return MTPStorageInterfaceCB::FORMAT_NOT_SUPPORTED;
+    return false;
   bool success = pfsLIB.formatter(partVol);
-  return success ? MTPStorageInterfaceCB::FORMAT_SUCCESSFUL
-                 : MTPStorageInterfaceCB::FORMAT_NOT_SUPPORTED;
+  return success;
 }
 
 uint64_t SDMTPClass::usedSizeCB(MTPStorage_SD *mtpstorage, uint32_t store,

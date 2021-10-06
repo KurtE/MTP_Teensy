@@ -1,3 +1,6 @@
+
+#include <MTP_Teensy.h>
+#ifndef MTP_FS_ONLY
 #include <LFS_MTP_Callback.h>
 
 //=============================================================================
@@ -32,3 +35,4 @@ uint8_t LittleFSMTPCB::formatStore(MTPStorage_SD *mtpstorage, uint32_t store,
 }
 
 void LittleFSMTPCB::set_formatLevel(bool level) { g_lowLevelFormat = level; }
+#endif

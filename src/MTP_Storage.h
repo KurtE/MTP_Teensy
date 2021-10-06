@@ -129,7 +129,7 @@ public:
 	bool copy(uint32_t store0, char *oldfilename, uint32_t store1, char *newfilename);
 	bool moveDir(uint32_t store0, char *oldfilename, uint32_t store1, char *newfilename);
 	//void loop();
-	uint8_t formatStore(uint32_t store, uint32_t p2, bool post_process) {
+	bool formatStore(uint32_t store, uint32_t p2) {
     return fs[store]->format((int)p2, '*')? 1 : 0;
 	}
 	bool readonly(uint32_t storage) {
@@ -202,11 +202,9 @@ class MTPStorage_SD;
 
 class MTPStorageInterfaceCB {
 public:
-  enum { FORMAT_NOT_SUPPORTED = 0, FORMAT_SUCCESSFUL, FORMAT_NEEDS_CALLBACK };
-  virtual uint8_t formatStore(MTPStorage_SD *mtpstorage, uint32_t store,
-                              uint32_t user_token, uint32_t p2,
-                              bool post_process) {
-    return FORMAT_NOT_SUPPORTED;
+  virtual bool formatStore(MTPStorage_SD *mtpstorage, uint32_t store,
+                              uint32_t user_token, uint32_t p2) {
+    return false;
   }
   virtual uint64_t totalSizeCB(MTPStorage_SD *mtpstorage, uint32_t store,
                                uint32_t user_token);
@@ -304,8 +302,7 @@ public:
 
   virtual uint64_t totalSize(uint32_t storage) = 0;
   virtual uint64_t usedSize(uint32_t storage) = 0;
-  virtual uint8_t formatStore(uint32_t store, uint32_t p2,
-                              bool post_process) = 0;
+  virtual bool formatStore(uint32_t store, uint32_t p2);
 
   // Return true if this storage is read-only
   virtual bool readonly(uint32_t storage) = 0;
@@ -409,7 +406,7 @@ private:
 
   uint64_t totalSize(uint32_t storage);
   uint64_t usedSize(uint32_t storage);
-  uint8_t formatStore(uint32_t store, uint32_t p2, bool post_process);
+  bool formatStore(uint32_t store, uint32_t p2);
 
   void CloseIndex();
   void OpenIndex();

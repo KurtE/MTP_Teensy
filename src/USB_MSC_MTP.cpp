@@ -175,28 +175,22 @@ void USB_MSC_MTP::checkUSBStatus(bool fInit) {
 }
 
 PFsLib pfsLIB1;
-uint8_t USB_MSC_MTP::formatStore(MTPStorage_SD *mtpstorage, uint32_t store,
-                                 uint32_t user_token, uint32_t p2,
-                                 bool post_process) {
+bool USB_MSC_MTP::formatStore(MTPStorage_SD *mtpstorage, uint32_t store,
+                                 uint32_t user_token, uint32_t p2) {
   // Lets map the user_token back to oint to our object...
-  Serial.printf("Format Callback: user_token:%x store: %u p2:%u post:%u \n",
-                user_token, store, p2, post_process);
+  Serial.printf("Format Callback: user_token:%x store: %u p2:%u \n",
+                user_token, store, p2);
 
   MSCClass *pmsc = (MSCClass *)user_token;
 
   if (pmsc->mscfs.fatType() == FAT_TYPE_FAT12) {
     Serial.printf("    Fat12 not supported\n");
-    return MTPStorageInterfaceCB::FORMAT_NOT_SUPPORTED;
+    return false;
   }
-
-  // For all of these the fat ones will do on post_process
-  if (!post_process)
-    return MTPStorageInterfaceCB::FORMAT_NEEDS_CALLBACK;
 
   bool success = pfsLIB1.formatter(pmsc->mscfs);
 
-  return success ? MTPStorageInterfaceCB::FORMAT_SUCCESSFUL
-                 : MTPStorageInterfaceCB::FORMAT_NOT_SUPPORTED;
+  return success;
 }
 
 uint64_t USB_MSC_MTP::usedSizeCB(MTPStorage_SD *mtpstorage, uint32_t store,

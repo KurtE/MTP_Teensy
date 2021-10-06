@@ -27,8 +27,8 @@ public:
 
   //---------------------------------------------------------------------------
   // Callback function overrides.
-  uint8_t formatStore(MTPStorage_SD *mtpstorage, uint32_t store,
-                      uint32_t user_token, uint32_t p2, bool post_process);
+  bool formatStore(MTPStorage_SD *mtpstorage, uint32_t store,
+                      uint32_t user_token, uint32_t p2);
   uint64_t totalSizeCB(MTPStorage_SD *mtpstorage, uint32_t store,
                        uint32_t user_token);
   uint64_t usedSizeCB(MTPStorage_SD *mtpstorage, uint32_t store,
