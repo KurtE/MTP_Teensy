@@ -1443,35 +1443,39 @@ void MTPD::processIntervalTimer() {
   }
 }
 
-uint32_t MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
+bool MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
   printf(" MTPD::formatStore called post:%u\n", post_process);
   uint32_t store = Storage2Store(storage);
-  if (post_process) {
+  // see if we should bail early.
+  if (!post_process) {
+    // lets guess if we can do inline.
+    uint64_t totalsize = storage_->totalSize(store);
+    if (totalsize > (8l*1024*1024)) {
+      printf(">>> Storage size %lu - defer format\n", totalsize);
+      return 0;  // I know a hack...
+    }  
+  } else {
     g_pmtpd_interval = this;
     printf("*** Start Interval Timer ***\n");
     g_intervaltimer.begin(&_interval_timer_handler,
                           50000); // try maybe 20 times per second...
   }
-
-  uint8_t format_status = storage_->formatStore(store, p2, post_process);
+  
+  elapsedMillis emFormat = 0;
+  uint8_t format_status = storage_->formatStore(store, p2);
+  printf("Format Complete(%u %u) ***\n", format_status, (uint32_t)emFormat);
 
   if (post_process) {
     g_pmtpd_interval = nullptr;
     g_intervaltimer.end(); // try maybe 20 times per second...
     printf("*** end Interval Timer ***\n");
   }
-  switch (format_status) {
-  case MTPStorageInterfaceCB::FORMAT_SUCCESSFUL:
+
+  if (format_status) {
     storage_->ResetIndex(); // maybe should add a less of sledge hammer here.
     return MTP_RESPONSE_OK;
-
-  case MTPStorageInterfaceCB::FORMAT_NEEDS_CALLBACK:
-    op_needs_callback_ = true;
-    return MTP_RESPONSE_OK;
-
-  default:
-    break;
   }
+
   return MTP_RESPONSE_OPERATION_NOT_SUPPORTED; // 0x2005
 }
 
@@ -1479,6 +1483,7 @@ void MTPD::loop(void) {
   usb_packet_t *receive_buffer;
   if ((receive_buffer = usb_rx(MTP_RX_ENDPOINT))) {
     printContainer();
+    bool do_defered_format = false;
 
     int op = CONTAINER->op;
     int p1 = CONTAINER->params[0];
@@ -1554,6 +1559,10 @@ void MTPD::loop(void) {
           break;
         case 0x100F: // FormatStore
           return_code = formatStore(p1, p2, false);
+          if (return_code == 0) {
+            do_defered_format = true;
+            return_code = MTP_RESPONSE_OK;
+          }
           break;
 
         case 0x1014: // GetDevicePropDesc
@@ -1616,23 +1625,15 @@ void MTPD::loop(void) {
 #if DEBUG > 1
       printContainer();
 #endif
-
       usb_tx(MTP_TX_ENDPOINT, receive_buffer);
       receive_buffer = 0;
     } else {
       usb_free(receive_buffer);
     }
-    // Some operations may want to do some additional work after they send back
-    // a response
-    // so give them a chance here...
-    if (op_needs_callback_) {
-      switch (op) {
-      default:
-        break;
-      case 0x100F: // FormatStore
-        return_code = formatStore(p1, p2, true);
-        break;
-      }
+
+    if (do_defered_format) {
+      printf("### Starting deferred format\n");
+      formatStore(p1, p2, true);
     }
   }
   // Maybe put event handling inside mtp_yield()?
@@ -2540,8 +2541,7 @@ uint32_t MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
     if (totalsize > (8l*1024*1024)) {
       printf(">>> Storage size %lu - defer format\n", totalsize);
       return 0;  // I know a hack...
-    }
-  
+    }  
   } else {
     g_pmtpd_interval = this;
     printf("*** Start Interval Timer ***\n");
@@ -2780,7 +2780,7 @@ int usb_mtp_sendEvent(const void *buffer, uint32_t len, uint32_t timeout) {
     uint32_t params[5];      // 12
   } __attribute__((__may_alias__));
 
-  const MTPContainer *pe = (const MTPContainer *)buffer;
+  //const MTPContainer *pe = (const MTPContainer *)buffer;
   // printf("  op:%x len:%d type:%d tid:%d Params:  ", pe->op, pe->len,
   // pe->type, pe->transaction_id);
   //if(pe->len>12) printf(" %x", pe->params[0]);
