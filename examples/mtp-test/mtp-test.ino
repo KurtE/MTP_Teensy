@@ -181,6 +181,7 @@ void storage_configure()
           Serial.print(totalSize); Serial.print(" "); Serial.println(usedSize);
         }
       }
+    
     }
     #endif
 

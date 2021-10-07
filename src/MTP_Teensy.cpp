@@ -848,6 +848,387 @@ void MTPD::GetObject(uint32_t object_id) {
     usb_tx(MTP_TX_ENDPOINT, data_buffer_);                                     \
     data_buffer_ = NULL;                                                       \
   } while (0)
+#if MTP_VERBOSE_PRINT_CONTAINER
+void MTPD::_printContainer(MTPContainer *c, const char *msg) {
+  int print_property_name = -1; // no
+  if (msg)
+    printf("%s", msg);
+  printf("%u ", millis());
+  switch (c->type) {
+  default:
+    printf(" UNKWN: %x", c->type);
+    break;
+  case MTP_CONTAINER_TYPE_COMMAND:
+    printf(F("CMD: "));
+    break;
+  case MTP_CONTAINER_TYPE_DATA:
+    printf(F("DATA:"));
+    break;
+  case MTP_CONTAINER_TYPE_RESPONSE:
+    printf(F("RESP:"));
+    break;
+  case MTP_CONTAINER_TYPE_EVENT:
+    printf(F("EVENT: "));
+    break;
+  }
+  printf(F("%x"), c->op);
+  switch (c->op) {
+  case MTP_OPERATION_GET_DEVICE_INFO:
+    printf(F("(GET_DEVICE_INFO)"));
+    break;
+  case MTP_OPERATION_OPEN_SESSION:
+    printf(F("(OPEN_SESSION)"));
+    break;
+  case MTP_OPERATION_CLOSE_SESSION:
+    printf(F("(CLOSE_SESSION)"));
+    break;
+  case MTP_OPERATION_GET_STORAGE_IDS:
+    printf(F("(GET_STORAGE_IDS)"));
+    break;
+  case MTP_OPERATION_GET_STORAGE_INFO:
+    printf(F("(GET_STORAGE_INFO)"));
+    break;
+  case MTP_OPERATION_GET_NUM_OBJECTS:
+    printf(F("(GET_NUM_OBJECTS)"));
+    break;
+  case MTP_OPERATION_GET_OBJECT_HANDLES:
+    printf(F("(GET_OBJECT_HANDLES)"));
+    break;
+  case MTP_OPERATION_GET_OBJECT_INFO:
+    printf(F("(GET_OBJECT_INFO)"));
+    break;
+  case MTP_OPERATION_GET_OBJECT:
+    printf(F("(GET_OBJECT)"));
+    break;
+  case MTP_OPERATION_GET_THUMB:
+    printf(F("(GET_THUMB)"));
+    break;
+  case MTP_OPERATION_DELETE_OBJECT:
+    printf(F("(DELETE_OBJECT)"));
+    break;
+  case MTP_OPERATION_SEND_OBJECT_INFO:
+    printf(F("(SEND_OBJECT_INFO)"));
+    break;
+  case MTP_OPERATION_SEND_OBJECT:
+    printf(F("(SEND_OBJECT)"));
+    break;
+  case MTP_OPERATION_INITIATE_CAPTURE:
+    printf(F("(INITIATE_CAPTURE)"));
+    break;
+  case MTP_OPERATION_FORMAT_STORE:
+    printf(F("(FORMAT_STORE)"));
+    break;
+  case MTP_OPERATION_RESET_DEVICE:
+    printf(F("(RESET_DEVICE)"));
+    break;
+  case MTP_OPERATION_SELF_TEST:
+    printf(F("(SELF_TEST)"));
+    break;
+  case MTP_OPERATION_SET_OBJECT_PROTECTION:
+    printf(F("(SET_OBJECT_PROTECTION)"));
+    break;
+  case MTP_OPERATION_POWER_DOWN:
+    printf(F("(POWER_DOWN)"));
+    break;
+  case MTP_OPERATION_GET_DEVICE_PROP_DESC:
+    printf(F("(GET_DEVICE_PROP_DESC)"));
+    break;
+  case MTP_OPERATION_GET_DEVICE_PROP_VALUE:
+    printf(F("(GET_DEVICE_PROP_VALUE)"));
+    break;
+  case MTP_OPERATION_SET_DEVICE_PROP_VALUE:
+    printf(F("(SET_DEVICE_PROP_VALUE)"));
+    break;
+  case MTP_OPERATION_RESET_DEVICE_PROP_VALUE:
+    printf(F("(RESET_DEVICE_PROP_VALUE)"));
+    break;
+  case MTP_OPERATION_TERMINATE_OPEN_CAPTURE:
+    printf(F("(TERMINATE_OPEN_CAPTURE)"));
+    break;
+  case MTP_OPERATION_MOVE_OBJECT:
+    printf(F("(MOVE_OBJECT)"));
+    break;
+  case MTP_OPERATION_COPY_OBJECT:
+    printf(F("(COPY_OBJECT)"));
+    break;
+  case MTP_OPERATION_GET_PARTIAL_OBJECT:
+    printf(F("(GET_PARTIAL_OBJECT)"));
+    break;
+  case MTP_OPERATION_INITIATE_OPEN_CAPTURE:
+    printf(F("(INITIATE_OPEN_CAPTURE)"));
+    break;
+  case MTP_OPERATION_GET_OBJECT_PROPS_SUPPORTED:
+    printf(F("(GET_OBJECT_PROPS_SUPPORTED)"));
+    break;
+  case MTP_OPERATION_GET_OBJECT_PROP_DESC:
+    printf(F("(GET_OBJECT_PROP_DESC)"));
+    print_property_name = 0;
+    break;
+  case MTP_OPERATION_GET_OBJECT_PROP_VALUE:
+    printf(F("(GET_OBJECT_PROP_VALUE)"));
+    print_property_name = 1;
+    break;
+  case MTP_OPERATION_SET_OBJECT_PROP_VALUE:
+    printf(F("(SET_OBJECT_PROP_VALUE)"));
+    break;
+  case MTP_OPERATION_GET_OBJECT_PROP_LIST:
+    printf(F("(GET_OBJECT_PROP_LIST)"));
+    break;
+  case MTP_OPERATION_SET_OBJECT_PROP_LIST:
+    printf(F("(SET_OBJECT_PROP_LIST)"));
+    break;
+  case MTP_OPERATION_GET_INTERDEPENDENT_PROP_DESC:
+    printf(F("(GET_INTERDEPENDENT_PROP_DESC)"));
+    break;
+  case MTP_OPERATION_SEND_OBJECT_PROP_LIST:
+    printf(F("(SEND_OBJECT_PROP_LIST)"));
+    break;
+  case MTP_OPERATION_GET_OBJECT_REFERENCES:
+    printf(F("(GET_OBJECT_REFERENCES)"));
+    break;
+  case MTP_OPERATION_SET_OBJECT_REFERENCES:
+    printf(F("(SET_OBJECT_REFERENCES)"));
+    break;
+  case MTP_OPERATION_SKIP:
+    printf(F("(SKIP)"));
+    break;
+  // RESPONSES
+  case MTP_RESPONSE_UNDEFINED:
+    printf(F("(RSP:UNDEFINED)"));
+    break;
+  case MTP_RESPONSE_OK:
+    printf(F("(RSP:OK)"));
+    break;
+  case MTP_RESPONSE_GENERAL_ERROR:
+    printf(F("(RSP:GENERAL_ERROR)"));
+    break;
+  case MTP_RESPONSE_SESSION_NOT_OPEN:
+    printf(F("(RSP:SESSION_NOT_OPEN)"));
+    break;
+  case MTP_RESPONSE_INVALID_TRANSACTION_ID:
+    printf(F("(RSP:INVALID_TRANSACTION_ID)"));
+    break;
+  case MTP_RESPONSE_OPERATION_NOT_SUPPORTED:
+    printf(F("(RSP:OPERATION_NOT_SUPPORTED)"));
+    break;
+  case MTP_RESPONSE_PARAMETER_NOT_SUPPORTED:
+    printf(F("(RSP:PARAMETER_NOT_SUPPORTED)"));
+    break;
+  case MTP_RESPONSE_INCOMPLETE_TRANSFER:
+    printf(F("(RSP:INCOMPLETE_TRANSFER)"));
+    break;
+  case MTP_RESPONSE_INVALID_STORAGE_ID:
+    printf(F("(RSP:INVALID_STORAGE_ID)"));
+    break;
+  case MTP_RESPONSE_INVALID_OBJECT_HANDLE:
+    printf(F("(RSP:INVALID_OBJECT_HANDLE)"));
+    break;
+  case MTP_RESPONSE_DEVICE_PROP_NOT_SUPPORTED:
+    printf(F("(RSP:DEVICE_PROP_NOT_SUPPORTED)"));
+    break;
+  case MTP_RESPONSE_INVALID_OBJECT_FORMAT_CODE:
+    printf(F("(RSP:INVALID_OBJECT_FORMAT_CODE)"));
+    break;
+  case MTP_RESPONSE_STORAGE_FULL:
+    printf(F("(RSP:STORAGE_FULL)"));
+    break;
+  case MTP_RESPONSE_OBJECT_WRITE_PROTECTED:
+    printf(F("(RSP:OBJECT_WRITE_PROTECTED)"));
+    break;
+  case MTP_RESPONSE_STORE_READ_ONLY:
+    printf(F("(RSP:STORE_READ_ONLY)"));
+    break;
+  case MTP_RESPONSE_ACCESS_DENIED:
+    printf(F("(RSP:ACCESS_DENIED)"));
+    break;
+  case MTP_RESPONSE_NO_THUMBNAIL_PRESENT:
+    printf(F("(RSP:NO_THUMBNAIL_PRESENT)"));
+    break;
+  case MTP_RESPONSE_SELF_TEST_FAILED:
+    printf(F("(RSP:SELF_TEST_FAILED)"));
+    break;
+  case MTP_RESPONSE_PARTIAL_DELETION:
+    printf(F("(RSP:PARTIAL_DELETION)"));
+    break;
+  case MTP_RESPONSE_STORE_NOT_AVAILABLE:
+    printf(F("(RSP:STORE_NOT_AVAILABLE)"));
+    break;
+  case MTP_RESPONSE_SPECIFICATION_BY_FORMAT_UNSUPPORTED:
+    printf(F("(RSP:SPECIFICATION_BY_FORMAT_UNSUPPORTED)"));
+    break;
+  case MTP_RESPONSE_NO_VALID_OBJECT_INFO:
+    printf(F("(RSP:NO_VALID_OBJECT_INFO)"));
+    break;
+  case MTP_RESPONSE_INVALID_CODE_FORMAT:
+    printf(F("(RSP:INVALID_CODE_FORMAT)"));
+    break;
+  case MTP_RESPONSE_UNKNOWN_VENDOR_CODE:
+    printf(F("(RSP:UNKNOWN_VENDOR_CODE)"));
+    break;
+  case MTP_RESPONSE_CAPTURE_ALREADY_TERMINATED:
+    printf(F("(RSP:CAPTURE_ALREADY_TERMINATED)"));
+    break;
+  case MTP_RESPONSE_DEVICE_BUSY:
+    printf(F("(RSP:DEVICE_BUSY)"));
+    break;
+  case MTP_RESPONSE_INVALID_PARENT_OBJECT:
+    printf(F("(RSP:INVALID_PARENT_OBJECT)"));
+    break;
+  case MTP_RESPONSE_INVALID_DEVICE_PROP_FORMAT:
+    printf(F("(RSP:INVALID_DEVICE_PROP_FORMAT)"));
+    break;
+  case MTP_RESPONSE_INVALID_DEVICE_PROP_VALUE:
+    printf(F("(RSP:INVALID_DEVICE_PROP_VALUE)"));
+    break;
+  case MTP_RESPONSE_INVALID_PARAMETER:
+    printf(F("(RSP:INVALID_PARAMETER)"));
+    break;
+  case MTP_RESPONSE_SESSION_ALREADY_OPEN:
+    printf(F("(RSP:SESSION_ALREADY_OPEN)"));
+    break;
+  case MTP_RESPONSE_TRANSACTION_CANCELLED:
+    printf(F("(RSP:TRANSACTION_CANCELLED)"));
+    break;
+  case MTP_RESPONSE_SPECIFICATION_OF_DESTINATION_UNSUPPORTED:
+    printf(F("(RSP:SPECIFICATION_OF_DESTINATION_UNSUPPORTED)"));
+    break;
+  case MTP_RESPONSE_INVALID_OBJECT_PROP_CODE:
+    printf(F("(RSP:INVALID_OBJECT_PROP_CODE)"));
+    break;
+  case MTP_RESPONSE_INVALID_OBJECT_PROP_FORMAT:
+    printf(F("(RSP:INVALID_OBJECT_PROP_FORMAT)"));
+    break;
+  case MTP_RESPONSE_INVALID_OBJECT_PROP_VALUE:
+    printf(F("(RSP:INVALID_OBJECT_PROP_VALUE)"));
+    break;
+  case MTP_RESPONSE_INVALID_OBJECT_REFERENCE:
+    printf(F("(RSP:INVALID_OBJECT_REFERENCE)"));
+    break;
+  case MTP_RESPONSE_GROUP_NOT_SUPPORTED:
+    printf(F("(RSP:GROUP_NOT_SUPPORTED)"));
+    break;
+  case MTP_RESPONSE_INVALID_DATASET:
+    printf(F("(RSP:INVALID_DATASET)"));
+    break;
+  case MTP_RESPONSE_SPECIFICATION_BY_GROUP_UNSUPPORTED:
+    printf(F("(RSP:SPECIFICATION_BY_GROUP_UNSUPPORTED)"));
+    break;
+  case MTP_RESPONSE_SPECIFICATION_BY_DEPTH_UNSUPPORTED:
+    printf(F("(RSP:SPECIFICATION_BY_DEPTH_UNSUPPORTED)"));
+    break;
+  case MTP_RESPONSE_OBJECT_TOO_LARGE:
+    printf(F("(RSP:OBJECT_TOO_LARGE)"));
+    break;
+  case MTP_RESPONSE_OBJECT_PROP_NOT_SUPPORTED:
+    printf(F("(RSP:OBJECT_PROP_NOT_SUPPORTED)"));
+    break;
+  case MTP_EVENT_UNDEFINED:
+    printf(F("(EVT:UNDEFINED)"));
+    break;
+  case MTP_EVENT_CANCEL_TRANSACTION:
+    printf(F("(EVT:CANCEL_TRANSACTION)"));
+    break;
+  case MTP_EVENT_OBJECT_ADDED:
+    printf(F("(EVT:OBJECT_ADDED)"));
+    break;
+  case MTP_EVENT_OBJECT_REMOVED:
+    printf(F("(EVT:OBJECT_REMOVED)"));
+    break;
+  case MTP_EVENT_STORE_ADDED:
+    printf(F("(EVT:STORE_ADDED)"));
+    break;
+  case MTP_EVENT_STORE_REMOVED:
+    printf(F("(EVT:STORE_REMOVED)"));
+    break;
+  case MTP_EVENT_DEVICE_PROP_CHANGED:
+    printf(F("(EVT:DEVICE_PROP_CHANGED)"));
+    break;
+  case MTP_EVENT_OBJECT_INFO_CHANGED:
+    printf(F("(EVT:OBJECT_INFO_CHANGED)"));
+    break;
+  case MTP_EVENT_DEVICE_INFO_CHANGED:
+    printf(F("(EVT:DEVICE_INFO_CHANGED)"));
+    break;
+  case MTP_EVENT_REQUEST_OBJECT_TRANSFER:
+    printf(F("(EVT:REQUEST_OBJECT_TRANSFER)"));
+    break;
+  case MTP_EVENT_STORE_FULL:
+    printf(F("(EVT:STORE_FULL)"));
+    break;
+  case MTP_EVENT_DEVICE_RESET:
+    printf(F("(EVT:DEVICE_RESET)"));
+    break;
+  case MTP_EVENT_STORAGE_INFO_CHANGED:
+    printf(F("(EVT:STORAGE_INFO_CHANGED)"));
+    break;
+  case MTP_EVENT_CAPTURE_COMPLETE:
+    printf(F("(EVT:CAPTURE_COMPLETE)"));
+    break;
+  case MTP_EVENT_UNREPORTED_STATUS:
+    printf(F("(EVT:UNREPORTED_STATUS)"));
+    break;
+  case MTP_EVENT_OBJECT_PROP_CHANGED:
+    printf(F("(EVT:OBJECT_PROP_CHANGED)"));
+    break;
+  case MTP_EVENT_OBJECT_PROP_DESC_CHANGED:
+    printf(F("(EVT:OBJECT_PROP_DESC_CHANGED)"));
+    break;
+  case MTP_EVENT_OBJECT_REFERENCES_CHANGED:
+    printf(F("(EVT:OBJECT_REFERENCES_CHANGED)"));
+    break;
+  }
+  printf("l: %d", c->len);
+  printf(F(" T:%x"), c->transaction_id);
+  if (c->len >= 16)
+    printf(F(" : %x"), c->params[0]);
+  if (c->len >= 20)
+    printf(F(" %x"), c->params[1]);
+  if (c->len >= 24)
+    printf(F(" %x"), c->params[2]);
+  if (c->len >= 28)
+    printf(F(" %x"), c->params[3]);
+  if (c->len >= 32)
+    printf(F(" %x"), c->params[4]);
+  if (print_property_name >= 0) {
+    switch (c->params[print_property_name]) {
+    case MTP_PROPERTY_STORAGE_ID:
+      printf(" (STORAGE_ID)");
+      break;
+    case MTP_PROPERTY_OBJECT_FORMAT:
+      printf(" (FORMAT)");
+      break;
+    case MTP_PROPERTY_PROTECTION_STATUS:
+      printf(" (PROTECTION)");
+      break;
+    case MTP_PROPERTY_OBJECT_SIZE:
+      printf(" (SIZE)");
+      break;
+    case MTP_PROPERTY_OBJECT_FILE_NAME:
+      printf(" (OBJECT NAME)");
+      break;
+    case MTP_PROPERTY_DATE_CREATED:
+      printf(" (CREATED)");
+      break;
+    case MTP_PROPERTY_DATE_MODIFIED:
+      printf(" (MODIFIED)");
+      break;
+    case MTP_PROPERTY_PARENT_OBJECT:
+      printf(" (PARENT)");
+      break;
+    case MTP_PROPERTY_PERSISTENT_UID:
+      printf(" (PERSISTENT_UID)");
+      break;
+    case MTP_PROPERTY_NAME:
+      printf(" (NAME)");
+      break;
+    }
+  }
+  printf("\n");
+}
+
+#define printContainer() _printContainer(CONTAINER);
+
+#else
 
 #define printContainer()                                                       \
   {                                                                            \
@@ -861,6 +1242,7 @@ void MTPD::GetObject(uint32_t object_id) {
       printf(" %x", CONTAINER->params[2]);                                     \
     printf("\n");                                                              \
   }
+#endif
 
 void MTPD::read(char *data, uint32_t size) {
   while (size) {
@@ -1061,35 +1443,39 @@ void MTPD::processIntervalTimer() {
   }
 }
 
-uint32_t MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
+bool MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
   printf(" MTPD::formatStore called post:%u\n", post_process);
   uint32_t store = Storage2Store(storage);
-  if (post_process) {
+  // see if we should bail early.
+  if (!post_process) {
+    // lets guess if we can do inline.
+    uint64_t totalsize = storage_->totalSize(store);
+    if (totalsize > (8l*1024*1024)) {
+      printf(">>> Storage size %lu - defer format\n", totalsize);
+      return 0;  // I know a hack...
+    }  
+  } else {
     g_pmtpd_interval = this;
     printf("*** Start Interval Timer ***\n");
     g_intervaltimer.begin(&_interval_timer_handler,
                           50000); // try maybe 20 times per second...
   }
-
-  uint8_t format_status = storage_->formatStore(store, p2, post_process);
+  
+  elapsedMillis emFormat = 0;
+  uint8_t format_status = storage_->formatStore(store, p2);
+  printf("Format Complete(%u %u) ***\n", format_status, (uint32_t)emFormat);
 
   if (post_process) {
     g_pmtpd_interval = nullptr;
     g_intervaltimer.end(); // try maybe 20 times per second...
     printf("*** end Interval Timer ***\n");
   }
-  switch (format_status) {
-  case MTPStorageInterfaceCB::FORMAT_SUCCESSFUL:
+
+  if (format_status) {
     storage_->ResetIndex(); // maybe should add a less of sledge hammer here.
     return MTP_RESPONSE_OK;
-
-  case MTPStorageInterfaceCB::FORMAT_NEEDS_CALLBACK:
-    op_needs_callback_ = true;
-    return MTP_RESPONSE_OK;
-
-  default:
-    break;
   }
+
   return MTP_RESPONSE_OPERATION_NOT_SUPPORTED; // 0x2005
 }
 
@@ -1097,6 +1483,7 @@ void MTPD::loop(void) {
   usb_packet_t *receive_buffer;
   if ((receive_buffer = usb_rx(MTP_RX_ENDPOINT))) {
     printContainer();
+    bool do_defered_format = false;
 
     int op = CONTAINER->op;
     int p1 = CONTAINER->params[0];
@@ -1172,6 +1559,10 @@ void MTPD::loop(void) {
           break;
         case 0x100F: // FormatStore
           return_code = formatStore(p1, p2, false);
+          if (return_code == 0) {
+            do_defered_format = true;
+            return_code = MTP_RESPONSE_OK;
+          }
           break;
 
         case 0x1014: // GetDevicePropDesc
@@ -1234,23 +1625,15 @@ void MTPD::loop(void) {
 #if DEBUG > 1
       printContainer();
 #endif
-
       usb_tx(MTP_TX_ENDPOINT, receive_buffer);
       receive_buffer = 0;
     } else {
       usb_free(receive_buffer);
     }
-    // Some operations may want to do some additional work after they send back
-    // a response
-    // so give them a chance here...
-    if (op_needs_callback_) {
-      switch (op) {
-      default:
-        break;
-      case 0x100F: // FormatStore
-        return_code = formatStore(p1, p2, true);
-        break;
-      }
+
+    if (do_defered_format) {
+      printf("### Starting deferred format\n");
+      formatStore(p1, p2, true);
     }
   }
   // Maybe put event handling inside mtp_yield()?
@@ -2129,6 +2512,7 @@ void MTPD::processIntervalTimer() {
           break;
         }
         if (return_code) {
+          // BUGBUG - assumes that the receive buffer is still the same
           CONTAINER->type = 3;
           CONTAINER->len = len;
           CONTAINER->op = return_code;
@@ -2137,7 +2521,6 @@ void MTPD::processIntervalTimer() {
 #if DEBUG > 1
           printContainer(); // to switch on set debug to 2 at beginning of file
 #endif
-
           memcpy(tx_data_buffer, rx_data_buffer, len);
           push_packet(tx_data_buffer,
                       len); // for acknowledge use rx_data_buffer
@@ -2148,34 +2531,38 @@ void MTPD::processIntervalTimer() {
 }
 
 uint32_t MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
-  printf(" MTPD::formatStore called post:%u\n", post_process);
+  printf(" MTPD::formatStore called\n");
   uint32_t store = Storage2Store(storage);
-  if (post_process) {
+
+  // see if we should bail early.
+  if (!post_process) {
+    // lets guess if we can do inline.
+    uint64_t totalsize = storage_->totalSize(store);
+    if (totalsize > (8l*1024*1024)) {
+      printf(">>> Storage size %lu - defer format\n", totalsize);
+      return 0;  // I know a hack...
+    }  
+  } else {
     g_pmtpd_interval = this;
     printf("*** Start Interval Timer ***\n");
-    g_intervaltimer.begin(&_interval_timer_handler,
-                          50000); // try maybe 20 times per second...
+    g_intervaltimer.begin(&_interval_timer_handler, 50000); // try maybe 20 times per second...
   }
 
-  uint8_t format_status = storage_->formatStore(store, p2, post_process);
+  elapsedMillis emFormat = 0;
+  uint8_t format_status = storage_->formatStore(store, p2);
+  printf("Format Complete(%u %u) ***\n", format_status, (uint32_t)emFormat);
 
   if (post_process) {
     g_pmtpd_interval = nullptr;
     g_intervaltimer.end(); // try maybe 20 times per second...
     printf("*** end Interval Timer ***\n");
   }
-  switch (format_status) {
-  case MTPStorageInterfaceCB::FORMAT_SUCCESSFUL:
+
+  if (format_status) {
     storage_->ResetIndex(); // maybe should add a less of sledge hammer here.
     return MTP_RESPONSE_OK;
-
-  case MTPStorageInterfaceCB::FORMAT_NEEDS_CALLBACK:
-    op_needs_callback_ = true;
-    return MTP_RESPONSE_OK;
-
-  default:
-    break;
   }
+
   return MTP_RESPONSE_OPERATION_NOT_SUPPORTED; // 0x2005
 }
 
@@ -2186,6 +2573,7 @@ void MTPD::loop(void) {
     printf("*** end Interval Timer ***\n");
   }
   if (usb_mtp_available()) {
+    bool do_defered_format = false;
     if (fetch_packet(rx_data_buffer)) {
       printContainer(); // to switch on set debug to 1 at beginning of file
 
@@ -2280,6 +2668,10 @@ void MTPD::loop(void) {
 
       case 0x100F: // FormatStore
         return_code = formatStore(p1, p2, false);
+        if (return_code == 0) {
+          do_defered_format = true;
+          return_code = MTP_RESPONSE_OK;
+        }
         break;
 
       case 0x1014: // GetDevicePropDesc
@@ -2348,16 +2740,9 @@ void MTPD::loop(void) {
         memcpy(tx_data_buffer, rx_data_buffer, len);
         push_packet(tx_data_buffer, len); // for acknowledge use rx_data_buffer
       }
-
-      // Some operations may want to do some additional work after they send
-      // back a response
-      // so give them a chance here...
-      switch (op) {
-      default:
-        break;
-      case 0x100F: // FormatStore
-        return_code = formatStore(p1, p2, true);
-        break;
+      if (do_defered_format) {
+        printf("### Starting deferred format\n");
+        formatStore(p1, p2, true);
       }
     }
   }
@@ -2395,7 +2780,7 @@ int usb_mtp_sendEvent(const void *buffer, uint32_t len, uint32_t timeout) {
     uint32_t params[5];      // 12
   } __attribute__((__may_alias__));
 
-  const MTPContainer *pe = (const MTPContainer *)buffer;
+  //const MTPContainer *pe = (const MTPContainer *)buffer;
   // printf("  op:%x len:%d type:%d tid:%d Params:  ", pe->op, pe->len,
   // pe->type, pe->transaction_id);
   //if(pe->len>12) printf(" %x", pe->params[0]);

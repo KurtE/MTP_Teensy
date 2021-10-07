@@ -108,14 +108,13 @@ uint64_t MTPStorage_SD::totalSize(uint32_t store) {
   return sd_totalSize(store);
 }
 
-uint8_t MTPStorage_SD::formatStore(uint32_t store, uint32_t p2,
-                                   bool post_process) {
+bool MTPStorage_SD::formatStore(uint32_t store, uint32_t p2) {
   MTPStorageInterfaceCB *callbacks = sd_getCallback(store);
   if (callbacks) {
     uint32_t user_token = sd_getUserToken(store);
-    return callbacks->formatStore(this, store, user_token, p2, post_process);
+    return callbacks->formatStore(this, store, user_token, p2);
   }
-  return MTPStorageInterfaceCB::FORMAT_NOT_SUPPORTED;
+  return false;
 }
 
 uint64_t MTPStorage_SD::usedSize(uint32_t store) {
@@ -167,7 +166,7 @@ void MTPStorage::CloseIndex()
 		// maybe truncate the file
 		index_.seek(0, SeekSet);
 		index_.truncate();
-	} else if (sd_isOpen(index_)) {
+	} else if (index_) {
 		index_.close();
 	}
 	mtp_lock_storage(false);
@@ -380,6 +379,7 @@ void MTPStorage_SD::GenerateIndex(uint32_t store) {
     index_.truncate();
   } else
     sd_remove(index_file_storage_, indexFile);
+  file_.close();    // make sure directory file is not open... 
   mtp_lock_storage(false);
 
   num_storage = sd_getFSCount();
@@ -411,6 +411,7 @@ void MTPStorage::GenerateIndex(uint32_t store)
 {
 	if (index_generated) return;
 	index_generated = true;
+  MTPD::PrintStream()->println("*** MTPStorage::GenerateIndex called ***"); 
 	// first remove old index file
 	mtp_lock_storage(true);
 	if (user_index_file_) {
@@ -418,6 +419,7 @@ void MTPStorage::GenerateIndex(uint32_t store)
 		index_.seek(0, SeekSet);
 		index_.truncate();
 	} else {
+    MTPD::PrintStream()->printf("    remove called: %u %s\n", index_file_storage_, indexFile); 
 		remove(index_file_storage_, indexFile);
 	}
 	mtp_lock_storage(false);
@@ -435,6 +437,7 @@ void MTPStorage::GenerateIndex(uint32_t store)
 		r.dtCreate = 0;
 		strcpy(r.name, "/");
 		AppendIndexRecord(r);
+    printRecordIncludeName(ii, &r);
 	}
 }
 
@@ -489,6 +492,7 @@ void MTPStorage_SD::ScanDir(uint32_t store, uint32_t i) {
 
 void MTPStorage::ScanDir(uint32_t store, uint32_t i)
 {
+  MTPD::PrintStream()->printf("** ScanDir called %u %u\n", store, i); 
 	if (i == 0xFFFFFFFFUL) i = store;
 	Record record = ReadIndexRecord(i);
 	if (record.isdir && !record.scanned) {
@@ -512,6 +516,8 @@ void MTPStorage::ScanDir(uint32_t store, uint32_t i)
 			r.dtModify = child_.getModifyTime(dtf) ? makeTime(dtf) : 0;
 			r.dtCreate = child_.getCreateTime(dtf) ? makeTime(dtf) : 0;
 			sibling = AppendIndexRecord(r);
+      MTPD::PrintStream()->print("  >> "); 
+      printRecordIncludeName(sibling, &r);
 			child_.close();
 		}
 		record.scanned = true;
