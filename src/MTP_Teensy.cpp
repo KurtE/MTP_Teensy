@@ -1450,7 +1450,7 @@ bool MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
   if (!post_process) {
     // lets guess if we can do inline.
     uint64_t totalsize = storage_->totalSize(store);
-    if (totalsize > (8l*1024*1024)) {
+    if (totalsize > (8l*1024*1024*1024)) {
       printf(">>> Storage size %lu - defer format\n", totalsize);
       return 0;  // I know a hack...
     }  
@@ -2530,7 +2530,7 @@ void MTPD::processIntervalTimer() {
   }
 }
 
-uint32_t MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
+bool MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
   printf(" MTPD::formatStore called\n");
   uint32_t store = Storage2Store(storage);
 
@@ -2538,7 +2538,7 @@ uint32_t MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
   if (!post_process) {
     // lets guess if we can do inline.
     uint64_t totalsize = storage_->totalSize(store);
-    if (totalsize > (8l*1024*1024)) {
+    if (totalsize > (8l*1024*1024*1024)) {
       printf(">>> Storage size %lu - defer format\n", totalsize);
       return 0;  // I know a hack...
     }  
