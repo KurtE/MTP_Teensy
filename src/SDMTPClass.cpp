@@ -1,4 +1,4 @@
-
+#if 0
 #include <SDMTPClass.h>
 #include <mscFS.h>
 
@@ -274,3 +274,4 @@ void SDMTPClass::addFSToStorage(bool send_events) {
       mtpd_.send_StoreAddedEvent(store_);
   }
 }
+#endif

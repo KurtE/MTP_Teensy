@@ -15,10 +15,16 @@ MTPD    MTP(&storage);  // TODO: MTP instance created by default
 
 LittleFS_RAM      ramdisk;
 LittleFS_Program  progdisk;
-LittleFS_SPIFlash flashchip;
+LittleFS_SPI flashchip;
+LittleFS_SPIFlash flash2chip;
 
+#if defined(ARDUINO_TEENSY41) || defined(ARDUINO_TEENSY36) || defined(ARDUINO_TEENSY35)
 const int SD_ChipSelect = BUILTIN_SDCARD;
-const int Flash_ChipSelect = 6;
+#else
+const int SD_ChipSelect = 10;
+#endif
+const int Flash_ChipSelect = 5;
+const int Flash2_ChipSelect = 6;
 
 
 void setup()
@@ -47,8 +53,14 @@ void setup()
 
   // Add the SD Card
   if (SD.begin(SD_ChipSelect)) {
+    // BUGBUG:: Fat32 can take a real LLLLOONGGGG time so try to 
+    // get used/free space, which can time out MTP, so ask for it
+    // up front, while we tell MPT were busy
+    DBGSerial.println("*** Ask for SD Used Size ***");
+    elapsedMillis em;
+    uint64_t used = SD.usedSize();
     storage.addFilesystem(SD, "SD_Card");
-    DBGSerial.println("SD Card initialized");
+    DBGSerial.printf("SD Card initialized free: %lu dt: %u\n", used, (uint32_t)em);
   }
 
   // Add a disk with unused Program memory
@@ -59,7 +71,13 @@ void setup()
 
   // Add a SPI Flash chip
   if (flashchip.begin(Flash_ChipSelect)) {
-    storage.addFilesystem(flashchip, "SPI Flash");
+    storage.addFilesystem(flashchip, flashchip.displayName());
+    DBGSerial.println("SPI Flash initialized");
+  }
+
+  // Add a SPI Flash chip
+  if (flash2chip.begin(Flash2_ChipSelect)) {
+    storage.addFilesystem(flash2chip, "Flash2");
     DBGSerial.println("SPI Flash initialized");
   }
 

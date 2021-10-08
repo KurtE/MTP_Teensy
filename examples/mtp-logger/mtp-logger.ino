@@ -19,12 +19,7 @@
 #include "SD.h"
 
 #if defined(__IMXRT1062__)
-// following only while usb_mtp is not included in cores
-#if __has_include("usb_mtp.h") && WMXZ_TEST
 #include "usb_mtp.h"
-#else
-#include "usb1_mtp.h"
-#endif
 #endif
 
 #define USE_SD 1
@@ -58,7 +53,7 @@ LittleFS_RAM
     ramfs[nfs]; // needs to be declared if LittleFS is used in storage.h
 #endif
 
-MTPStorage_SD storage;
+MTPStorage storage;
 MTPD mtpd(&storage);
 
 void storage_configure() {
