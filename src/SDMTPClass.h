@@ -1,6 +1,6 @@
 #ifndef SDMTPCLASS_H
 #define SDMTPCLASS_H
-
+#if 0
 #include <MTP_Teensy.h>
 #include <SD.h>
 #include <mscFS.h>
@@ -65,4 +65,5 @@ private:
   enum { DISK_INSERT_TEST_TIME = 2000 };
 };
 
+#endif
 #endif

@@ -21,7 +21,7 @@ uint32_t diskSize;
 uint8_t current_store = 0;
 
 // Add in MTPD objects
-MTPStorage_SD storage;
+MTPStorage storage;
 MTPD mtpd(&storage);
 
 #define USE_BUILTIN_SDCARD

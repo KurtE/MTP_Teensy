@@ -8,7 +8,6 @@
 */
 #include "SD.h"
 #include <MTP_Teensy.h>
-#include <SDMTPClass.h>
 
 #define USE_BUILTIN_SDCARD
 #if defined(USE_BUILTIN_SDCARD) && defined(BUILTIN_SDCARD)
@@ -27,21 +26,18 @@ uint32_t diskSize;
 uint8_t current_store = 0;
 
 // Add in MTPD objects
-MTPStorage_SD storage;
+MTPStorage storage;
 MTPD mtpd(&storage);
 
 SDMTPClass sdmtpSPI(mtpd, storage, "SPI8", 8, 9, SHARED_SPI, SPI_SPEED);
 
 // Experiment add memory FS to mainly hold the storage index
 // May want to wrap this all up as well
-#include <LFS_MTP_Callback.h>
 #include <LittleFS.h>
 uint32_t LFSRAM_SIZE = 65536; // probably more than enough...
 LittleFS_RAM lfsram;
-LittleFSMTPCB lfsmtpcb;
 
 LittleFS_Program lfsProg; // Used to create FS on the Flash memory of the chip
-LittleFSMTPCB lfsmtpProgcb;
 
 FS *myfs = &lfsProg; // current default FS...
 
@@ -114,9 +110,7 @@ void setup() {
   // Lets add the Prorgram memory version:
   // checks that the LittFS program has started with the disk size specified
   if (lfsProg.begin(file_system_size)) {
-    lfsmtpProgcb.set_formatLevel(true); // sets formating to lowLevelFormat
-    storage.addFilesystem(lfsProg, "Program", &lfsmtpProgcb,
-                          (uint32_t)(LittleFS *)&lfsProg);
+    storage.addFilesystem(lfsProg, "Program");
   } else {
     Serial.println("Error starting Program Flash storage");
   }
@@ -131,9 +125,7 @@ void setup() {
 #endif
   if (lfsram.begin(LFSRAM_SIZE)) {
     DBGSerial.printf("Ram Drive of size: %u initialized\n", LFSRAM_SIZE);
-    lfsmtpcb.set_formatLevel(true); // sets formating to lowLevelFormat
-    uint32_t istore = storage.addFilesystem(lfsram, "RAM", &lfsmtpcb,
-                                            (uint32_t)(LittleFS *)&lfsram);
+    uint32_t istore = storage.addFilesystem(lfsram, "RAM");
     if (istore != 0xFFFFFFFFUL)
       storage.setIndexStore(istore);
     DBGSerial.printf("Set Storage Index drive to %u\n", istore);

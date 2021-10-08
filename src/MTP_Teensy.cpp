@@ -32,11 +32,7 @@
 
 #if defined(__IMXRT1062__)
 // following only while usb_mtp is not included in cores
-#if __has_include("usb_mtp.h")
 #include "usb_mtp.h"
-#else
-#include "usb1_mtp.h"
-#endif
 #endif
 
 #include "usb_names.h"
@@ -1450,7 +1446,7 @@ bool MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
   if (!post_process) {
     // lets guess if we can do inline.
     uint64_t totalsize = storage_->totalSize(store);
-    if (totalsize > (8*1024*1024*1024)) {
+    if (totalsize > (uint64_t)(8*1073741824ll)) {
       printf(">>> Storage size %lu - defer format\n", totalsize);
       return 0;  // I know a hack...
     }  
@@ -2538,9 +2534,7 @@ bool MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
   if (!post_process) {
     // lets guess if we can do inline.
     uint64_t totalsize = storage_->totalSize(store);
-	      printf(">>> Storage size %lu \n", totalsize);
-
-    if (totalsize > (8*1024*1024*1024)) {
+    if (totalsize > (uint64_t)(8*1073741824ll)) {
       printf(">>> Storage size %lu - defer format\n", totalsize);
       return 0;  // I know a hack...
     }  

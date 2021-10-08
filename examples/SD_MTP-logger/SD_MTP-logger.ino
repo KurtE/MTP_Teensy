@@ -27,7 +27,7 @@ uint32_t diskSize;
 uint8_t active_storage = 0;
 
 // Add in MTPD objects
-MTPStorage_SD storage;
+MTPStorage storage;
 MTPD mtpd(&storage);
 
 #define COUNT_MYFS 2 // could do by count, but can limit how many are created...

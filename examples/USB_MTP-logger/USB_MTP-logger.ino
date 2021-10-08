@@ -17,7 +17,7 @@ bool write_data = false;
 uint32_t diskSize;
 
 // Add in MTPD objects
-MTPStorage_SD storage;
+MTPStorage storage;
 MTPD mtpd(&storage);
 
 USB_MSC_MTP usbmsc(mtpd,

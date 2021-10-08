@@ -33,7 +33,7 @@ uint32_t diskSize;
 uint8_t current_store = 0;
 
 // Add in MTPD objects
-MTPStorage_SD storage;
+MTPStorage storage;
 MTPD mtpd(&storage);
 
 // This should be called after setting MTPD objects to setup MSC Drives

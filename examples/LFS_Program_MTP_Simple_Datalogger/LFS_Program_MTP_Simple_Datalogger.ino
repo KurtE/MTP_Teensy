@@ -6,14 +6,11 @@
 
   This example code is in the public domain.
 */
-#include <LFS_MTP_Callback.h>
 #include <LittleFS.h>
 #include <MTP_Teensy.h>
 
 LittleFS_Program
     myfs; // Used to create FS using Program memory, i.e., on chip flash
-
-LittleFSMTPCB lfsmtpcb;
 
 File dataFile; // Specifes that dataFile is of File type
 
@@ -24,7 +21,7 @@ uint32_t diskSize;
 static const uint32_t file_system_size = 1024 * 1024 * 1;
 
 // Add in MTPD objects
-MTPStorage_SD storage;
+MTPStorage storage;
 MTPD mtpd(&storage);
 
 void setup() {
@@ -65,9 +62,7 @@ void setup() {
   }
 
   mtpd.begin();
-  lfsmtpcb.set_formatLevel(true); // sets formating to lowLevelFormat
-  storage.addFilesystem(myfs, "Program", &lfsmtpcb,
-                        (uint32_t)(LittleFS *)&myfs);
+  storage.addFilesystem(myfs, "Program");
 
   Serial.println("LittleFS initialized.");
 
