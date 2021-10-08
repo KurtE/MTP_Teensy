@@ -1,6 +1,7 @@
 #include <SD.h>
 #include <LittleFS.h>
 #include <MTP_Teensy.h>
+#include <SDMTPClass.h>
 
 #define DBGSerial Serial
 
@@ -17,6 +18,8 @@ LittleFS_RAM      ramdisk;
 LittleFS_Program  progdisk;
 LittleFS_SPI flashchip;
 LittleFS_SPIFlash flash2chip;
+
+SDMTPClass sd;
 
 #if defined(ARDUINO_TEENSY41) || defined(ARDUINO_TEENSY36) || defined(ARDUINO_TEENSY35)
 const int SD_ChipSelect = BUILTIN_SDCARD;
@@ -52,13 +55,13 @@ void setup()
   }
 
   // Add the SD Card
-  if (SD.begin(SD_ChipSelect)) {
+  if (sd.begin(SD_ChipSelect)) {
     // BUGBUG:: Fat32 can take a real LLLLOONGGGG time so try to 
     // get used/free space, which can time out MTP, so ask for it
     // up front, while we tell MPT were busy
     DBGSerial.println("*** Ask for SD Used Size ***");
     elapsedMillis em;
-    uint64_t used = SD.usedSize();
+    uint64_t used = sd.usedSize();
     storage.addFilesystem(SD, "SD_Card");
     DBGSerial.printf("SD Card initialized free: %lu dt: %u\n", used, (uint32_t)em);
   }
