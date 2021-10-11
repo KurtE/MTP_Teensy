@@ -1439,31 +1439,19 @@ void MTPD::processIntervalTimer() {
   }
 }
 
-bool MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
+uint32_t MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
   printf(" MTPD::formatStore1442 called post:%u\n", post_process);
   uint32_t store = Storage2Store(storage);
   // see if we should bail early.
-  if (!post_process) {
-    g_pmtpd_interval = this;
-    printf("*** Start Interval Timer ***\n");
-    g_intervaltimer.begin(&_interval_timer_handler,
-                          50000); // try maybe 20 times per second...
-  }
   
   elapsedMillis emFormat = 0;
   uint8_t format_status = storage_->formatStore(store, p2);
   printf("Format Complete(%u %u) ***\n", format_status, (uint32_t)emFormat);
 
-  if (post_process) {
-    g_pmtpd_interval = nullptr;
-    g_intervaltimer.end(); // try maybe 20 times per second...
-    printf("*** end Interval Timer ***\n");
-  }
-
   if (format_status == 1) {
 	Serial.println("Return Response OK");
     storage_->ResetIndex(); // maybe should add a less of sledge hammer here.
-	send_DeviceResetEvent();
+	//send_DeviceResetEvent();
     return MTP_RESPONSE_OK;
   }
 
@@ -1549,9 +1537,6 @@ void MTPD::loop(void) {
           break;
         case 0x100F: // FormatStore
           return_code = formatStore(p1, p2, false);
-          if (return_code == 0) {
-            return_code = MTP_RESPONSE_OK;
-          }
           break;
 
         case 0x1014: // GetDevicePropDesc
@@ -2515,30 +2500,19 @@ void MTPD::processIntervalTimer() {
   }
 }
 
-bool MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
+uint32_t MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
   printf(" MTPD::formatStore2523 called\n");
   uint32_t store = Storage2Store(storage);
-
-  if (!post_process) {
-    g_pmtpd_interval = this;
-    printf("*** Start Interval Timer ***\n");
-    g_intervaltimer.begin(&_interval_timer_handler, 50000); // try maybe 20 times per second...
-  }
 
   elapsedMillis emFormat = 0;
   uint8_t format_status = storage_->formatStore(store, p2);
   printf("Format Complete(%u %u) ***\n", format_status, (uint32_t)emFormat);
 
-  if (post_process) {
-    g_pmtpd_interval = nullptr;
-    g_intervaltimer.end(); // try maybe 20 times per second...
-    printf("*** end Interval Timer ***\n");
-  }
-
   if (format_status) {
+
 	Serial.println("Return Response OK");
     storage_->ResetIndex(); // maybe should add a less of sledge hammer here.
-	send_DeviceResetEvent();
+	//send_DeviceResetEvent();
     return MTP_RESPONSE_OK;
   }
 
@@ -2646,9 +2620,6 @@ void MTPD::loop(void) {
 
       case 0x100F: // FormatStore
         return_code = formatStore(p1, p2, false);
-        if (return_code == 0) {
-          return_code = MTP_RESPONSE_OK;
-        }
         break;
 
       case 0x1014: // GetDevicePropDesc
