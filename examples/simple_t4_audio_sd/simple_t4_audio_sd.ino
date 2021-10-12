@@ -1,7 +1,6 @@
 #include <SD.h>
 #include <LittleFS.h>
 #include <MTP_Teensy.h>
-#include <SDMTPClass.h>
 
 #define DBGSerial Serial
 
@@ -16,10 +15,10 @@ MTPD    MTP(&storage);  // TODO: MTP instance created by default
 
 LittleFS_RAM      ramdisk;
 LittleFS_Program  progdisk;
-LittleFS_SPI flashchip;
+LittleFS_SPIFlash flashchip;
 LittleFS_SPIFlash flash2chip;
 
-SDMTPClass sd;
+SDClass sd;
 
 #if defined(ARDUINO_TEENSY41) || defined(ARDUINO_TEENSY36) || defined(ARDUINO_TEENSY35)
 const int SD_ChipSelect = BUILTIN_SDCARD;
@@ -34,6 +33,10 @@ void setup()
 {
   // let msusb stuff startup as soon as possible
   //usbmsc.begin();
+  for (uint8_t pin = 3; pin < 7; pin++) {
+    pinMode(pin, OUTPUT);
+    digitalWriteFast(pin, HIGH);
+  }
 
   DBGSerial.begin(9600);
   while (!DBGSerial && millis() < 5000) {
@@ -48,22 +51,19 @@ void setup()
   MTP.begin();
 
   // Add a RAM Disk
+#if defined(__IMXRT1062__)
   if (ramdisk.begin(65536)) {
     storage.addFilesystem(ramdisk, "RAM");
     // storage.setIndexStore(istore);
     DBGSerial.println("Ram disk initialized");
   }
-
+#endif
   // Add the SD Card
   if (sd.begin(SD_ChipSelect)) {
-    // BUGBUG:: Fat32 can take a real LLLLOONGGGG time so try to 
-    // get used/free space, which can time out MTP, so ask for it
-    // up front, while we tell MPT were busy
-    DBGSerial.println("*** Ask for SD Used Size ***");
-    elapsedMillis em;
-    uint64_t used = sd.usedSize();
-    storage.addFilesystem(SD, "SD_Card");
-    DBGSerial.printf("SD Card initialized free: %lu dt: %u\n", used, (uint32_t)em);
+    storage.addFilesystem(sd, "SD_Card");
+    DBGSerial.println("SD Card initialized");
+  } else {
+    Serial.println("SD Failed to initialize");
   }
 
   // Add a disk with unused Program memory
@@ -74,14 +74,18 @@ void setup()
 
   // Add a SPI Flash chip
   if (flashchip.begin(Flash_ChipSelect)) {
-    storage.addFilesystem(flashchip, flashchip.displayName());
+    storage.addFilesystem(flashchip, "Flash");
     DBGSerial.println("SPI Flash initialized");
+  } else {
+    Serial.printf("Little FS %u failed\n", Flash_ChipSelect);
   }
 
   // Add a SPI Flash chip
   if (flash2chip.begin(Flash2_ChipSelect)) {
     storage.addFilesystem(flash2chip, "Flash2");
     DBGSerial.println("SPI Flash initialized");
+  } else {
+    Serial.printf("Little FS2 %u failed\n", Flash2_ChipSelect);
   }
 
   DBGSerial.println("\nSetup done");
