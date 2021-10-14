@@ -1341,15 +1341,38 @@ uint32_t MTPD::SendObjectInfo(uint32_t storage, uint32_t parent,
   return MTP_RESPONSE_OK;
 }
 
+bool MTPD::receive_buffer_timeout(uint32_t to) {
+  elapsedMillis em = 0;
+  while (!data_buffer_) {
+    data_buffer_ = usb_rx(MTP_RX_ENDPOINT);
+    if (!data_buffer_) {
+      mtp_yield();
+      if (em > to) {
+        printf("receive_buffer_timeout Timeout");
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+
 bool MTPD::SendObject() {
   uint32_t len = ReadMTPHeader();
+  printf("MTPD::SendObject %u\n", len);
+//  uint32_t expected_read_count = 1 + (len-52+63)/64; 
+//  uint32_t read_count = 0;
   while (len) {
-    receive_buffer();
+    if (!receive_buffer_timeout(250)) break;
+    //read_count++;
     uint32_t to_copy = data_buffer_->len - data_buffer_->index;
     to_copy = min(to_copy, len);
-    if (!storage_->write((char *)(data_buffer_->buf + data_buffer_->index),
-                         to_copy))
-      return false;
+    //elapsedMicros emw = 0;
+    bool write_status = storage_->write((char *)(data_buffer_->buf + data_buffer_->index),
+                         to_copy);
+    //printf("    %u %u %u %u\n", len, to_copy, (uint32_t)emw, write_status);
+
+    if (!write_status) return false;
     data_buffer_->index += to_copy;
     len -= to_copy;
     if (data_buffer_->index == data_buffer_->len) {
@@ -1358,6 +1381,7 @@ bool MTPD::SendObject() {
     }
   }
   // lets see if we should update the date and time stamps.
+  //printf(" len:%u loop count:%u Expected: %u\n", len, read_count, expected_read_count);
   storage_->updateDateTimeStamps(object_id_, dtCreated_, dtModified_);
   storage_->close();
   return true;
@@ -1459,6 +1483,11 @@ uint32_t MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
 }
 
 void MTPD::loop(void) {
+  if (g_pmtpd_interval) {
+    g_pmtpd_interval = nullptr; // clear out timer.
+    g_intervaltimer.end();      // try maybe 20 times per second...
+    printf("*** end Interval Timer ***\n");
+  }
   usb_packet_t *receive_buffer;
   if ((receive_buffer = usb_rx(MTP_RX_ENDPOINT))) {
     printContainer();
@@ -2334,6 +2363,7 @@ bool MTPD::SendObject() {
     uint32_t to_copy =
         min(bytes, DISK_BUFFER_SIZE -
                        disk_pos); // how many data to copy to disk buffer
+    printf("    %u %u %u\n", len, bytes, to_copy);
     memcpy(disk_buffer_ + disk_pos, rx_data_buffer + index, to_copy);
     disk_pos += to_copy;
     bytes -= to_copy;

@@ -48,7 +48,9 @@ extern "C" int usb_init_events(void);
 
 #define USE_EVENTS 1
 
+#ifdef __IMXRT1062__
 #define MTP_VERBOSE_PRINT_CONTAINER 1
+#endif
 
 extern "C" {
 extern volatile uint8_t usb_configuration;
@@ -88,6 +90,7 @@ private:
   usb_packet_t *data_buffer_ = NULL;
   void get_buffer();
   void receive_buffer();
+  bool receive_buffer_timeout(uint32_t to);
   static uint32_t sessionID_;
 //  inline MTPContainer *contains (usb_packet_t *receive_buffer) { return
 //  (MTPContainer*)(receive_buffer->buf);  }
