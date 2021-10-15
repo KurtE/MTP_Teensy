@@ -8,7 +8,6 @@
 */
 #include "SD.h"
 #include <MTP_Teensy.h>
-#include <SDMTPClass.h>
 
 #define USE_BUILTIN_SDCARD
 #if defined(USE_BUILTIN_SDCARD) && defined(BUILTIN_SDCARD)
@@ -31,17 +30,22 @@ MTPStorage storage;
 MTPD mtpd(&storage);
 
 #define COUNT_MYFS 2 // could do by count, but can limit how many are created...
-SDMTPClass myfs[] = {{mtpd, storage, "SDIO", CS_SD},
-                     {mtpd, storage, "SPI8", 8, 9, SHARED_SPI, SPI_SPEED}};
-// SDMTPClass myfs(mtpd, storage, "SD10", 10, 0xff, SHARED_SPI, SPI_SPEED);
+typedef struct {
+  uint8_t csPin;
+  const char *name;
+  SDClass sd;
+
+} SDList_t;
+SDList_t myfs[] = {
+  {CS_SD, "SDIO"},
+  {8, "SPI8"}
+};
 
 // Experiment add memory FS to mainly hold the storage index
 // May want to wrap this all up as well
-#include <LFS_MTP_Callback.h>
 #include <LittleFS.h>
 #define LFSRAM_SIZE 65536 // probably more than enough...
 LittleFS_RAM lfsram;
-LittleFSMTPCB lfsmtpcb;
 
 #define DBGSerial Serial
 
@@ -60,13 +64,13 @@ void setup() {
   DBGSerial.println("Initializing SD ...");
 
   mtpd.begin();
-  DBGSerial.printf("Date: %u/%u/%u %u:%u:%u\n", day(), month(), year(), hour(),
-                   minute(), second());
-
   // Try to add all of them.
   bool storage_added = false;
   for (uint8_t i = 0; i < COUNT_MYFS; i++) {
-    storage_added |= myfs[i].init(true);
+    if (myfs[i].sd.begin(myfs[i].csPin)) {
+      storage_added = true;
+      storage.addFilesystem(myfs[i].sd, myfs[i].name);
+    }
   }
   if (!storage_added) {
     DBGSerial.println("Failed to add any valid storage objects");
@@ -80,9 +84,7 @@ void setup() {
   // lets initialize a RAM drive.
   if (lfsram.begin(LFSRAM_SIZE)) {
     DBGSerial.printf("Ram Drive of size: %u initialized\n", LFSRAM_SIZE);
-    lfsmtpcb.set_formatLevel(true); // sets formating to lowLevelFormat
-    uint32_t istore = storage.addFilesystem(lfsram, "RAM", &lfsmtpcb,
-                                            (uint32_t)(LittleFS *)&lfsram);
+    uint32_t istore = storage.addFilesystem(lfsram, "RAM");
     if (istore != 0xFFFFFFFFUL)
       storage.setIndexStore(istore);
     DBGSerial.printf("Set Storage Index drive to %u\n", istore);
@@ -131,7 +133,7 @@ void loop() {
       // opens a file or creates a file if not present,  FILE_WRITE will append
       // data to
       // to the file created.
-      dataFile = myfs[active_storage].open("datalog.txt", FILE_WRITE);
+      dataFile = myfs[active_storage].sd.open("datalog.txt", FILE_WRITE);
       logData();
     } break;
     case 'x':
@@ -198,7 +200,7 @@ void stopLogging() {
 void dumpLog() {
   DBGSerial.println("\nDumping Log!!!");
   // open the file.
-  dataFile = myfs[active_storage].open("datalog.txt");
+  dataFile = myfs[active_storage].sd.open("datalog.txt");
 
   // if the file is available, write to it:
   if (dataFile) {
@@ -231,22 +233,16 @@ void menu() {
 
 void listFiles() {
   DBGSerial.print("\n Space Used = ");
-  DBGSerial.println(myfs[active_storage].usedSize());
+  DBGSerial.println(myfs[active_storage].sd.usedSize());
   DBGSerial.print("Filesystem Size = ");
-  DBGSerial.println(myfs[active_storage].totalSize());
+  DBGSerial.println(myfs[active_storage].sd.totalSize());
 
-  printDirectory(myfs[active_storage]);
+  printDirectory(myfs[active_storage].sd);
 }
 
-extern PFsLib pfsLIB;
 void eraseFiles() {
 
-  PFsVolume partVol;
-  if (!partVol.begin(myfs[active_storage].sdfs.card(), true, 1)) {
-    DBGSerial.println("Failed to initialize partition");
-    return;
-  }
-  if (pfsLIB.formatter(partVol)) {
+  if (myfs[active_storage].sd.format(0, '.')) {
     DBGSerial.println("\nFiles erased !");
     mtpd.send_DeviceResetEvent();
   }
