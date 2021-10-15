@@ -29,7 +29,8 @@ uint8_t current_store = 0;
 MTPStorage storage;
 MTPD mtpd(&storage);
 
-SDMTPClass sdmtpSPI(mtpd, storage, "SPI8", 8, 9, SHARED_SPI, SPI_SPEED);
+SDClass sd;
+
 
 // Experiment add memory FS to mainly hold the storage index
 // May want to wrap this all up as well
@@ -115,8 +116,10 @@ void setup() {
     Serial.println("Error starting Program Flash storage");
   }
 
-  // Lets add the external SD card.
-  sdmtpSPI.init(true);
+  // Lets add SD Card
+  if (sd.begin(CS_SD)) {
+    storage.addFilesystem(sd, "SD");
+  }
 
 // lets initialize a RAM drive.
 #if defined ARDUINO_TEENSY41
@@ -287,37 +290,17 @@ void listFiles() {
   printDirectory(myfs);
 }
 
-extern PFsLib pfsLIB;
 void eraseFiles() {
 
-#if 1
-  // Lets try asking storage for enough stuff to call it's format code
-  bool send_device_reset = false;
-  MTPStorageInterfaceCB *callback = storage.getCallback(current_store);
-  uint32_t user_token = storage.getUserToken(current_store);
-  if (callback) {
-    send_device_reset =
-        (callback->formatStore(&storage, current_store, user_token, 0, true) ==
-         MTPStorageInterfaceCB::FORMAT_SUCCESSFUL);
+  FS *fsErase = storage.getStoreFS(current_store);
+  if (fsErase) {
+    if (fsErase->format(0, '.')) {
+      DBGSerial.println("\nFiles erased !");
+      mtpd.send_DeviceResetEvent();
+    } else {
+      DBGSerial.println("\n failed !");
+    }
   }
-  if (send_device_reset) {
-    DBGSerial.println("\nFiles erased !");
-    mtpd.send_DeviceResetEvent();
-  } else {
-    DBGSerial.println("\n failed !");
-  }
-
-#else
-  PFsVolume partVol;
-  if (!partVol.begin(myfs->sdfs.card(), true, 1)) {
-    DBGSerial.println("Failed to initialize partition");
-    return;
-  }
-  if (pfsLIB.formatter(partVol)) {
-    DBGSerial.println("\nFiles erased !");
-    mtpd.send_DeviceResetEvent();
-  }
-#endif
 }
 
 void printDirectory(FS *pfs) {
