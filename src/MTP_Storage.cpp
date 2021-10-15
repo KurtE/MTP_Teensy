@@ -1046,3 +1046,11 @@ uint32_t MTPStorage::MapFileNameToIndex(uint32_t storage, const char *pathname,
 	return 0xFFFFFFFFUL;
 }
 
+bool MTPStorage::setIndexStore(uint32_t storage) {
+  if (storage >= getFSCount())
+    return false; // out of range
+  CloseIndex();
+  index_file_storage_ = storage;
+  user_index_file_ = false;
+  return true;
+}
