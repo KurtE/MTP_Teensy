@@ -28,13 +28,28 @@ USBHub hub1(myusb);
 // MSC objects.
 msController drive1(myusb);
 msController drive2(myusb);
+
 msFilesystem msFS1(myusb);
 msFilesystem msFS2(myusb);
 msFilesystem msFS3(myusb);
 msFilesystem msFS4(myusb);
 msFilesystem msFS5(myusb);
 
+// Quick and dirty 
+msFilesystem *pmsFS[] = {&msFS1, &msFS2, &msFS3, &msFS4, &msFS5};
+bool pmsFS_added_to_mtp[] = {false, false, false, false, false};
+const char * pmsFS_display_name[] = {"msFS1", "msFS2", "msFS3", "msFS4", "msFS5"};
+ 
 FS *mscDisk;
+
+#include <LittleFS.h>
+uint32_t LFSRAM_SIZE = 65536; // probably more than enough...
+LittleFS_RAM lfsram;
+
+
+#ifdef ARDUINO_TEENSY41
+  extern "C" uint8_t external_psram_size;
+#endif
 
 
 void setup() {
@@ -47,6 +62,20 @@ void setup() {
   Serial.print(CrashReport);
   Serial.println("\n" __FILE__ " " __DATE__ " " __TIME__);
   delay(3000);
+
+// lets initialize a RAM drive.
+#if defined ARDUINO_TEENSY41
+    if (external_psram_size)
+      LFSRAM_SIZE = 4 * 1024 * 1024;
+#endif
+    if (lfsram.begin(LFSRAM_SIZE)) {
+      Serial.printf("Ram Drive of size: %u initialized\n", LFSRAM_SIZE);
+      uint32_t istore = storage.addFilesystem(lfsram, "RAM");
+//    if (istore != 0xFFFFFFFFUL)
+//      storage.setIndexStore(istore);
+      Serial.printf("Set Storage Index drive to %u\n", istore);
+    }
+
 
   myusb.begin();
 
@@ -63,6 +92,16 @@ void setup() {
 void loop() {
     mtpd.loop();
     myusb.Task();
+    bool storage_changed = false;
+    for (uint8_t i = 0; i < (sizeof(pmsFS)/sizeof(pmsFS[0])); i++) {
+      if (*pmsFS[i] && !pmsFS_added_to_mtp[i]) {
+        storage.addFilesystem(*pmsFS[i], pmsFS_display_name[i]);
+        pmsFS_added_to_mtp[i] = true;
+        storage_changed = true;
+      }
+      // will add next part here..
+    }
+    if (storage_changed) mtpd.send_DeviceResetEvent();
 
     if (Serial.available()) {
     uint8_t command = Serial.read();
