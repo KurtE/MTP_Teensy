@@ -7,8 +7,9 @@
   This example code is in the public domain.
 */
 #include <MTP_Teensy.h>
-#include <USB_MSC_MTP.h>
-#include <mscFS.h>
+//#include <mscFS.h>
+#include <USBHost_t36.h>
+#include <USBHost_ms.h>
 
 File dataFile; // Specifes that dataFile is of File type
 
@@ -20,28 +21,23 @@ uint32_t diskSize;
 MTPStorage storage;
 MTPD mtpd(&storage);
 
-USB_MSC_MTP usbmsc(mtpd,
-                   storage); // This should be called after setting MTPD objects
+// Add USBHost objectsUsbFs
+USBHost myusb;
+USBHub hub1(myusb);
+
+// MSC objects.
+msController drive1(myusb);
+msController drive2(myusb);
+msFilesystem msFS1(myusb);
+msFilesystem msFS2(myusb);
+msFilesystem msFS3(myusb);
+msFilesystem msFS4(myusb);
+msFilesystem msFS5(myusb);
+
 FS *mscDisk;
 
-void dateTime(uint16_t *date, uint16_t *time, uint8_t *ms10) {
-  uint32_t now = Teensy3Clock.get();
-  if (now < 315532800) { // before 1980
-    *date = 0;
-    *time = 0;
-    *ms10 = 0;
-  } else {
-    DateTimeFields datetime;
-    breakTime(now, datetime);
-    *date = FS_DATE(datetime.year + 1900, datetime.mon + 1, datetime.mday);
-    *time = FS_TIME(datetime.hour, datetime.min, datetime.sec);
-    *ms10 = datetime.sec & 1 ? 100 : 0;
-  }
-}
 
 void setup() {
-  // let msusb stuff startup as soon as possible
-  usbmsc.begin();
 
   // Open serial communications and wait for port to open:
   Serial.begin(115200);
@@ -52,11 +48,12 @@ void setup() {
   Serial.println("\n" __FILE__ " " __DATE__ " " __TIME__);
   delay(3000);
 
+  myusb.begin();
+
   Serial.print("Initializing MSC Drives ...");
 
   mtpd.begin();
   Serial.println("\nInitializing USB MSC drives...");
-  usbmsc.checkUSBStatus(true);
 
   Serial.println("MSC and MTP initialized.");
 
@@ -64,7 +61,10 @@ void setup() {
 }
 
 void loop() {
-  if (Serial.available()) {
+    mtpd.loop();
+    myusb.Task();
+
+    if (Serial.available()) {
     uint8_t command = Serial.read();
     int ch = Serial.read();
     uint32_t drive_index = CommandLineReadNextNumber(ch, 0);
@@ -121,9 +121,6 @@ void loop() {
     }
     while (Serial.read() != -1)
       ; // remove rest of characters.
-  } else {
-    mtpd.loop();
-    usbmsc.checkUSBStatus(false);
   }
 
   if (write_data)
@@ -209,7 +206,6 @@ void listFiles() {
   root.close();
 }
 
-extern PFsLib pfsLIB;
 void eraseFiles() {
   /*
     PFsVolume partVol;
