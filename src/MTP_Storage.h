@@ -46,12 +46,8 @@ struct Record {
   uint32_t parent;
   uint32_t child; // size stored here for files
   uint32_t sibling;
-#ifdef MTP_SUPPORT_MODIFY_DATE
   uint32_t dtModify;
-#endif
-#ifdef MTP_SUPPORT_CREATE_DATE
   uint32_t dtCreate;
-#endif
   uint8_t isdir;
   uint8_t scanned;
   uint16_t store; // index int physical storage (0 ... num_storages-1)
