@@ -165,12 +165,8 @@ const uint16_t propertyList[] = {
     MTP_PROPERTY_PROTECTION_STATUS, // 0xDC03
     MTP_PROPERTY_OBJECT_SIZE,       // 0xDC04
     MTP_PROPERTY_OBJECT_FILE_NAME,  // 0xDC07
-#ifdef MTP_SUPPORT_CREATE_DATE
     MTP_PROPERTY_DATE_CREATED, // 0xDC08
-#endif
-#ifdef MTP_SUPPORT_MODIFY_DATE
     MTP_PROPERTY_DATE_MODIFIED, // 0xDC09
-#endif
     MTP_PROPERTY_PARENT_OBJECT,  // 0xDC0B
     MTP_PROPERTY_PERSISTENT_UID, // 0xDC41
     MTP_PROPERTY_NAME            // 0xDC44
@@ -675,7 +671,6 @@ void MTPD::getObjectPropValue(uint32_t p1, uint32_t p2) {
     writestring(name);
     break;
   case MTP_PROPERTY_DATE_CREATED: // 0xDC08:
-#ifdef MTP_SUPPORT_CREATE_DATE
     // String is like: YYYYMMDDThhmmss.s
     uint32_t dt;
     DateTimeFields dtf;
@@ -693,12 +688,10 @@ void MTPD::getObjectPropValue(uint32_t p1, uint32_t p2) {
     } else {
       printf("Create failed (%x)Date/time\n", dt);
     }
-#endif
     writestring("");
     break;
   case MTP_PROPERTY_DATE_MODIFIED: // 0xDC09:
   {
-#ifdef MTP_SUPPORT_MODIFY_DATE
     // String is like: YYYYMMDDThhmmss.s
     uint32_t dt;
     DateTimeFields dtf;
@@ -715,7 +708,6 @@ void MTPD::getObjectPropValue(uint32_t p1, uint32_t p2) {
     } else {
       printf("modify failed (%x)Date/time\n", dt);
     }
-#endif
   }
     writestring("");
     break;

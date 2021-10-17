@@ -30,23 +30,12 @@
 #ifndef MTP_Storage_H
 #define MTP_Storage_H
 
-// BUGBUG:: added to work for now...
-#if TEENSYDUINO >= 156
-#define FS_FILE_SUPPORT_DATES
-#endif
-
 #include "core_pins.h"
 
 #include "FS.h"
 #ifndef FILE_WRITE_BEGIN
 #define FILE_WRITE_BEGIN 2
 #endif
-#ifdef FS_FILE_SUPPORT_DATES
-
-#define MTP_SUPPORT_MODIFY_DATE
-#define MTP_SUPPORT_CREATE_DATE
-#endif
-
 #define MTPD_MAX_FILESYSTEMS 20
 #ifndef MAX_FILENAME_LEN
 #define MAX_FILENAME_LEN 256

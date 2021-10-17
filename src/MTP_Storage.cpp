@@ -331,23 +331,19 @@ uint32_t MTPStorage::GetSize(uint32_t handle) {
 	return ReadIndexRecord(handle).child;
 }
 
-#ifdef MTP_SUPPORT_MODIFY_DATE
 bool MTPStorage::getModifyTime(uint32_t handle, uint32_t &dt)
 {
 	Record r = ReadIndexRecord(handle);
 	dt = r.dtModify;
 	return (r.dtModify) ? true : false;
 }
-#endif
 
-#ifdef MTP_SUPPORT_CREATE_DATE
 bool MTPStorage::getCreateTime(uint32_t handle, uint32_t &dt)
 {
   Record r = ReadIndexRecord(handle);
   dt = r.dtCreate;
   return (r.dtCreate) ? true : false;
 }
-#endif
 
 static inline uint16_t MTPFS_DATE(uint16_t year, uint8_t month, uint8_t day) {
   year -= 1980;
