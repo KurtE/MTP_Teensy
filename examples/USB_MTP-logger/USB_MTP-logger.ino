@@ -37,8 +37,9 @@ msFilesystem msFS5(myusb);
 
 // Quick and dirty 
 msFilesystem *pmsFS[] = {&msFS1, &msFS2, &msFS3, &msFS4, &msFS5};
-bool pmsFS_added_to_mtp[] = {false, false, false, false, false};
-const char * pmsFS_display_name[] = {"msFS1", "msFS2", "msFS3", "msFS4", "msFS5"};
+#define CNT_MSC  (sizeof(pmsFS)/sizeof(pmsFS[0]))
+bool pmsFS_added_to_mtp[CNT_MSC] = {false, false, false, false, false};
+char  pmsFS_display_name[CNT_MSC][20];
  
 FS *mscDisk;
 
@@ -93,8 +94,14 @@ void loop() {
     mtpd.loop();
     myusb.Task();
     bool storage_changed = false;
-    for (uint8_t i = 0; i < (sizeof(pmsFS)/sizeof(pmsFS[0])); i++) {
+    for (uint8_t i = 0; i < CNT_MSC; i++) {
       if (*pmsFS[i] && !pmsFS_added_to_mtp[i]) {
+        // Lets see if we can get the volume label:
+        char volName[20];
+        if (pmsFS[i]->mscfs.getVolumeLabel(volName, sizeof(volName))) 
+          snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d-%s", i, volName);
+        else
+          snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d", i);
         storage.addFilesystem(*pmsFS[i], pmsFS_display_name[i]);
         pmsFS_added_to_mtp[i] = true;
         storage_changed = true;
