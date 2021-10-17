@@ -25,7 +25,7 @@
 #define USE_LFS_QSPI_NAND 0
 #define USE_LFS_FRAM 0
 #endif
-#define USE_MSC 0    // set to > 0 experiment with MTP (USBHost.t36 + mscFS)
+#define USE_MSC 1    // set to > 0 experiment with MTP (USBHost.t36 + mscFS)
 #define USE_SW_PU  0 //set to 1 if SPI devices does not have PUs,
                      // https://www.pjrc.com/better-spi-bus-design-in-3-steps/
 
@@ -48,17 +48,12 @@ MTPD    mtpd(&storage);
 // MSC & SD classes
 //=============================================================================
 #if USE_SD==1
-
 #define USE_BUILTIN_SDCARD
 #if defined(USE_BUILTIN_SDCARD) && defined(BUILTIN_SDCARD)
 #define CS_SD  BUILTIN_SDCARD
 #else
 #define CS_SD 10
 #endif
-
-
-///
-
 #endif
 
 
@@ -81,6 +76,37 @@ MTPD    mtpd(&storage);
   const int nsd = sizeof(sd_str)/sizeof(const char *);
   
 SDClass sdx[nsd];
+#endif
+
+// =======================================================================
+// Set up MSC Drive file systems on different storage media
+// =======================================================================
+#if USE_MSC == 1
+#include <USBHost_t36.h>
+#include <USBHost_ms.h>
+
+// Add USBHost objectsUsbFs
+USBHost myusb;
+USBHub hub1(myusb);
+
+// MSC objects.
+msController drive1(myusb);
+msController drive2(myusb);
+msController drive3(myusb);
+msController drive4(myusb);
+
+msFilesystem msFS1(myusb);
+msFilesystem msFS2(myusb);
+msFilesystem msFS3(myusb);
+msFilesystem msFS4(myusb);
+msFilesystem msFS5(myusb);
+
+// Quick and dirty 
+msFilesystem *pmsFS[] = {&msFS1, &msFS2, &msFS3, &msFS4, &msFS5};
+#define CNT_MSC  (sizeof(pmsFS)/sizeof(pmsFS[0]))
+bool pmsFS_added_to_mtp[CNT_MSC] = {false, false, false, false, false};
+char  pmsFS_display_name[CNT_MSC][20];
+ 
 #endif
 
 
@@ -278,21 +304,11 @@ void storage_configure()
   }
 #endif
 
-// Start USBHost_t36, HUB(s) and USB devices.
-#if USE_MSC > 0
-  DBGSerial.println("\nInitializing USB MSC drives...");
-  usbmsc.checkUSBStatus(true);
-#endif
-
 }
 
 void setup()
 {
-#if USE_MSC_FAT > 0
-  // let msusb stuff startup as soon as possible
-  usbmsc.begin();
-#endif 
-  
+
   // Open serial communications and wait for port to open:
 #if defined(USB_MTPDISK_SERIAL)
   while (!Serial && millis() < 5000) {
@@ -309,6 +325,12 @@ void setup()
   DBGSerial.println("\n" __FILE__ " " __DATE__ " " __TIME__);
   delay(3000);
   
+#if USE_MSC == 1
+  // let msusb stuff startup as soon as possible
+    myusb.begin();
+    Serial.print("Initializing MSC Drives ...");
+#endif 
+    
   //This is mandatory to begin the mtpd session.
   mtpd.begin();
   
@@ -326,6 +348,25 @@ int ReadAndEchoSerialChar() {
 
 void loop()
 {
+    mtpd.loop();
+    myusb.Task();
+    bool storage_changed = false;
+    for (uint8_t i = 0; i < CNT_MSC; i++) {
+      if (*pmsFS[i] && !pmsFS_added_to_mtp[i]) {
+        // Lets see if we can get the volume label:
+        char volName[20];
+        if (pmsFS[i]->mscfs.getVolumeLabel(volName, sizeof(volName))) 
+          snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d-%s", i, volName);
+        else
+          snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d", i);
+        storage.addFilesystem(*pmsFS[i], pmsFS_display_name[i]);
+        pmsFS_added_to_mtp[i] = true;
+        storage_changed = true;
+      }
+      // will add next part here..
+    }
+    if (storage_changed) mtpd.send_DeviceResetEvent();
+	
   if ( DBGSerial.available() ) {
     uint8_t command = DBGSerial.read();
     int ch = DBGSerial.read();
@@ -379,8 +420,24 @@ void loop()
     while (DBGSerial.read() != -1) ; // remove rest of characters.
   } else {
     mtpd.loop();
-    #if USE_MSC > 0
-    usbmsc.checkUSBStatus(false);
+    #if USE_MSC == 1
+    myusb.Task();
+    bool storage_changed = false;
+    for (uint8_t i = 0; i < CNT_MSC; i++) {
+      if (*pmsFS[i] && !pmsFS_added_to_mtp[i]) {
+        // Lets see if we can get the volume label:
+        char volName[20];
+        if (pmsFS[i]->mscfs.getVolumeLabel(volName, sizeof(volName))) 
+          snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d-%s", i, volName);
+        else
+          snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d", i);
+        storage.addFilesystem(*pmsFS[i], pmsFS_display_name[i]);
+        pmsFS_added_to_mtp[i] = true;
+        storage_changed = true;
+      }
+      // will add next part here..
+    }
+    if (storage_changed) mtpd.send_DeviceResetEvent();
     #endif
   }
 
@@ -469,9 +526,7 @@ void listFiles()
 
   printDirectory(myfs);
 }
-#if USE_MSC > 0
-extern PFsLib pfsLIB;
-#endif
+
 void eraseFiles()
 {
   DBGSerial.println("Formating not supported at this time");
