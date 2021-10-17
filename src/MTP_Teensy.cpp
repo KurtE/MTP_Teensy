@@ -459,8 +459,32 @@ void MTPD::GetObjectInfo(uint32_t handle) {
   write32(0);                                      // association description
   write32(0);                                      // sequence number
   writestring(filename);
-  writestring(""); // date created
-  writestring(""); // date modified
+
+  uint32_t dt;
+  DateTimeFields dtf;
+
+  if (storage_->getCreateTime(handle, dt)) {
+    // going to use the buffer name to output
+    breakTime(dt, dtf);
+    snprintf(filename, MAX_FILENAME_LEN, "%04u%02u%02uT%02u%02u%02u",
+             dtf.year + 1900, dtf.mon + 1, dtf.mday, dtf.hour, dtf.min,
+             dtf.sec);
+    writestring(filename);
+  } else {
+    writestring(""); // date created
+  }
+
+  if (storage_->getModifyTime(handle, dt)) {
+    // going to use the buffer name to output
+    breakTime(dt, dtf);
+    snprintf(filename, MAX_FILENAME_LEN, "%04u%02u%02uT%02u%02u%02u",
+             dtf.year + 1900, dtf.mon + 1, dtf.mday, dtf.hour, dtf.min,
+             dtf.sec);
+    writestring(filename);
+  } else {
+    writestring(""); // date modified
+  }
+
   writestring(""); // keywords
 }
 
