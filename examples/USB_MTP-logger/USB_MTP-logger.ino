@@ -267,6 +267,7 @@ void eraseFiles() {
 }
 
 void printDirectory(File dir, int numSpaces) {
+  DateTimeFields dtf;
   while (true) {
     File entry = dir.openNextFile();
     if (!entry) {
@@ -275,12 +276,20 @@ void printDirectory(File dir, int numSpaces) {
     }
     printSpaces(numSpaces);
     Serial.print(entry.name());
+    printSpaces(36 - numSpaces - strlen(entry.name()));
+
+    if (entry.getCreateTime(dtf)) {
+      Serial.printf(" C: %02u/%02u/%04u %02u:%02u", dtf.mon+1, dtf.mday, dtf.year+1900, dtf.hour, dtf.min );
+    }
+
+    if (entry.getModifyTime(dtf)) {
+      Serial.printf(" M: %02u/%02u/%04u %02u:%02u", dtf.mon+1, dtf.mday, dtf.year+1900, dtf.hour, dtf.min );
+    }
     if (entry.isDirectory()) {
-      Serial.println("/");
+      Serial.println("  /");
       printDirectory(entry, numSpaces + 2);
     } else {
       // files have sizes, directories do not
-      printSpaces(36 - numSpaces - strlen(entry.name()));
       Serial.print("  ");
       Serial.println(entry.size(), DEC);
     }
