@@ -156,6 +156,10 @@ void loop() {
     case 'd':
       dumpLog();
       break;
+    case 'r':
+      Serial.println("Send Device Reset Event");
+      mtpd.send_DeviceResetEvent();
+      break;
     case '\r':
     case '\n':
     case 'h':
@@ -237,6 +241,7 @@ void menu() {
                  "records to existing log)");
   Serial.println("\tx - Stop Logging data");
   Serial.println("\td - Dump Log");
+  Serial.println("\tr - reset MTP");
   Serial.println("\th - Menu");
   Serial.println();
 }
