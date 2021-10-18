@@ -4,7 +4,7 @@
 //---------------------------------------------------
 // Select drives you want to create
 //---------------------------------------------------
-#define USE_SD  1         // SDFAT based SDIO and SPI
+#define USE_SD  0         // SDFAT based SDIO and SPI
 #ifdef ARDUINO_TEENSY41
 #define USE_LFS_RAM 0     // T4.1 PSRAM (or RAM)
 #else
@@ -18,14 +18,14 @@
 #define USE_LFS_QSPI_NAND 0
 #define USE_LFS_FRAM 0
 #else
-#define USE_LFS_QSPI 1    // T4.1 QSPI
-#define USE_LFS_PROGM 1   // T4.4 Progam Flash
-#define USE_LFS_SPI 1     // SPI Flash
-#define USE_LFS_NAND 1
-#define USE_LFS_QSPI_NAND 0
+#define USE_LFS_QSPI 0    // T4.1 QSPI
+#define USE_LFS_PROGM 0   // T4.4 Progam Flash
+#define USE_LFS_SPI 0     // SPI Flash
+#define USE_LFS_NAND 0
+#define USE_LFS_QSPI_NAND 1
 #define USE_LFS_FRAM 0
 #endif
-#define USE_MSC 1    // set to > 0 experiment with MTP (USBHost.t36 + mscFS)
+#define USE_MSC 0    // set to > 0 experiment with MTP (USBHost.t36 + mscFS)
 #define USE_SW_PU  0 //set to 1 if SPI devices does not have PUs,
                      // https://www.pjrc.com/better-spi-bus-design-in-3-steps/
 
@@ -153,7 +153,11 @@ const int nspi_nsd = sizeof(nspi_cs)/sizeof(int);
 LittleFS_SPINAND nspifs[nspi_nsd]; // needs to be declared if LittleFS is used in storage.h
 #endif
 
-
+#if USE_LFS_QSPI_NAND == 1
+const char *qnspi_str[]={"WIN-M02"};     // edit to reflect your configuration
+const int qnspi_nsd = sizeof(qnspi_str)/sizeof(const char *);
+LittleFS_QPINAND qnspifs[qnspi_nsd]; // needs to be declared if LittleFS is used in storage.h
+#endif
 
 void storage_configure()
 {
@@ -349,24 +353,25 @@ int ReadAndEchoSerialChar() {
 void loop()
 {
     mtpd.loop();
-    myusb.Task();
-    bool storage_changed = false;
-    for (uint8_t i = 0; i < CNT_MSC; i++) {
-      if (*pmsFS[i] && !pmsFS_added_to_mtp[i]) {
-        // Lets see if we can get the volume label:
-        char volName[20];
-        if (pmsFS[i]->mscfs.getVolumeLabel(volName, sizeof(volName))) 
-          snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d-%s", i, volName);
-        else
-          snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d", i);
-        storage.addFilesystem(*pmsFS[i], pmsFS_display_name[i]);
-        pmsFS_added_to_mtp[i] = true;
-        storage_changed = true;
+    #if USE_MSC == 1
+      myusb.Task();
+      bool storage_changed = false;
+      for (uint8_t i = 0; i < CNT_MSC; i++) {
+        if (*pmsFS[i] && !pmsFS_added_to_mtp[i]) {
+          // Lets see if we can get the volume label:
+          char volName[20];
+          if (pmsFS[i]->mscfs.getVolumeLabel(volName, sizeof(volName))) 
+            snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d-%s", i, volName);
+          else
+            snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d", i);
+          storage.addFilesystem(*pmsFS[i], pmsFS_display_name[i]);
+          pmsFS_added_to_mtp[i] = true;
+          storage_changed = true;
+        }
+        // will add next part here..
       }
-      // will add next part here..
-    }
-    if (storage_changed) mtpd.send_DeviceResetEvent();
-	
+      if (storage_changed) mtpd.send_DeviceResetEvent();
+	  #endif
   if ( DBGSerial.available() ) {
     uint8_t command = DBGSerial.read();
     int ch = DBGSerial.read();
