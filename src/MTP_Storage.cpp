@@ -375,6 +375,11 @@ bool MTPStorage::updateDateTimeStamps(uint32_t handle, uint32_t dtCreated, uint3
 {
 	Record r = ReadIndexRecord(handle);
 	DateTimeFields dtf;
+	if ((dtCreated == 0) && (dtModified == 0)) {
+		MTPD::PrintStream()->printf("&&DT (0,0) (%u,%u)\n", r.dtCreate, r.dtModify);
+		return true;
+
+	}
 	OpenFileByIndex(handle, FILE_READ);
 	if (!file_) {
 		MTPD::PrintStream()->printf(
