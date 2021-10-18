@@ -2544,22 +2544,47 @@ void MTPD::processIntervalTimer() {
       }
     }
   }
+  // Check to see if we have a format timeout...
+  if (dtFormatStart_ && ((millis() - dtFormatStart_) > MAX_FORMAT_TIME_)) {
+    // BUGBUG assume the data has not changed since call to format
+    printf(">>> Format timeout <<< try to force sending response\n");
+    int len = CONTAINER->len;
+    CONTAINER->type = 3;
+    CONTAINER->op = MTP_RESPONSE_OK;
+    printContainer(); // to switch on set debug to 2 at beginning of file
+
+    memcpy(tx_data_buffer, rx_data_buffer, len);
+    push_packet(tx_data_buffer, len); // for acknowledge use rx_data_buffer
+    dtFormatStart_ = 0; 
+  }
 }
 
 uint32_t MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
   printf(" MTPD::formatStore2523 called\n");
   uint32_t store = Storage2Store(storage);
 
+  g_pmtpd_interval = this;
+  dtFormatStart_ = millis();  // remember when format started
+  printf("*** Start Interval Timer ***\n");
+  g_intervaltimer.begin(&_interval_timer_handler,
+                        50000); // try maybe 20 times per second...
+
   elapsedMillis emFormat = 0;
   uint8_t format_status = storage_->formatStore(store, p2);
   printf("Format Complete(%u %u) ***\n", format_status, (uint32_t)emFormat);
+
+  if (g_pmtpd_interval) {
+    g_pmtpd_interval = nullptr; // clear out timer.
+    g_intervaltimer.end();      // try maybe 20 times per second...
+    printf("*** end Interval Timer ***\n");
+  }
 
   if (format_status) {
 
 	Serial.println("Return Response OK");
     storage_->ResetIndex(); // maybe should add a less of sledge hammer here.
 	//send_DeviceResetEvent();
-    return MTP_RESPONSE_OK;
+    return dtFormatStart_ ? MTP_RESPONSE_OK : 0;
   }
 
   return MTP_RESPONSE_OPERATION_NOT_SUPPORTED; // 0x2005

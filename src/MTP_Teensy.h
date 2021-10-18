@@ -223,6 +223,9 @@ public:
   int object_id_;
   uint32_t dtCreated_;
   uint32_t dtModified_;
+  uint32_t dtFormatStart_ = 0;
+  static const uint32_t MAX_FORMAT_TIME_ = 2750; // give a little time. 
+
 };
 
 #endif
