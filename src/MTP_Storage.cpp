@@ -125,12 +125,11 @@ void MTPStorage::WriteIndexRecord(uint32_t i, const Record &r)
 	OpenIndex();
 	mtp_lock_storage(true);
 	if (i < MTPD_MAX_FILESYSTEMS) {
-		// smaller size records..
-		index_.seek(sizeof(RecordFS) * i);
-		index_.write((char *)&r, sizeof(RecordFS));
+		// all we need is the first child pointer and if it was scanned
+		store_first_child_[i] = r.child;
+		store_scanned_[i] = r.scanned;
 	} else {
-		uint32_t pos = (MTPD_MAX_FILESYSTEMS * sizeof(RecordFS)) + ((i-MTPD_MAX_FILESYSTEMS)*sizeof(r));
-		index_.seek(pos);		
+		index_.seek((i - MTPD_MAX_FILESYSTEMS) * sizeof(r));		
 		index_.write((char *)&r, sizeof(r));
 	}
 	mtp_lock_storage(false);
@@ -156,13 +155,18 @@ Record MTPStorage::ReadIndexRecord(uint32_t i)
 	OpenIndex();
 	mtp_lock_storage(true);
 	if (i < MTPD_MAX_FILESYSTEMS) {
-		// smaller size records..
-		index_.seek(sizeof(RecordFS) * i);
-		index_.read((char *)&ret, sizeof(RecordFS));
-
+		// Build it on the fly...
+		ret.store = i;
+		ret.parent = 0xFFFFFFFFUL;
+		ret.sibling = 0;
+		ret.child = store_first_child_[i];
+		ret.isdir = true;
+		ret.scanned = store_scanned_[i];
+		ret.dtModify = 0;
+		ret.dtCreate = 0;
+		strcpy(ret.name, "/");
 	} else {
-		uint32_t pos = (MTPD_MAX_FILESYSTEMS * sizeof(RecordFS)) + ((i-MTPD_MAX_FILESYSTEMS)*sizeof(ret));
-		index_.seek(pos);
+		index_.seek((i - MTPD_MAX_FILESYSTEMS) * sizeof(ret));		
 		index_.read((char *)&ret, sizeof(ret));
 	}
 
@@ -620,8 +624,8 @@ void MTPStorage::dumpIndexList(void)
 	for (uint32_t ii = 0; ii < index_entries_; ii++) {
 		if ((ii < fsCount) || (ii >= MTPD_MAX_FILESYSTEMS)) {
 			Record p = ReadIndexRecord(ii);
-			MTPD::PrintStream()->printf("%d: %d %d %d %d %d %u %u %s\n",
-				ii, p.store, p.isdir, p.parent, p.sibling, p.child,
+			MTPD::PrintStream()->printf("%d: %d %d %u %d %d %d %u %u %s\n",
+				ii, p.store, p.isdir, p.scanned, p.parent, p.sibling, p.child,
 				p.dtCreate, p.dtModify, p.name);
 		}
 	}
