@@ -39,12 +39,45 @@ uint32_t LFSRAM_SIZE = 65536; // probably more than enough...
 LittleFS_RAM lfsram;
 
 
+//----------------------------------------------------------------------------
+// Experiment with LittleFS_SPI wrapper
+//----------------------------------------------------------------------------
 #ifdef ARDUINO_TEENSY41
-LittleFS_QSPIFlash lfsqflash;
-LittleFS_QPINAND lfsqnand;
+class lfs_qspi {
+public:
+  lfs_qspi(){}
+  bool begin();
+  inline FS * fs() { return plfs;}
+  inline const char * displayName() {return display_name;}
+  // You have full access to internals.
+  uint8_t csPin;
+  LittleFS_QSPIFlash flash;
+  LittleFS_QPINAND nand;
+  LittleFS *plfs = nullptr;
+  char display_name[10];
+};
+bool lfs_qspi::begin() {
+  Serial.printf("Try QSPI");
+  if (flash.begin()) {
+    Serial.println(" *** Flash ***");
+    strcpy(display_name, "QFlash");
+    plfs = &flash;
+    return true;
+  } else if (nand.begin()) {
+    Serial.println(" *** Nand ***");
+    strcpy(display_name, "QNAND");
+    plfs = &nand;
+    return true;
+  }
+  Serial.println(" ### Failed ###");
+  return false;
+}
+  lfs_qspi lfsq;
 #endif
 
+//----------------------------------------------------------------------------
 // Experiment with LittleFS_SPI wrapper
+//----------------------------------------------------------------------------
 class lfs_spi {
 public:
   lfs_spi(uint8_t pin) : csPin(pin) {}
@@ -166,13 +199,8 @@ bool lfs_spi::begin() {
     }
 
 #ifdef ARDUINO_TEENSY41
-    if (lfsqflash.begin()) {
-      storage.addFilesystem(lfsqflash, "QFlash");
-    } else if (lfsqnand.begin()) {
-      storage.addFilesystem(lfsqnand, "QNand");
-
-    } else {
-      Serial.println("T4.1 does not have external Flash chip");
+    if (lfsq.begin()) {
+       storage.addFilesystem(*lfsq.fs(), lfsq.displayName());
     }
 #endif
 
