@@ -54,6 +54,19 @@ struct Record {
   char name[MAX_FILENAME_LEN];
 };
 
+// Cheat for size For FS dont need 256 bytes to hold "/"
+struct RecordFS {
+  uint32_t parent;
+  uint32_t child; // size stored here for files
+  uint32_t sibling;
+  uint32_t dtModify;
+  uint32_t dtCreate;
+  uint8_t isdir;
+  uint8_t scanned;
+  uint16_t store; // index int physical storage (0 ... num_storages-1)
+  char name[2];
+};
+
 
 class MTPStorage final {
 public:

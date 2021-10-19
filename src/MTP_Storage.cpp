@@ -124,8 +124,15 @@ void MTPStorage::WriteIndexRecord(uint32_t i, const Record &r)
 {
 	OpenIndex();
 	mtp_lock_storage(true);
-	index_.seek((sizeof(r) * i));
-	index_.write((char *)&r, sizeof(r));
+	if (i < MTPD_MAX_FILESYSTEMS) {
+		// smaller size records..
+		index_.seek(sizeof(RecordFS) * i);
+		index_.write((char *)&r, sizeof(RecordFS));
+	} else {
+		uint32_t pos = (MTPD_MAX_FILESYSTEMS * sizeof(RecordFS)) + ((i-MTPD_MAX_FILESYSTEMS)*sizeof(r));
+		index_.seek(pos);		
+		index_.write((char *)&r, sizeof(r));
+	}
 	mtp_lock_storage(false);
 }
 
@@ -148,8 +155,17 @@ Record MTPStorage::ReadIndexRecord(uint32_t i)
 	}
 	OpenIndex();
 	mtp_lock_storage(true);
-	index_.seek(sizeof(ret) * i);
-	index_.read((char *)&ret, sizeof(ret));
+	if (i < MTPD_MAX_FILESYSTEMS) {
+		// smaller size records..
+		index_.seek(sizeof(RecordFS) * i);
+		index_.read((char *)&ret, sizeof(RecordFS));
+
+	} else {
+		uint32_t pos = (MTPD_MAX_FILESYSTEMS * sizeof(RecordFS)) + ((i-MTPD_MAX_FILESYSTEMS)*sizeof(ret));
+		index_.seek(pos);
+		index_.read((char *)&ret, sizeof(ret));
+	}
+
 	mtp_lock_storage(false);
 	return ret;
 }
@@ -216,10 +232,12 @@ void MTPStorage::GenerateIndex(uint32_t store)
 		remove(index_file_storage_, indexFile);
 	}
 	mtp_lock_storage(false);
-	num_storage = getFSCount();
+	//num_storage = getFSCount();
 	index_entries_ = 0;
 	Record r;
-	for (int ii = 0; ii < num_storage; ii++) {
+	// BugBug - will generate index for max file systems count... 
+	// Note hacked up storage of these items...
+	for (int ii = 0; ii < MTPD_MAX_FILESYSTEMS; ii++) {
 		r.store = ii;
 		r.parent = 0xFFFFFFFFUL;
 		r.sibling = 0;
@@ -597,11 +615,15 @@ bool MTPStorage::rename(uint32_t handle, const char *name)
 
 void MTPStorage::dumpIndexList(void)
 {
+	if (index_entries_ == 0) return;
+	uint32_t fsCount = getFSCount();
 	for (uint32_t ii = 0; ii < index_entries_; ii++) {
-		Record p = ReadIndexRecord(ii);
-		MTPD::PrintStream()->printf("%d: %d %d %d %d %d %u %u %s\n",
-			ii, p.store, p.isdir, p.parent, p.sibling, p.child,
-			p.dtCreate, p.dtModify, p.name);
+		if ((ii < fsCount) || (ii >= MTPD_MAX_FILESYSTEMS)) {
+			Record p = ReadIndexRecord(ii);
+			MTPD::PrintStream()->printf("%d: %d %d %d %d %d %u %u %s\n",
+				ii, p.store, p.isdir, p.parent, p.sibling, p.child,
+				p.dtCreate, p.dtModify, p.name);
+		}
 	}
 }
 
