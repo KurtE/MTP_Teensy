@@ -24,6 +24,8 @@ MTPD mtpd(&storage);
 // Add USBHost objectsUsbFs
 USBHost myusb;
 USBHub hub1(myusb);
+USBHub hub2(myusb);
+USBHub hub(myusb);
 
 // MSC objects.
 msController drive1(myusb);
@@ -35,12 +37,12 @@ msFilesystem msFS3(myusb);
 msFilesystem msFS4(myusb);
 msFilesystem msFS5(myusb);
 
-// Quick and dirty 
+// Quick and dirty
 msFilesystem *pmsFS[] = {&msFS1, &msFS2, &msFS3, &msFS4, &msFS5};
 #define CNT_MSC  (sizeof(pmsFS)/sizeof(pmsFS[0]))
-bool pmsFS_added_to_mtp[CNT_MSC] = {false, false, false, false, false};
+uint32_t pmsfs_store_ids[CNT_MSC] = {0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL};
 char  pmsFS_display_name[CNT_MSC][20];
- 
+
 FS *mscDisk;
 
 #include <LittleFS.h>
@@ -49,7 +51,7 @@ LittleFS_RAM lfsram;
 
 
 #ifdef ARDUINO_TEENSY41
-  extern "C" uint8_t external_psram_size;
+extern "C" uint8_t external_psram_size;
 #endif
 
 
@@ -64,53 +66,37 @@ void setup() {
   Serial.println("\n" __FILE__ " " __DATE__ " " __TIME__);
   delay(3000);
 
+  // startup mtp.. SO to not timeout...
+  mtpd.begin();
 // lets initialize a RAM drive.
 #if defined ARDUINO_TEENSY41
-    if (external_psram_size)
-      LFSRAM_SIZE = 4 * 1024 * 1024;
+  if (external_psram_size)
+    LFSRAM_SIZE = 4 * 1024 * 1024;
 #endif
-    if (lfsram.begin(LFSRAM_SIZE)) {
-      Serial.printf("Ram Drive of size: %u initialized\n", LFSRAM_SIZE);
-      uint32_t istore = storage.addFilesystem(lfsram, "RAM");
-//    if (istore != 0xFFFFFFFFUL)
-//      storage.setIndexStore(istore);
-      Serial.printf("Set Storage Index drive to %u\n", istore);
-    }
+  if (lfsram.begin(LFSRAM_SIZE)) {
+    Serial.printf("Ram Drive of size: %u initialized\n", LFSRAM_SIZE);
+    uint32_t istore = storage.addFilesystem(lfsram, "RAM");
+    Serial.printf("Set Storage Index drive to %u\n", istore);
+  }
 
 
   myusb.begin();
 
   Serial.print("Initializing MSC Drives ...");
 
-  mtpd.begin();
   Serial.println("\nInitializing USB MSC drives...");
 
   Serial.println("MSC and MTP initialized.");
+  checkMSCChanges();
 
   menu();
 }
 
 void loop() {
-    mtpd.loop();
-    myusb.Task();
-    bool storage_changed = false;
-    for (uint8_t i = 0; i < CNT_MSC; i++) {
-      if (*pmsFS[i] && !pmsFS_added_to_mtp[i]) {
-        // Lets see if we can get the volume label:
-        char volName[20];
-        if (pmsFS[i]->mscfs.getVolumeLabel(volName, sizeof(volName))) 
-          snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d-%s", i, volName);
-        else
-          snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d", i);
-        storage.addFilesystem(*pmsFS[i], pmsFS_display_name[i]);
-        pmsFS_added_to_mtp[i] = true;
-        storage_changed = true;
-      }
-      // will add next part here..
-    }
-    if (storage_changed) mtpd.send_DeviceResetEvent();
+  checkMSCChanges();
+  mtpd.loop();
 
-    if (Serial.available()) {
+  if (Serial.available()) {
     uint8_t command = Serial.read();
     int ch = Serial.read();
     uint32_t drive_index = CommandLineReadNextNumber(ch, 0);
@@ -127,7 +113,7 @@ void loop() {
     case 's': {
       Serial.println("\nLogging Data!!!");
       write_data = true; // sets flag to continue to write data until new
-                         // command is received
+      // command is received
       // opens a file or creates a file if not present,  FILE_WRITE will append
       // data to
       // to the file created.
@@ -175,6 +161,33 @@ void loop() {
 
   if (write_data)
     logData();
+}
+
+void checkMSCChanges() {
+  myusb.Task();
+  bool send_device_reset = false;
+  for (uint8_t i = 0; i < CNT_MSC; i++) {
+    if (*pmsFS[i] && (pmsfs_store_ids[i] == 0xFFFFFFFFUL)) {
+      // Lets see if we can get the volume label:
+      char volName[20];
+      if (pmsFS[i]->mscfs.getVolumeLabel(volName, sizeof(volName)))
+        snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d-%s", i, volName);
+      else
+        snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d", i);
+      pmsfs_store_ids[i] = storage.addFilesystem(*pmsFS[i], pmsFS_display_name[i]);
+
+      // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
+      if (mtpd.send_StoreAddedEvent(pmsfs_store_ids[i]) < 0) send_device_reset = true;
+    }
+    // Or did volume go away?
+    else if ((pmsfs_store_ids[i] != 0xFFFFFFFFUL) && !*pmsFS[i] ) {
+      if (mtpd.send_StoreRemovedEvent(pmsfs_store_ids[i]) < 0) send_device_reset = true;
+      storage.removeFilesystem(pmsfs_store_ids[i]);
+      // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
+      pmsfs_store_ids[i] = 0xFFFFFFFFUL;
+    }
+  }
+  if (send_device_reset) mtpd.send_DeviceResetEvent();
 }
 
 void logData() {
@@ -230,6 +243,7 @@ void dumpLog() {
   }
 }
 
+
 void menu() {
   Serial.println();
   Serial.println("Menu Options:");
@@ -284,11 +298,11 @@ void printDirectory(File dir, int numSpaces) {
     printSpaces(36 - numSpaces - strlen(entry.name()));
 
     if (entry.getCreateTime(dtf)) {
-      Serial.printf(" C: %02u/%02u/%04u %02u:%02u", dtf.mon+1, dtf.mday, dtf.year+1900, dtf.hour, dtf.min );
+      Serial.printf(" C: %02u/%02u/%04u %02u:%02u", dtf.mon + 1, dtf.mday, dtf.year + 1900, dtf.hour, dtf.min );
     }
 
     if (entry.getModifyTime(dtf)) {
-      Serial.printf(" M: %02u/%02u/%04u %02u:%02u", dtf.mon+1, dtf.mday, dtf.year+1900, dtf.hour, dtf.min );
+      Serial.printf(" M: %02u/%02u/%04u %02u:%02u", dtf.mon + 1, dtf.mday, dtf.year + 1900, dtf.hour, dtf.min );
     }
     if (entry.isDirectory()) {
       Serial.println("  /");

@@ -8,9 +8,8 @@
 */
 #include "SD.h"
 #include <MTP_Teensy.h>
-#include <SDMTPClass.h>
 
-#define SPI_SPEED SD_SCK_MHZ(16) // adjust to sd card
+#define SPI_SPEED SD_SCK_MHZ(25) // adjust to sd card
 
 File dataFile; // Specifes that dataFile is of File type
 
@@ -24,33 +23,31 @@ uint8_t current_store = 0;
 MTPStorage storage;
 MTPD mtpd(&storage);
 
+#if defined(ARDUINO_TEENSY41) || defined(ARDUINO_TEENSY36) || defined(ARDUINO_TEENSY35)
 #define USE_BUILTIN_SDCARD
-#if defined(USE_BUILTIN_SDCARD) && defined(BUILTIN_SDCARD)
-SDMTPClass mySD{mtpd, storage, "SDIO", BUILTIN_SDCARD};
+SDClass sdSDIO;
 #endif
+
+const int SD_ChipSelect = 10;
+SDClass sdSPI;
 
 // Experiment add memory FS to mainly hold the storage index
 // May want to wrap this all up as well
-#include "LittleFSCombine.h"
-#include <LFS_MTP_Callback.h>
+//#include "LittleFSCombine.h"
 #include <LittleFS.h>
 uint32_t LFSRAM_SIZE = 65536; // probably more than enough...
 LittleFS_RAM lfsram;
-LittleFSMTPCB lfsmtpcb;
 
 LittleFS_Program lfsProg; // Used to create FS on the Flash memory of the chip
-LittleFSMTPCB lfsmtpProgcb;
 
 #ifdef ARDUINO_TEENSY41
 LittleFS_QSPI lfsqspi;
-LittleFSMTPCB lfsmtpQSPIcb;
 #endif
 
 // Experiment with LittleFS_SPI wrapper
 uint8_t lfsSPIPins[] = {3, 4, 5, 6};
 #define CLFSSPIPINS (sizeof(lfsSPIPins) / sizeof(lfsSPIPins[0]))
 LittleFS_SPI lfsspi[CLFSSPIPINS];
-LittleFSMTPCB lfsmtpSPIcb[CLFSSPIPINS];
 
 FS *myfs = &lfsProg; // current default FS...
 
@@ -124,9 +121,7 @@ void setup() {
   // Lets add the Program memory version:
   // checks that the LittFS program has started with the disk size specified
   if (lfsProg.begin(file_system_size)) {
-    lfsmtpProgcb.set_formatLevel(true); // sets formating to lowLevelFormat
-    storage.addFilesystem(lfsProg, "Program", &lfsmtpProgcb,
-                          (uint32_t)(LittleFS *)&lfsProg);
+    storage.addFilesystem(lfsProg, "Program");
   } else {
     Serial.println("Error starting Program Flash storage");
   }
@@ -139,19 +134,15 @@ void setup() {
 #endif
   if (lfsram.begin(LFSRAM_SIZE)) {
     DBGSerial.printf("Ram Drive of size: %u initialized\n", LFSRAM_SIZE);
-    lfsmtpcb.set_formatLevel(true); // sets formating to lowLevelFormat
-    uint32_t istore = storage.addFilesystem(lfsram, "RAM", &lfsmtpcb,
-                                            (uint32_t)(LittleFS *)&lfsram);
-    if (istore != 0xFFFFFFFFUL)
-      storage.setIndexStore(istore);
+    uint32_t istore = storage.addFilesystem(lfsram, "RAM");
+//    if (istore != 0xFFFFFFFFUL)
+//      storage.setIndexStore(istore);
     DBGSerial.printf("Set Storage Index drive to %u\n", istore);
   }
 
 #ifdef ARDUINO_TEENSY41
   if (lfsqspi.begin()) {
-    lfsmtpQSPIcb.set_formatLevel(true); // sets formating to lowLevelFormat
-    storage.addFilesystem(*(lfsqspi.plfs()), lfsqspi.displayName(),
-                          &lfsmtpQSPIcb, (uint32_t)(lfsqspi.plfs()));
+    storage.addFilesystem(lfsqspi, lfsqspi.displayName());
   } else {
     Serial.println("T4.1 does not have external Flash chip");
   }
@@ -159,15 +150,20 @@ void setup() {
 
   for (uint8_t i = 0; i < CLFSSPIPINS; i++) {
     if (lfsspi[i].begin(lfsSPIPins[i])) {
-      lfsmtpSPIcb[i].set_formatLevel(true); // sets formating to lowLevelFormat
-      storage.addFilesystem(*(lfsspi[i].plfs()), lfsspi[i].displayName(),
-                            &lfsmtpSPIcb[i], (uint32_t)(lfsspi[i].plfs()));
+      storage.addFilesystem(lfsspi[i], lfsspi[i].displayName());
     }
   }
 
-#if defined(USE_BUILTIN_SDCARD) && defined(BUILTIN_SDCARD)
-  mySD.init(true);
+SDClass sdSPI;
+#if defined(USE_BUILTIN_SDCARD)
+  if (sdSDIO.begin(BUILTIN_SDCARD)) {
+    storage.addFilesystem(sdSDIO, "SD_Builtin");
+  }
 #endif
+
+  if (sdSPI.begin(SD_ChipSelect)) {
+    storage.addFilesystem(sdSPI, "SD_SPI");
+  }
 
   DBGSerial.printf("%u Storage list initialized.\n", millis());
   menu();
@@ -325,37 +321,8 @@ void listFiles() {
   printDirectory(myfs);
 }
 
-extern PFsLib pfsLIB;
 void eraseFiles() {
 
-#if 1
-  // Lets try asking storage for enough stuff to call it's format code
-  bool send_device_reset = false;
-  MTPStorageInterfaceCB *callback = storage.getCallback(current_store);
-  uint32_t user_token = storage.getUserToken(current_store);
-  if (callback) {
-    send_device_reset =
-        (callback->formatStore(&storage, current_store, user_token, 0, true) ==
-         MTPStorageInterfaceCB::FORMAT_SUCCESSFUL);
-  }
-  if (send_device_reset) {
-    DBGSerial.println("\nFiles erased !");
-    mtpd.send_DeviceResetEvent();
-  } else {
-    DBGSerial.println("\n failed !");
-  }
-
-#else
-  PFsVolume partVol;
-  if (!partVol.begin(myfs->sdfs.card(), true, 1)) {
-    DBGSerial.println("Failed to initialize partition");
-    return;
-  }
-  if (pfsLIB.formatter(partVol)) {
-    DBGSerial.println("\nFiles erased !");
-    mtpd.send_DeviceResetEvent();
-  }
-#endif
 }
 
 void printDirectory(FS *pfs) {

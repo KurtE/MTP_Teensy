@@ -377,6 +377,7 @@ void MTPD::WriteStorageIDs() {
     if (storage_->get_FSName(ii))
       write32(Store2Storage(ii)); // storage id
   }
+  storage_ids_sent_ = true;
 }
 
 void MTPD::GetStorageInfo(uint32_t storage) {
@@ -2379,7 +2380,7 @@ bool MTPD::SendObject() {
     uint32_t to_copy =
         min(bytes, DISK_BUFFER_SIZE -
                        disk_pos); // how many data to copy to disk buffer
-    printf("    %u %u %u\n", len, bytes, to_copy);
+    //printf("    %u %u %u\n", len, bytes, to_copy);
     memcpy(disk_buffer_ + disk_pos, rx_data_buffer + index, to_copy);
     disk_pos += to_copy;
     bytes -= to_copy;
@@ -2889,7 +2890,7 @@ int usb_mtp_sendEvent(const void *buffer, uint32_t len, uint32_t timeout) {
   usb_transmit(MTP_EVENT_ENDPOINT, xfer);
   return len;
 }
-}
+}  // extern "C"
 
 #endif
 const uint32_t EVENT_TIMEOUT = 60;
@@ -2944,6 +2945,7 @@ int MTPD::send_Event(uint16_t eventCode, uint32_t p1, uint32_t p2,
 }
 
 int MTPD::send_DeviceResetEvent(void) {
+  storage_ids_sent_ = false;  // clear it for now
   return send_Event(MTP_EVENT_DEVICE_RESET);
 }
 // following WIP
@@ -2960,10 +2962,13 @@ int MTPD::send_removeObjectEvent(uint32_t p1) {
 }
 
 int MTPD::send_StoreAddedEvent(uint32_t store) {
+  if (!storage_ids_sent_) return 0; // Don't need to send. 
+
   return send_Event(MTP_EVENT_STORE_ADDED, Store2Storage(store));
 }
 
 int MTPD::send_StoreRemovedEvent(uint32_t store) {
+  if (!storage_ids_sent_) return 0; // Don't need to send. 
   return send_Event(MTP_EVENT_STORE_REMOVED, Store2Storage(store));
 }
 
