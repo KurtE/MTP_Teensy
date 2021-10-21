@@ -30,6 +30,7 @@ USBHub hub(myusb);
 // MSC objects.
 msController drive1(myusb);
 msController drive2(myusb);
+msController drive3(myusb);
 
 msFilesystem msFS1(myusb);
 msFilesystem msFS2(myusb);
