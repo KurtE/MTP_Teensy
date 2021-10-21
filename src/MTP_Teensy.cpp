@@ -299,9 +299,6 @@ void MTPD::write16(uint16_t x) { write((char *)&x, sizeof(x)); }
 void MTPD::write32(uint32_t x) { write((char *)&x, sizeof(x)); }
 void MTPD::write64(uint64_t x) { write((char *)&x, sizeof(x)); }
 
-//#define Store2Storage(x) (x+1)
-//#define Storage2Store(x) (x-1)
-
 void MTPD::writestring(const char *str) {
   if (*str) {
     write8(strlen(str) + 1);
@@ -2581,11 +2578,23 @@ uint32_t MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
   }
 
   if (format_status) {
+    Serial.println("Return Response OK");
+    storage_->clearStoreIndexItems(store); // maybe should add a less of sledge hammer here.
+    // Lets first make sure to send response.
+    if (dtFormatStart_ != 0) {
+      int len = CONTAINER->len;
+      CONTAINER->type = 3;
+      CONTAINER->op = MTP_RESPONSE_OK;
+      printContainer(); // to switch on set debug to 2 at beginning of file
 
-	Serial.println("Return Response OK");
-    storage_->ResetIndex(); // maybe should add a less of sledge hammer here.
-	//send_DeviceResetEvent();
-    return dtFormatStart_ ? MTP_RESPONSE_OK : 0;
+      memcpy(tx_data_buffer, rx_data_buffer, len);
+      push_packet(tx_data_buffer, len); // for acknowledge use rx_data_buffer
+      dtFormatStart_ = 0; 
+    }
+    // And send device reset
+    //send_DeviceResetEvent();
+    send_StorageInfoChangedEvent(storage);
+    return 0;
   }
 
   return MTP_RESPONSE_OPERATION_NOT_SUPPORTED; // 0x2005

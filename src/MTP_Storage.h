@@ -62,6 +62,7 @@ public:
 		return addFilesystem(fs, name);
 	}
 	bool removeFilesystem(uint32_t store);
+	bool clearStoreIndexItems(uint32_t store);
 	bool setIndexStore(uint32_t storage = 0);
 	uint32_t getStoreID(const char *fsname) {
 		for (unsigned int i = 0; i < fsCount; i++) {
@@ -77,6 +78,8 @@ public:
 		if (store < (uint32_t)fsCount) return fs[store];
 		return nullptr;
 	}
+	inline uint8_t storeMinorIndex(uint32_t store) {return store_storage_minor_index_[store];}
+
 	uint32_t getFSCount(void) {
 		return fsCount;
 	}
@@ -164,6 +167,7 @@ private:
 	FS *fs[MTPD_MAX_FILESYSTEMS];
 	uint32_t store_first_child_[MTPD_MAX_FILESYSTEMS];
 	uint8_t store_scanned_[MTPD_MAX_FILESYSTEMS];
+	uint8_t store_storage_minor_index_[MTPD_MAX_FILESYSTEMS];
 	uint32_t index_entries_ = 0;
 	bool index_generated = false;
 	bool all_scanned_ = false;

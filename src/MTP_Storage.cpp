@@ -855,8 +855,23 @@ uint32_t MTPStorage::addFilesystem(FS &disk, const char *diskname)
 	if (fsCount < MTPD_MAX_FILESYSTEMS) {
 		name[fsCount] = diskname;
 		fs[fsCount] = &disk;
+		store_storage_minor_index_[fsCount] = 1; // start off with 1
 		MTPD::PrintStream()->printf("addFilesystem: %d %s %x\n", fsCount, diskname, (uint32_t)fs[fsCount]);
 		return fsCount++;
+	} else {
+		// See if we can reuse index
+		for (uint32_t store=0; store < MTPD_MAX_FILESYSTEMS; store++) {
+			if (fs[store] == nullptr) {
+				// found one to reuse.
+				name[store] = diskname;
+				fs[store] = &disk;
+				store_first_child_[store] = 0;
+				store_scanned_[store] = false;
+				store_storage_minor_index_[store]++;
+				MTPD::PrintStream()->printf("addFilesystem(%u): %d %s %x\n", store_storage_minor_index_[store], store, diskname, (uint32_t)fs[store]);
+				return store;
+			}
+		}		
 	}
 	return 0xFFFFFFFFUL; // no room left
 }
@@ -867,10 +882,25 @@ bool MTPStorage::removeFilesystem(uint32_t store)
 	if ((store < fsCount) && (name[store])) {
 		name[store] = nullptr;
 		fs[store] = nullptr;
+		// Now lets see about pruning
+		clearStoreIndexItems(store);
+
 		return true;
 	}
 	return false;
 }
+
+bool MTPStorage::clearStoreIndexItems(uint32_t store)
+{
+	if (store >= fsCount) return false;
+	if (store_first_child_[store] == 0) return true;
+	// first pass simple...
+	store_first_child_[store] = 0;
+	store_scanned_[store] = 0;
+
+	return true;
+}
+
 
 
 bool MTPStorage::copy(uint32_t store0, char *oldfilename, uint32_t store1, char *newfilename)

@@ -195,8 +195,8 @@ public:
       char *pb,
       uint32_t cb); // you can extend the send object buffer by this buffer
 
-  static inline uint32_t Store2Storage(uint32_t store) {
-    return ((store + 1) << 16) | 1;
+ inline uint32_t Store2Storage(uint32_t store) {
+    return ((store + 1) << 16) | storage_->storeMinorIndex(store);
   }
   static inline uint32_t Storage2Store(uint32_t storage) {
     return (storage >> 16) - 1;
