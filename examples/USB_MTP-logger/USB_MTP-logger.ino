@@ -44,6 +44,10 @@ msFilesystem *pmsFS[] = {&msFS1, &msFS2, &msFS3, &msFS4, &msFS5};
 uint32_t pmsfs_store_ids[CNT_MSC] = {0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL};
 char  pmsFS_display_name[CNT_MSC][20];
 
+msController *pdrives[] {&drive1, &drive2, &drive3};
+#define CNT_DRIVES  (sizeof(pdrives)/sizeof(pdrives[0]))
+bool drive_previous_connected[CNT_DRIVES] = {false, false, false};
+
 FS *mscDisk;
 
 #include <LittleFS.h>
@@ -166,6 +170,22 @@ void loop() {
 
 void checkMSCChanges() {
   myusb.Task();
+
+  USBMSCDevice mscDrive;
+  PFsLib pfsLIB;
+  for (uint8_t i=0; i < CNT_DRIVES; i++) {
+    if (*pdrives[i]) {
+      if (!drive_previous_connected[i]) {
+        if (mscDrive.begin(pdrives[i])) {
+          Serial.printf("\nUSB Drive: %u connected\n", i);
+          pfsLIB.mbrDmp(&mscDrive, (uint32_t)-1, Serial);
+          drive_previous_connected[i] = true;
+        }
+      }
+    } else {
+      drive_previous_connected[i] = false;
+    }
+  }
   bool send_device_reset = false;
   for (uint8_t i = 0; i < CNT_MSC; i++) {
     if (*pmsFS[i] && (pmsfs_store_ids[i] == 0xFFFFFFFFUL)) {
