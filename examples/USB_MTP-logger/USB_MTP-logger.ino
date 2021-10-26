@@ -179,6 +179,8 @@ void checkMSCChanges() {
         if (mscDrive.begin(pdrives[i])) {
           Serial.printf("\nUSB Drive: %u connected\n", i);
           pfsLIB.mbrDmp(&mscDrive, (uint32_t)-1, Serial);
+          Serial.printf("\nTry Partition list");
+          pfsLIB.listPartitions(&mscDrive, Serial);
           drive_previous_connected[i] = true;
         }
       }
@@ -189,6 +191,7 @@ void checkMSCChanges() {
   bool send_device_reset = false;
   for (uint8_t i = 0; i < CNT_MSC; i++) {
     if (*pmsFS[i] && (pmsfs_store_ids[i] == 0xFFFFFFFFUL)) {
+      Serial.printf("Found new Volume:%u\n", i); Serial.flush();
       // Lets see if we can get the volume label:
       char volName[20];
       if (pmsFS[i]->mscfs.getVolumeLabel(volName, sizeof(volName)))
