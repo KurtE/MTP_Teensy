@@ -2592,8 +2592,8 @@ uint32_t MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
       dtFormatStart_ = 0; 
     }
     // And send device reset
-    //send_DeviceResetEvent();
-    send_StorageInfoChangedEvent(storage);
+    send_DeviceResetEvent();
+    //send_StorageInfoChangedEvent(storage);
     return 0;
   }
 
