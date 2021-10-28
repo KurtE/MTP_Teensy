@@ -57,19 +57,19 @@ public:
   char display_name[10];
 };
 bool lfs_qspi::begin() {
-  Serial.printf("Try QSPI");
+  //Serial.printf("Try QSPI");
   if (flash.begin()) {
-    Serial.println(" *** Flash ***");
-    strcpy(display_name, "QFlash");
+    //Serial.println(" *** Flash ***");
+    strcpy(display_name, (const char *)F("QFlash"));
     plfs = &flash;
     return true;
   } else if (nand.begin()) {
-    Serial.println(" *** Nand ***");
-    strcpy(display_name, "QNAND");
+    //Serial.println(" *** Nand ***");
+    strcpy(display_name, (const char *)F("QNAND"));
     plfs = &nand;
     return true;
   }
-  Serial.println(" ### Failed ###");
+  //Serial.println(" ### Failed ###");
   return false;
 }
   lfs_qspi lfsq;
@@ -93,20 +93,20 @@ public:
   char display_name[10];
 };
 bool lfs_spi::begin() {
-  Serial.printf("Try SPI Pin %u", csPin);
+  //Serial.printf("Try SPI Pin %u", csPin);
   if (flash.begin(csPin)) {
-    Serial.println(" *** Flash ***");
-    sprintf(display_name, "Flash_%u", csPin);
+    //Serial.println(" *** Flash ***");
+    sprintf(display_name, (const char *)F("Flash_%u"), csPin);
     plfs = &flash;
     return true;
   } else if (fram.begin(csPin)) {
-    Serial.println(" *** Fram ***");
-    sprintf(display_name, "Fram_%u", csPin);
+    //Serial.println(" *** Fram ***");
+    sprintf(display_name, (const char *)F("Fram_%u"), csPin);
     plfs = &fram;
     return true;
   } else if (nand.begin(csPin)) {
-    Serial.println(" *** Nand ***");
-    sprintf(display_name, "NAND_%u", csPin);
+    //Serial.println(" *** Nand ***");
+    sprintf(display_name, (const char *)F("NAND_%u"), csPin);
     plfs = &nand;
     return true;
   }
