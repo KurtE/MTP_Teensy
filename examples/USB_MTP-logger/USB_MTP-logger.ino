@@ -83,7 +83,7 @@ void setup() {
     uint32_t istore = storage.addFilesystem(lfsram, "RAM");
     Serial.printf("Set Storage Index drive to %u\n", istore);
   }
-
+  mscDisk = &lfsram;  // so we don't start of with NULL pointer
 
   myusb.begin();
 
