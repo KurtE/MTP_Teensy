@@ -110,7 +110,7 @@ bool lfs_spi::begin() {
     plfs = &nand;
     return true;
   }
-  Serial.println(" ### Failed ###");
+  //Serial.println(" ### Failed ###");
   return false;
 }
 
