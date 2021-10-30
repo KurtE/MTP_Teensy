@@ -4,7 +4,7 @@
 //---------------------------------------------------
 // Select drives you want to create
 //---------------------------------------------------
-#define USE_SD  0         // SDFAT based SDIO and SPI
+#define USE_SD  1         // SDFAT based SDIO and SPI
 #ifdef ARDUINO_TEENSY41
 #define USE_LFS_RAM 0     // T4.1 PSRAM (or RAM)
 #else
@@ -18,14 +18,14 @@
 #define USE_LFS_QSPI_NAND 0
 #define USE_LFS_FRAM 0
 #else
-#define USE_LFS_QSPI 0    // T4.1 QSPI
-#define USE_LFS_PROGM 0   // T4.4 Progam Flash
-#define USE_LFS_SPI 0     // SPI Flash
-#define USE_LFS_NAND 0
-#define USE_LFS_QSPI_NAND 1
+#define USE_LFS_QSPI 1    // T4.1 QSPI
+#define USE_LFS_PROGM 1   // T4.4 Progam Flash
+#define USE_LFS_SPI 1     // SPI Flash
+#define USE_LFS_NAND 1
+#define USE_LFS_QSPI_NAND 0
 #define USE_LFS_FRAM 0
 #endif
-#define USE_MSC 0    // set to > 0 experiment with MTP (USBHost.t36 + mscFS)
+#define USE_MSC 1    // set to > 0 experiment with MTP (USBHost.t36 + mscFS)
 #define USE_SW_PU  0 //set to 1 if SPI devices does not have PUs,
                      // https://www.pjrc.com/better-spi-bus-design-in-3-steps/
 
@@ -88,6 +88,8 @@ SDClass sdx[nsd];
 // Add USBHost objectsUsbFs
 USBHost myusb;
 USBHub hub1(myusb);
+USBHub hub2(myusb);
+USBHub hub(myusb);
 
 // MSC objects.
 msController drive1(myusb);
@@ -101,12 +103,15 @@ msFilesystem msFS3(myusb);
 msFilesystem msFS4(myusb);
 msFilesystem msFS5(myusb);
 
-// Quick and dirty 
+// Quick and dirty
 msFilesystem *pmsFS[] = {&msFS1, &msFS2, &msFS3, &msFS4, &msFS5};
 #define CNT_MSC  (sizeof(pmsFS)/sizeof(pmsFS[0]))
-bool pmsFS_added_to_mtp[CNT_MSC] = {false, false, false, false, false};
+uint32_t pmsfs_store_ids[CNT_MSC] = {0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL};
 char  pmsFS_display_name[CNT_MSC][20];
- 
+
+msController *pdrives[] {&drive1, &drive2, &drive3, &drive4};
+#define CNT_DRIVES  (sizeof(pdrives)/sizeof(pdrives[0]))
+bool drive_previous_connected[CNT_DRIVES] = {false, false, false, false};
 #endif
 
 
@@ -329,19 +334,21 @@ void setup()
   DBGSerial.println("\n" __FILE__ " " __DATE__ " " __TIME__);
   delay(3000);
   
-#if USE_MSC == 1
-  // let msusb stuff startup as soon as possible
-    myusb.begin();
-    Serial.print("Initializing MSC Drives ...");
-#endif 
-    
+
   //This is mandatory to begin the mtpd session.
   mtpd.begin();
   
   storage_configure();
-  
+
+  #if USE_MSC == 1
+  myusb.begin();
+  DBGSerial.print("Initializing MSC Drives ...");
+  DBGSerial.println("\nInitializing USB MSC drives...");
+  DBGSerial.println("MSC and MTP initialized.");
+  checkMSCChanges();
+  #endif
   DBGSerial.println("\nSetup done");
-  
+  menu();
 }
 
 int ReadAndEchoSerialChar() {
@@ -352,26 +359,7 @@ int ReadAndEchoSerialChar() {
 
 void loop()
 {
-    mtpd.loop();
-    #if USE_MSC == 1
-      myusb.Task();
-      bool storage_changed = false;
-      for (uint8_t i = 0; i < CNT_MSC; i++) {
-        if (*pmsFS[i] && !pmsFS_added_to_mtp[i]) {
-          // Lets see if we can get the volume label:
-          char volName[20];
-          if (pmsFS[i]->mscfs.getVolumeLabel(volName, sizeof(volName))) 
-            snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d-%s", i, volName);
-          else
-            snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d", i);
-          storage.addFilesystem(*pmsFS[i], pmsFS_display_name[i]);
-          pmsFS_added_to_mtp[i] = true;
-          storage_changed = true;
-        }
-        // will add next part here..
-      }
-      if (storage_changed) mtpd.send_DeviceResetEvent();
-	  #endif
+
   if ( DBGSerial.available() ) {
     uint8_t command = DBGSerial.read();
     int ch = DBGSerial.read();
@@ -424,30 +412,62 @@ void loop()
     }
     while (DBGSerial.read() != -1) ; // remove rest of characters.
   } else {
-    mtpd.loop();
     #if USE_MSC == 1
-    myusb.Task();
-    bool storage_changed = false;
-    for (uint8_t i = 0; i < CNT_MSC; i++) {
-      if (*pmsFS[i] && !pmsFS_added_to_mtp[i]) {
-        // Lets see if we can get the volume label:
-        char volName[20];
-        if (pmsFS[i]->mscfs.getVolumeLabel(volName, sizeof(volName))) 
-          snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d-%s", i, volName);
-        else
-          snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d", i);
-        storage.addFilesystem(*pmsFS[i], pmsFS_display_name[i]);
-        pmsFS_added_to_mtp[i] = true;
-        storage_changed = true;
-      }
-      // will add next part here..
-    }
-    if (storage_changed) mtpd.send_DeviceResetEvent();
+    checkMSCChanges();
     #endif
+    mtpd.loop();
   }
 
   if (write_data) logData();
 }
+
+#if USE_MSC == 1
+void checkMSCChanges() {
+  myusb.Task();
+
+  USBMSCDevice mscDrive;
+  PFsLib pfsLIB;
+  for (uint8_t i=0; i < CNT_DRIVES; i++) {
+    if (*pdrives[i]) {
+      if (!drive_previous_connected[i]) {
+        if (mscDrive.begin(pdrives[i])) {
+          Serial.printf("\nUSB Drive: %u connected\n", i);
+          pfsLIB.mbrDmp(&mscDrive, (uint32_t)-1, Serial);
+          Serial.printf("\nTry Partition list");
+          pfsLIB.listPartitions(&mscDrive, Serial);
+          drive_previous_connected[i] = true;
+        }
+      }
+    } else {
+      drive_previous_connected[i] = false;
+    }
+  }
+  bool send_device_reset = false;
+  for (uint8_t i = 0; i < CNT_MSC; i++) {
+    if (*pmsFS[i] && (pmsfs_store_ids[i] == 0xFFFFFFFFUL)) {
+      Serial.printf("Found new Volume:%u\n", i); Serial.flush();
+      // Lets see if we can get the volume label:
+      char volName[20];
+      if (pmsFS[i]->mscfs.getVolumeLabel(volName, sizeof(volName)))
+        snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d-%s", i, volName);
+      else
+        snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d", i);
+      pmsfs_store_ids[i] = storage.addFilesystem(*pmsFS[i], pmsFS_display_name[i]);
+
+      // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
+      if (mtpd.send_StoreAddedEvent(pmsfs_store_ids[i]) < 0) send_device_reset = true;
+    }
+    // Or did volume go away?
+    else if ((pmsfs_store_ids[i] != 0xFFFFFFFFUL) && !*pmsFS[i] ) {
+      if (mtpd.send_StoreRemovedEvent(pmsfs_store_ids[i]) < 0) send_device_reset = true;
+      storage.removeFilesystem(pmsfs_store_ids[i]);
+      // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
+      pmsfs_store_ids[i] = 0xFFFFFFFFUL;
+    }
+  }
+  if (send_device_reset) mtpd.send_DeviceResetEvent();
+}
+#endif
 
 void logData()
 {
