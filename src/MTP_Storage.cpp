@@ -557,9 +557,9 @@ uint32_t MTPStorage::Create(uint32_t store, uint32_t parent, bool folder, const 
 	MTPD::PrintStream()->print(" ");
 	MTPD::PrintStream()->print(folder);
 	MTPD::PrintStream()->print(" ");
-	MTPD::PrintStream()->print(r.createDate);
+	MTPD::PrintStream()->print(r.dtModify);
 	MTPD::PrintStream()->print(" ");
-	MTPD::PrintStream()->print(r.modifyDate);
+	MTPD::PrintStream()->print(r.dtCreate);
 	MTPD::PrintStream()->print(" ");
 	MTPD::PrintStream()->println(filename);
 #endif
@@ -782,9 +782,10 @@ fail:
 
 uint32_t MTPStorage::copy(uint32_t handle, uint32_t newStore, uint32_t newParent)
 {
+	//MTPD::PrintStream()->printf("MTPStorage::copy(%u, %u, %u)\n", handle, newStore, newParent);
 	if (newParent == 0xFFFFFFFFUL) newParent = newStore;
 	Record p1 = ReadIndexRecord(handle);
-	Record p2 = ReadIndexRecord(newParent);
+	Record p2 = ReadIndexRecord(newParent ? newParent : newStore); // 0 means root of store
 	uint32_t newHandle;
 	if (p1.isdir) {
 		ScanDir(p1.store + 1, handle);
@@ -795,7 +796,7 @@ uint32_t MTPStorage::copy(uint32_t handle, uint32_t newStore, uint32_t newParent
 		strlcpy(r.name, p1.name, MAX_FILENAME_LEN);
 		r.store = p2.store;
 		r.parent = newParent;
-		r.child = 0;
+		r.child = p1.child; // child for non directory is size... Cheat here and just say it is the same size
 		r.sibling = p2.child;
 		r.isdir = 0;
 		r.scanned = 0;
@@ -805,7 +806,11 @@ uint32_t MTPStorage::copy(uint32_t handle, uint32_t newStore, uint32_t newParent
 		char newfilename[MAX_FILENAME_LEN];
 		uint32_t store0 = ConstructFilename(handle, oldfilename, MAX_FILENAME_LEN);
 		uint32_t store1 = ConstructFilename(newHandle, newfilename, MAX_FILENAME_LEN);
-		copy(store0, oldfilename, store1, newfilename);
+
+		if (copy(store0, oldfilename, store1, newfilename)) {
+			// Update the date times based on the one we copied from...
+			updateDateTimeStamps(newHandle, p1.dtCreate, p1.dtModify);
+		}
 	}
 	return newHandle;
 }
