@@ -54,6 +54,9 @@ FS *mscDisk;
 uint32_t LFSRAM_SIZE = 65536; // probably more than enough...
 LittleFS_RAM lfsram;
 
+#include "BogusFS.h"
+BogusFS bogusfs;
+
 
 #ifdef ARDUINO_TEENSY41
 extern "C" uint8_t external_psram_size;
@@ -84,6 +87,8 @@ void setup() {
     Serial.printf("Set Storage Index drive to %u\n", istore);
   }
   mscDisk = &lfsram;  // so we don't start of with NULL pointer
+
+  storage.addFilesystem(bogusfs, "Bogus");
 
   myusb.begin();
 
