@@ -15,20 +15,32 @@ public:
 		// lets walk through the data and see if we have sequence numbers
 		uint8_t *pb = (uint8_t*)buf;
 		bool first_packet = (_file_size == 0);
-		while (_offset < size) {
+		if (first_packet) _simple_send_object = (size == 500);
+		
+		if (_simple_send_object) {
 			int32_t packet_number = 0;
-			for (uint16_t i = _offset; pb[i] >= '0' && pb[i] <= '9'; i++) packet_number = packet_number * 10 + pb[i] - '0';
+			for (uint16_t i = 0; pb[i] >= '0' && pb[i] <= '9'; i++) packet_number = packet_number * 10 + pb[i] - '0';
 			if (packet_number != (_last_packet_number + 1)) {
 				if (_error_count < 10) 	Serial.printf("BF Sequence error %u %u\n", packet_number, _last_packet_number);
 				_error_count++;
 			}
 			_last_packet_number = packet_number;
-			_offset += first_packet? 500 : 512;
-			first_packet = false;
+		} else {
+			while (_offset < size) {
+				int32_t packet_number = 0;
+				for (uint16_t i = _offset; pb[i] >= '0' && pb[i] <= '9'; i++) packet_number = packet_number * 10 + pb[i] - '0';
+				if (packet_number != (_last_packet_number + 1)) {
+					if (_error_count < 10) 	Serial.printf("BF Sequence error %u %u\n", packet_number, _last_packet_number);
+					_error_count++;
+				}
+				_last_packet_number = packet_number;
+				_offset += first_packet? 500 : 512;
+				first_packet = false;
+			}
+			_offset &= 0x1ff; // probably ok...
 		}
-		_offset &= 0x1ff; // probably ok...
 		_file_size += size;
-		delay(3);
+		//delay(1);
 		return size;
 	}
 	virtual int available() { return 0;}
@@ -50,6 +62,7 @@ public:
 	int32_t _last_packet_number = -1;
 	uint32_t _error_count = 0;
 	bool _fOpen;
+	bool _simple_send_object = false;
 };
 
 
