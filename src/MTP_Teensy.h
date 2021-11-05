@@ -156,6 +156,7 @@ private:
   //  void read_until_short_packet() ;
 
   uint32_t SendObjectInfo(uint32_t storage, uint32_t parent, int &object_id);
+  void check_memcpy(uint8_t *pdest, const uint8_t *psrc, size_t size, const uint8_t *pb, size_t pb_size);
   bool SendObject();
   bool SendObjectWithYield();
 
@@ -175,7 +176,7 @@ private:
   void processIntervalTimer();
 
   uint32_t deleteObject(uint32_t p1);
-  uint32_t copyObject(uint32_t p1, uint32_t p2, uint32_t p3);
+  uint32_t copyObject(uint32_t p1, uint32_t p2, uint32_t p3/*, int &object_id*/);
   uint32_t moveObject(uint32_t p1, uint32_t p2, uint32_t p3);
   void openSession(uint32_t id);
 
