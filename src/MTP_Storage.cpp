@@ -570,7 +570,8 @@ uint32_t MTPStorage::Create(uint32_t store, uint32_t parent, bool folder, const 
 size_t MTPStorage::write(const char *data, uint32_t bytes)
 {
 	mtp_lock_storage(true);
-	size_t ret = file_.write(data, bytes);
+	// make sure it does not fall through to default Print version of buffer write
+	size_t ret = file_.write((void*)data, bytes);
 	mtp_lock_storage(false);
 	return ret;
 }

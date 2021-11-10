@@ -40,7 +40,7 @@ public:
 			_offset &= 0x1ff; // probably ok...
 		}
 		_file_size += size;
-		//delay(1);
+		//delayMicroseconds(500);
 		return size;
 	}
 	virtual int available() { return 0;}

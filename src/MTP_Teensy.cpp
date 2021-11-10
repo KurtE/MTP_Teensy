@@ -2387,8 +2387,10 @@ bool MTPD::SendObject() {
     bytes = min(bytes, len);              // loimit at end
     elapsedMillis emWrite = 0;
     //printf("    $$F: %u %u\n", bytes, len);
+    digitalWriteFast(5, HIGH);
     if (storage_->write((const char *)rx_data_buffer + index, bytes) < bytes)
       return false;
+    digitalWriteFast(5, LOW);
     uint32_t em = emWrite;
     sum_write_em = em;
     c_write_em++;
@@ -2414,8 +2416,10 @@ bool MTPD::SendObject() {
 
     elapsedMillis emWrite = 0;
     //printf("    $$:  %u %u\n", bytes, len);
+    digitalWriteFast(5, HIGH);
     if (storage_->write((const char *)rx_data_buffer, bytes) < bytes)
       return false;
+    digitalWriteFast(5, LOW);
     uint32_t em = emWrite;
     sum_write_em += em;
     c_write_em++;
@@ -2425,10 +2429,10 @@ bool MTPD::SendObject() {
     len -= bytes;
   }
 
-  //printf("    $$*: %u\n", len);
+  printf("    $$*: %u\n", len);
 
   // lets see if we should update the date and time stamps.
-  storage_->updateDateTimeStamps(object_id_, dtCreated_, dtModified_);
+  //storage_->updateDateTimeStamps(object_id_, dtCreated_, dtModified_);
 
   storage_->close();
 
@@ -2499,7 +2503,6 @@ bool MTPD::SendObject() {
     if (len > 0) // we have still data to be transfered
     {            // pull_packet(rx_data_buffer);
       elapsedMillis emRead = 0;
-#if 1
       if (usb_mtp_recv(rx_data_buffer, SENDOBJECT_READ_TIMEOUT_MS) > 0) { // read directly in.
         uint32_t em = emRead;
         sum_read_em += em;
@@ -2510,23 +2513,6 @@ bool MTPD::SendObject() {
         printf("\nMTPD::SendObject *** USB Read Timeout ***\n");
         break; //
       }
-#else
-      bool usb_mtp_avail = false;
-      while (!(usb_mtp_avail = usb_mtp_available()) &&
-             (emRead < SENDOBJECT_READ_TIMEOUT_MS))
-        ;
-      if (usb_mtp_avail) {
-        uint32_t em = emRead;
-        sum_read_em += em;
-        c_read_em++;
-        if (em > read_em_max)
-          read_em_max = em;
-        usb_mtp_recv(rx_data_buffer, 60); // read directly in.
-      } else {
-        printf("\nMTPD::SendObject *** USB Read Timeout ***\n");
-        break; //
-      }
-#endif      
       index = 0;
     }
   }
@@ -2544,7 +2530,7 @@ bool MTPD::SendObject() {
   }
 
   // lets see if we should update the date and time stamps.
-  storage_->updateDateTimeStamps(object_id_, dtCreated_, dtModified_);
+//  storage_->updateDateTimeStamps(object_id_, dtCreated_, dtModified_);
 
   storage_->close();
 
@@ -2801,6 +2787,8 @@ void MTPD::loop(void) {
           return_code = MTP_RESPONSE_INCOMPLETE_TRANSFER;
           send_Event(
               MTP_EVENT_CANCEL_TRANSACTION); // try sending an event to cancel?
+        } else {
+            printf("SendObject() returned true\n");
         }
         len = 12;
         break;

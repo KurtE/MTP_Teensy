@@ -7,9 +7,6 @@
   This example code is in the public domain.
 */
 #include <MTP_Teensy.h>
-//#include <mscFS.h>
-#include <USBHost_t36.h>
-#include <USBHost_ms.h>
 
 File dataFile; // Specifes that dataFile is of File type
 
@@ -20,33 +17,6 @@ uint32_t diskSize;
 // Add in MTPD objects
 MTPStorage storage;
 MTPD mtpd(&storage);
-
-// Add USBHost objectsUsbFs
-USBHost myusb;
-USBHub hub1(myusb);
-USBHub hub2(myusb);
-USBHub hub(myusb);
-
-// MSC objects.
-msController drive1(myusb);
-msController drive2(myusb);
-msController drive3(myusb);
-
-msFilesystem msFS1(myusb);
-msFilesystem msFS2(myusb);
-msFilesystem msFS3(myusb);
-msFilesystem msFS4(myusb);
-msFilesystem msFS5(myusb);
-
-// Quick and dirty
-msFilesystem *pmsFS[] = {&msFS1, &msFS2, &msFS3, &msFS4, &msFS5};
-#define CNT_MSC  (sizeof(pmsFS)/sizeof(pmsFS[0]))
-uint32_t pmsfs_store_ids[CNT_MSC] = {0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL};
-char  pmsFS_display_name[CNT_MSC][20];
-
-msController *pdrives[] {&drive1, &drive2, &drive3};
-#define CNT_DRIVES  (sizeof(pdrives)/sizeof(pdrives[0]))
-bool drive_previous_connected[CNT_DRIVES] = {false, false, false};
 
 FS *mscDisk;
 
@@ -65,6 +35,7 @@ extern "C" uint8_t external_psram_size;
 
 void setup() {
   pinMode(5, OUTPUT);
+  pinMode(6, OUTPUT);
   // Open serial communications and wait for port to open:
   Serial.begin(115200);
   while (!Serial && millis() < 5000) {
@@ -90,20 +61,11 @@ void setup() {
 
   storage.addFilesystem(bogusfs, "Bogus");
 
-  myusb.begin();
-
-  Serial.print("Initializing MSC Drives ...");
-
-  Serial.println("\nInitializing USB MSC drives...");
-
-  Serial.println("MSC and MTP initialized.");
-  checkMSCChanges();
-
+  Serial.println("Bogus and MTP initialized.");
   menu();
 }
 
 void loop() {
-  checkMSCChanges();
   mtpd.loop();
 
   if (Serial.available()) {
@@ -171,52 +133,6 @@ void loop() {
 
   if (write_data)
     logData();
-}
-
-void checkMSCChanges() {
-  myusb.Task();
-
-  USBMSCDevice mscDrive;
-  PFsLib pfsLIB;
-  for (uint8_t i=0; i < CNT_DRIVES; i++) {
-    if (*pdrives[i]) {
-      if (!drive_previous_connected[i]) {
-        if (mscDrive.begin(pdrives[i])) {
-          Serial.printf("\nUSB Drive: %u connected\n", i);
-          pfsLIB.mbrDmp(&mscDrive, (uint32_t)-1, Serial);
-          Serial.printf("\nTry Partition list");
-          pfsLIB.listPartitions(&mscDrive, Serial);
-          drive_previous_connected[i] = true;
-        }
-      }
-    } else {
-      drive_previous_connected[i] = false;
-    }
-  }
-  bool send_device_reset = false;
-  for (uint8_t i = 0; i < CNT_MSC; i++) {
-    if (*pmsFS[i] && (pmsfs_store_ids[i] == 0xFFFFFFFFUL)) {
-      Serial.printf("Found new Volume:%u\n", i); Serial.flush();
-      // Lets see if we can get the volume label:
-      char volName[20];
-      if (pmsFS[i]->mscfs.getVolumeLabel(volName, sizeof(volName)))
-        snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d-%s", i, volName);
-      else
-        snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d", i);
-      pmsfs_store_ids[i] = storage.addFilesystem(*pmsFS[i], pmsFS_display_name[i]);
-
-      // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
-      if (mtpd.send_StoreAddedEvent(pmsfs_store_ids[i]) < 0) send_device_reset = true;
-    }
-    // Or did volume go away?
-    else if ((pmsfs_store_ids[i] != 0xFFFFFFFFUL) && !*pmsFS[i] ) {
-      if (mtpd.send_StoreRemovedEvent(pmsfs_store_ids[i]) < 0) send_device_reset = true;
-      storage.removeFilesystem(pmsfs_store_ids[i]);
-      // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
-      pmsfs_store_ids[i] = 0xFFFFFFFFUL;
-    }
-  }
-  if (send_device_reset) mtpd.send_DeviceResetEvent();
 }
 
 void logData() {
