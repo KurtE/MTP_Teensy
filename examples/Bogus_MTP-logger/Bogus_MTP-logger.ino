@@ -34,10 +34,9 @@ extern "C" uint8_t external_psram_size;
 
 
 void setup() {
-  pinMode(5, OUTPUT);
-  pinMode(6, OUTPUT);
   // Open serial communications and wait for port to open:
   Serial.begin(115200);
+//  Serial4.begin(115200);  // Use to echo stuff out for debug core.
   while (!Serial && millis() < 5000) {
     // wait for serial port to connect.
   }

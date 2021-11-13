@@ -23,7 +23,7 @@
 // SOFTWARE.
 
 // modified for SDFS by WMXZ
-#define T4_USE_SIMPLE_SEND_OBJECT
+//#define T4_USE_SIMPLE_SEND_OBJECT
 
 #if defined(USB_MTPDISK) || defined(USB_MTPDISK_SERIAL)
 
@@ -47,6 +47,15 @@ Stream *MTPD::printStream_ = &Serial;
 #else
 #define printf(...)
 #endif
+#if DEBUG > 2
+#define DBGPRINTF(...) printf_debug(__VA_ARGS__)
+extern "C" {
+void printf_debug(const char *format, ...);
+}
+#else
+#define DBGPRINTF(...)
+#endif
+
 
 /***************************************************************************************************/
 // Container Types
@@ -286,7 +295,7 @@ int MTPD::begin() {
   // lets set up to check for MTP messages and tell
   // other side we are busy...  Maybe should be function:
   g_pmtpd_interval = this;
-  printf("*** Start Interval Timer ***\n");
+  printf("\n\n*** Start Interval Timer ***\n");
   g_intervaltimer.begin(&_interval_timer_handler,
                         50000); // try maybe 20 times per second...
 
@@ -513,15 +522,18 @@ uint32_t MTPD::read32() {
   return ret;
 }
 
-int MTPD::readstring(char *buffer) {
+int MTPD::readstring(char *buffer, uint16_t buffer_size) {
   int len = read8();
+  char * buffer_end = buffer + buffer_size -1;
   if (!buffer) {
     read(NULL, len * 2);
   } else {
     for (int i = 0; i < len; i++) {
-      int16_t c2;
-      *(buffer++) = c2 = read16();
+      int16_t c2 = read16();
+      // try not to overwrite memory... 
+      if (buffer <= buffer_end) *(buffer++) = c2;
     }
+    if (buffer > buffer_end) *buffer_end = 0; // make sure null terminated. 
   }
   return len * 2 + 1;
 }
@@ -530,7 +542,7 @@ int MTPD::readDateTimeString(uint32_t *pdt) {
   char dtb[20]; // let it take care of the conversions.
   //                            01234567890123456
   // format of expected String: YYYYMMDDThhmmss.s
-  int cb = readstring(dtb);
+  int cb = readstring(dtb, sizeof(dtb));
   if (cb > 1) {
     DateTimeFields dtf;
     printf("Read DateTime string: %s\n", dtb);
@@ -1235,6 +1247,7 @@ void MTPD::_printContainer(MTPContainer *c, const char *msg) {
     }
   }
   printf("\n");
+  Serial.flush();
 }
 
 #define printContainer() _printContainer(CONTAINER);
@@ -1317,7 +1330,7 @@ uint32_t MTPD::SendObjectInfo(uint32_t storage, uint32_t parent,
   printf("%x ", read32());
   len -= 4; // sequence number
 
-  readstring(filename);
+  readstring(filename, sizeof(filename));
   len -= (2 * (strlen(filename) + 1) + 1);
   printf(": %s\n", filename);
 
@@ -1407,7 +1420,7 @@ uint32_t MTPD::setObjectPropValue(uint32_t p1, uint32_t p2) {
   if (p2 == 0xDC07) {
     char filename[MAX_FILENAME_LEN];
     ReadMTPHeader();
-    readstring(filename);
+    readstring(filename, sizeof(filename));
 
     storage_->rename(p1, filename);
 
@@ -1838,24 +1851,31 @@ uint32_t MTPD::GetPartialObject(uint32_t object_id, uint32_t offset,
 #if MTP_VERBOSE_PRINT_CONTAINER
 void MTPD::_printContainer(MTPContainer *c, const char *msg) {
   int print_property_name = -1; // no
-  if (msg)
+  if (msg) {
     printf("%s", msg);
+    DBGPRINTF("%s", msg);
+  }
   printf("%u ", millis());
   switch (c->type) {
   default:
     printf(" UNKWN: %x", c->type);
+    DBGPRINTF("UNKWN: %x l:%d\n", c->op, c->len);
     break;
   case MTP_CONTAINER_TYPE_COMMAND:
     printf(F("CMD: "));
+    DBGPRINTF("CMD: %x l:%d\n", c->op, c->len);
     break;
   case MTP_CONTAINER_TYPE_DATA:
     printf(F("DATA:"));
+    DBGPRINTF("DATA: %x l:%d\n", c->op, c->len);
     break;
   case MTP_CONTAINER_TYPE_RESPONSE:
     printf(F("RESP:"));
+    DBGPRINTF("RESP: %x l:%d\n", c->op, c->len);
     break;
   case MTP_CONTAINER_TYPE_EVENT:
     printf(F("EVENT: "));
+    DBGPRINTF("EVENT: %x\n", c->op);
     break;
   }
   printf(F("%x"), c->op);
@@ -2301,7 +2321,7 @@ uint32_t MTPD::SendObjectInfo(uint32_t storage, uint32_t parent,
   printf("%x ", read32());
   len -= 4; // sequence number
 
-  len -= readstring(filename);
+  len -= readstring(filename, sizeof(filename));
   printf(": %s\n", filename);
 
   // Next is DateCreated followed by DateModified
@@ -2364,6 +2384,10 @@ void MTPD::check_memcpy(uint8_t *pdest, const uint8_t *psrc, size_t size, const 
 }
 
 #ifdef T4_USE_SIMPLE_SEND_OBJECT
+extern "C" {
+extern bool g_usb_isr_print;
+}
+
 bool MTPD::SendObject() {
   pull_packet(rx_data_buffer);
   read(0, 0);
@@ -2380,17 +2404,14 @@ bool MTPD::SendObject() {
   uint32_t sum_write_em = 0;
   uint32_t c_write_em = 0;
   uint32_t write_em_max = 0;
-
   // Quick and dirty write the first partial block of data.
   uint32_t bytes = MTP_RX_SIZE - index; // how many data in usb-packet
   if (len) {
-    bytes = min(bytes, len);              // loimit at end
+    bytes = min(bytes, len);              // limit at end
     elapsedMillis emWrite = 0;
     //printf("    $$F: %u %u\n", bytes, len);
-    digitalWriteFast(5, HIGH);
     if (storage_->write((const char *)rx_data_buffer + index, bytes) < bytes)
       return false;
-    digitalWriteFast(5, LOW);
     uint32_t em = emWrite;
     sum_write_em = em;
     c_write_em++;
@@ -2400,6 +2421,7 @@ bool MTPD::SendObject() {
   
 
   while ((int)len > 0) {
+    //if (len <  3276) g_usb_isr_print = 1;
     elapsedMillis emRead = 0;
     if (usb_mtp_recv(rx_data_buffer, SENDOBJECT_READ_TIMEOUT_MS) > 0) { // read directly in.
       uint32_t em = emRead;
@@ -2416,10 +2438,8 @@ bool MTPD::SendObject() {
 
     elapsedMillis emWrite = 0;
     //printf("    $$:  %u %u\n", bytes, len);
-    digitalWriteFast(5, HIGH);
     if (storage_->write((const char *)rx_data_buffer, bytes) < bytes)
       return false;
-    digitalWriteFast(5, LOW);
     uint32_t em = emWrite;
     sum_write_em += em;
     c_write_em++;
@@ -2432,7 +2452,7 @@ bool MTPD::SendObject() {
   printf("    $$*: %u\n", len);
 
   // lets see if we should update the date and time stamps.
-  //storage_->updateDateTimeStamps(object_id_, dtCreated_, dtModified_);
+  storage_->updateDateTimeStamps(object_id_, dtCreated_, dtModified_);
 
   storage_->close();
 
@@ -2557,7 +2577,7 @@ uint32_t MTPD::setObjectPropValue(uint32_t handle, uint32_t p2) {
   if (p2 == 0xDC07) {
     char filename[MAX_FILENAME_LEN];
     ReadMTPHeader();
-    readstring(filename);
+    readstring(filename, sizeof(filename));
     if (storage_->rename(handle, filename))
       return 0x2001;
     else
@@ -2700,7 +2720,8 @@ void MTPD::loop(void) {
   }
   if (usb_mtp_available()) {
     if (fetch_packet(rx_data_buffer)) {
-      printContainer(); // to switch on set debug to 1 at beginning of file
+      //printContainer(); // to switch on set debug to 1 at beginning of file
+      _printContainer(CONTAINER,"LP:");
 
       int op = CONTAINER->op;
       int p1 = CONTAINER->params[0];
@@ -2788,7 +2809,7 @@ void MTPD::loop(void) {
           send_Event(
               MTP_EVENT_CANCEL_TRANSACTION); // try sending an event to cancel?
         } else {
-            printf("SendObject() returned true\n");
+            printf("SendObject() returned true\n"); Serial.flush();
         }
         len = 12;
         break;
@@ -2852,6 +2873,10 @@ void MTPD::loop(void) {
       }
       if (return_code) {
         CONTAINER->type = 3;
+        if (len > 512) {// BUGBUG::Core usb should let use know packet size...
+          len = 512; // 
+          printf("!!! RX Packet length > 512 Set to 512");
+        }
         CONTAINER->len = len;
         CONTAINER->op = return_code;
         CONTAINER->transaction_id = id;
@@ -2889,6 +2914,7 @@ int usb_init_events(void) {
 #define EVENT_TX_PACKET_LIMIT 4
 
 int usb_mtp_sendEvent(const void *buffer, uint32_t len, uint32_t timeout) {
+//  digitalWriteFast(4, HIGH);
   usb_packet_t *event_packet;
   // printf("usb_mtp_sendEvent: called %x %x\n", (uint32_t)buffer, len);
   struct MTPContainer {
@@ -2912,6 +2938,7 @@ int usb_mtp_sendEvent(const void *buffer, uint32_t len, uint32_t timeout) {
   elapsedMillis em = 0;
   while (1) {
     if (!usb_configuration) {
+//      digitalWriteFast(4, LOW);
       return -1;
     }
     if (usb_tx_packet_count(MTP_EVENT_ENDPOINT) < EVENT_TX_PACKET_LIMIT) {
@@ -2920,6 +2947,7 @@ int usb_mtp_sendEvent(const void *buffer, uint32_t len, uint32_t timeout) {
         break;
     }
     if (em > timeout) {
+//    digitalWriteFast(4, LOW);
       return -1;
     }
     yield();
@@ -2928,6 +2956,7 @@ int usb_mtp_sendEvent(const void *buffer, uint32_t len, uint32_t timeout) {
   memcpy(event_packet->buf, buffer, len);
   event_packet->len = len;
   usb_tx(MTP_EVENT_ENDPOINT, event_packet);
+//  digitalWriteFast(4, LOW);
   return len;
 }
 }

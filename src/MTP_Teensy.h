@@ -110,7 +110,7 @@ private:
   int pull_packet(uint8_t *data_buffer);
 
   static uint32_t sessionID_;
-  static const uint32_t SENDOBJECT_READ_TIMEOUT_MS = 500;
+  static const uint32_t SENDOBJECT_READ_TIMEOUT_MS = 1000;
   uint8_t rx_data_buffer[MTP_RX_SIZE] __attribute__((aligned(32)));
   uint8_t disk_buffer_[DISK_BUFFER_SIZE] __attribute__((aligned(32)));
 
@@ -150,7 +150,7 @@ private:
   uint8_t read8();
   uint16_t read16();
   uint32_t read32();
-  int readstring(char *buffer);
+  int readstring(char *buffer, uint16_t buffer_size);
   int readDateTimeString(uint32_t *pdt);
 
   //  void read_until_short_packet() ;
