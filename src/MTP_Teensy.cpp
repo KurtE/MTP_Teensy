@@ -1860,9 +1860,10 @@ void MTPD::_printContainer(MTPContainer *c, const char *msg) {
   printf("%u ", millis());
   switch (c->type) {
   default:
-    printf(" UNKWN: %x", c->type);
+    printf(" UNKWN: %x\n", c->type);
     DBGPRINTF("UNKWN: %x l:%d\n", c->op, c->len);
     MemoryHexDump(*printStream_, (void*)c, 512, true);
+    printf(" UNKWN: %x\n", c->type);  // print it again...
     break;
   case MTP_CONTAINER_TYPE_COMMAND:
     printf(F("CMD: "));
@@ -2734,162 +2735,165 @@ void MTPD::loop(void) {
       int len = CONTAINER->len;
       int typ = CONTAINER->type;
       TID = id;
-
       int return_code = 0x2001; // OK use as default value
 
-      if (typ == 2)
-        return_code = 0x2005; // we should only get cmds
+      if ((typ == MTP_CONTAINER_TYPE_COMMAND) || (typ == MTP_CONTAINER_TYPE_DATA)) {
+        if (typ == MTP_CONTAINER_TYPE_DATA)
+          return_code = 0x2005; // we should only get cmds
 
-      switch (op) {
-      case 0x1001:
-        TRANSMIT(WriteDescriptor());
-        break;
+        switch (op) {
+        case 0x1001:
+          TRANSMIT(WriteDescriptor());
+          break;
 
-      case 0x1002: // open session
-        openSession(p1);
-        break;
+        case 0x1002: // open session
+          openSession(p1);
+          break;
 
-      case 0x1003: // CloseSession
-        printf("MTPD::CloseSession\n");
-        sessionID_ = 0; //
-        break;
+        case 0x1003: // CloseSession
+          printf("MTPD::CloseSession\n");
+          sessionID_ = 0; //
+          break;
 
-      case 0x1004: // GetStorageIDs
-        TRANSMIT(WriteStorageIDs());
-        break;
+        case 0x1004: // GetStorageIDs
+          TRANSMIT(WriteStorageIDs());
+          break;
 
-      case 0x1005: // GetStorageInfo
-        TRANSMIT(GetStorageInfo(p1));
-        break;
+        case 0x1005: // GetStorageInfo
+          TRANSMIT(GetStorageInfo(p1));
+          break;
 
-      case 0x1006: // GetNumObjects
-        if (p2) {
-          return_code = 0x2014; // spec by format unsupported
-        } else {
-          p1 = GetNumObjects(p1, p3);
-        }
-        break;
-
-      case 0x1007: // GetObjectHandles
-        if (p2) {
-          return_code = 0x2014; // spec by format unsupported
-        } else {
-          TRANSMIT(GetObjectHandles(p1, p3));
-        }
-        break;
-
-      case 0x1008: // GetObjectInfo
-        TRANSMIT(GetObjectInfo(p1));
-        break;
-
-      case 0x1009: // GetObject
-        TRANSMIT(GetObject(p1));
-        break;
-
-      case 0x100B: // DeleteObject
-        if (p2) {
-          return_code = 0x2014; // spec by format unsupported
-        } else {
-          if (!storage_->DeleteObject(p1)) {
-            return_code = 0x2012; // partial deletion
+        case 0x1006: // GetNumObjects
+          if (p2) {
+            return_code = 0x2014; // spec by format unsupported
+          } else {
+            p1 = GetNumObjects(p1, p3);
           }
-        }
-        break;
+          break;
 
-      case 0x100C:                        // SendObjectInfo
-        return_code = SendObjectInfo(p1,  // storage
-                                     p2,  // parent
-                                     p3); // returned object id;
+        case 0x1007: // GetObjectHandles
+          if (p2) {
+            return_code = 0x2014; // spec by format unsupported
+          } else {
+            TRANSMIT(GetObjectHandles(p1, p3));
+          }
+          break;
 
-        CONTAINER->params[1] = p2;
-        CONTAINER->params[2] = p3;
-        len = 12 + 3 * 4;
-        break;
+        case 0x1008: // GetObjectInfo
+          TRANSMIT(GetObjectInfo(p1));
+          break;
 
-      case 0x100D: // SendObject
-        if (!SendObject()) {
-          return_code = MTP_RESPONSE_INCOMPLETE_TRANSFER;
-          send_Event(
-              MTP_EVENT_CANCEL_TRANSACTION); // try sending an event to cancel?
-        } else {
-            printf("SendObject() returned true\n"); Serial.flush();
-        }
-        len = 12;
-        break;
+        case 0x1009: // GetObject
+          TRANSMIT(GetObject(p1));
+          break;
 
-      case 0x100F: // FormatStore
-        return_code = formatStore(p1, p2, false);
-        break;
+        case 0x100B: // DeleteObject
+          if (p2) {
+            return_code = 0x2014; // spec by format unsupported
+          } else {
+            if (!storage_->DeleteObject(p1)) {
+              return_code = 0x2012; // partial deletion
+            }
+          }
+          break;
 
-      case 0x1014: // GetDevicePropDesc
-        TRANSMIT(GetDevicePropDesc(p1));
-        break;
+        case 0x100C:                        // SendObjectInfo
+          return_code = SendObjectInfo(p1,  // storage
+                                       p2,  // parent
+                                       p3); // returned object id;
 
-      case 0x1015: // GetDevicePropvalue
-        TRANSMIT(GetDevicePropValue(p1));
-        break;
+          CONTAINER->params[1] = p2;
+          CONTAINER->params[2] = p3;
+          len = 12 + 3 * 4;
+          break;
 
-      case 0x1010: // Reset
-        return_code = 0x2005;
-        break;
-
-      case 0x1019: // MoveObject
-        return_code = moveObject(p1, p2, p3);
-        len = 12;
-        break;
-
-      case 0x101A: // CopyObject
-        return_code = copyObject(p1, p2, p3);
-        if (!return_code) {
-          return_code = 0x2005;
+        case 0x100D: // SendObject
+          if (!SendObject()) {
+            return_code = MTP_RESPONSE_INCOMPLETE_TRANSFER;
+            send_Event(
+                MTP_EVENT_CANCEL_TRANSACTION); // try sending an event to cancel?
+          } else {
+              printf("SendObject() returned true\n"); Serial.flush();
+          }
           len = 12;
-        } else {
-          p1 = return_code;
-          return_code = 0x2001;
-          len = 16;
+          break;
+
+        case 0x100F: // FormatStore
+          return_code = formatStore(p1, p2, false);
+          break;
+
+        case 0x1014: // GetDevicePropDesc
+          TRANSMIT(GetDevicePropDesc(p1));
+          break;
+
+        case 0x1015: // GetDevicePropvalue
+          TRANSMIT(GetDevicePropValue(p1));
+          break;
+
+        case 0x1010: // Reset
+          return_code = 0x2005;
+          break;
+
+        case 0x1019: // MoveObject
+          return_code = moveObject(p1, p2, p3);
+          len = 12;
+          break;
+
+        case 0x101A: // CopyObject
+          return_code = copyObject(p1, p2, p3);
+          if (!return_code) {
+            return_code = 0x2005;
+            len = 12;
+          } else {
+            p1 = return_code;
+            return_code = 0x2001;
+            len = 16;
+          }
+          break;
+
+        case 0x101B: // GetPartialObject
+          TRANSMIT1(GetPartialObject(p1, p2, p3));
+          break;
+
+        case 0x9801: // getObjectPropsSupported
+          TRANSMIT(getObjectPropsSupported(p1));
+          break;
+
+        case 0x9802: // getObjectPropDesc
+          TRANSMIT(getObjectPropDesc(p1, p2));
+          break;
+
+        case 0x9803: // getObjectPropertyValue
+          TRANSMIT(getObjectPropValue(p1, p2));
+          break;
+
+        case 0x9804: // setObjectPropertyValue
+          return_code = setObjectPropValue(p1, p2);
+          break;
+
+        default:
+          return_code = 0x2005; // operation not supported
+          break;
         }
-        break;
+        if (return_code) {
+          CONTAINER->type = 3;
+          if (len > 512) {// BUGBUG::Core usb should let use know packet size...
+            len = 512; // 
+            printf("!!! RX Packet length > 512 Set to 512\n");
+          }
+          CONTAINER->len = len;
+          CONTAINER->op = return_code;
+          CONTAINER->transaction_id = id;
+          CONTAINER->params[0] = p1;
+  #if DEBUG > 1
+          printContainer(); // to switch on set debug to 2 at beginning of file
+  #endif
 
-      case 0x101B: // GetPartialObject
-        TRANSMIT1(GetPartialObject(p1, p2, p3));
-        break;
-
-      case 0x9801: // getObjectPropsSupported
-        TRANSMIT(getObjectPropsSupported(p1));
-        break;
-
-      case 0x9802: // getObjectPropDesc
-        TRANSMIT(getObjectPropDesc(p1, p2));
-        break;
-
-      case 0x9803: // getObjectPropertyValue
-        TRANSMIT(getObjectPropValue(p1, p2));
-        break;
-
-      case 0x9804: // setObjectPropertyValue
-        return_code = setObjectPropValue(p1, p2);
-        break;
-
-      default:
-        return_code = 0x2005; // operation not supported
-        break;
-      }
-      if (return_code) {
-        CONTAINER->type = 3;
-        if (len > 512) {// BUGBUG::Core usb should let use know packet size...
-          len = 512; // 
-          printf("!!! RX Packet length > 512 Set to 512\n");
+          memcpy(tx_data_buffer, rx_data_buffer, len);
+          push_packet(tx_data_buffer, len); // for acknowledge use rx_data_buffer
         }
-        CONTAINER->len = len;
-        CONTAINER->op = return_code;
-        CONTAINER->transaction_id = id;
-        CONTAINER->params[0] = p1;
-#if DEBUG > 1
-        printContainer(); // to switch on set debug to 2 at beginning of file
-#endif
-
-        memcpy(tx_data_buffer, rx_data_buffer, len);
-        push_packet(tx_data_buffer, len); // for acknowledge use rx_data_buffer
+      } else {
+        printf("!!! unexpected/unknown message type:%d len:%d op:%d\n", typ, len, op);
       }
     }
   }

@@ -37,7 +37,7 @@ public:
 	virtual uint64_t size()  { return _file_size;}
 	virtual void close() {
 		_fOpen = false; 
-		Serial.printf("Bogus::close(%s)\n", _filename); 
+		Serial.printf("Bogus::close(%s) LPN:%d\n", _filename, _last_packet_number); 
 		DBGPRINTF("Bogus::close(%s)\n", _filename);
 	}
 	virtual bool isOpen() {return _fOpen;}
