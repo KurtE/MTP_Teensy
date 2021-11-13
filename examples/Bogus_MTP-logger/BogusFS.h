@@ -1,6 +1,6 @@
 #ifndef __BogusFS_H__
 #define __BogusFS_H__
-#define T4_USE_SIMPLE_SEND_OBJECT // should match mtp_teensy
+//#define T4_USE_SIMPLE_SEND_OBJECT // should match mtp_teensy
 #include <Arduino.h>
 #include <FS.h>
 

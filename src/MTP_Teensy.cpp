@@ -56,6 +56,8 @@ void printf_debug(const char *format, ...);
 #define DBGPRINTF(...)
 #endif
 
+// temporary include dump library.
+#include <MemoryHexDump.h>
 
 /***************************************************************************************************/
 // Container Types
@@ -1860,6 +1862,7 @@ void MTPD::_printContainer(MTPContainer *c, const char *msg) {
   default:
     printf(" UNKWN: %x", c->type);
     DBGPRINTF("UNKWN: %x l:%d\n", c->op, c->len);
+    MemoryHexDump(*printStream_, (void*)c, 512, true);
     break;
   case MTP_CONTAINER_TYPE_COMMAND:
     printf(F("CMD: "));
@@ -2550,7 +2553,7 @@ bool MTPD::SendObject() {
   }
 
   // lets see if we should update the date and time stamps.
-//  storage_->updateDateTimeStamps(object_id_, dtCreated_, dtModified_);
+  storage_->updateDateTimeStamps(object_id_, dtCreated_, dtModified_);
 
   storage_->close();
 
@@ -2875,7 +2878,7 @@ void MTPD::loop(void) {
         CONTAINER->type = 3;
         if (len > 512) {// BUGBUG::Core usb should let use know packet size...
           len = 512; // 
-          printf("!!! RX Packet length > 512 Set to 512");
+          printf("!!! RX Packet length > 512 Set to 512\n");
         }
         CONTAINER->len = len;
         CONTAINER->op = return_code;
