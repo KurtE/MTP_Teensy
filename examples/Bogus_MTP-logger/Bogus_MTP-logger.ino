@@ -20,10 +20,16 @@ MTPD mtpd(&storage);
 
 FS *mscDisk;
 
-#include <LittleFS.h>
-uint32_t LFSRAM_SIZE = 65536; // probably more than enough...
-LittleFS_RAM lfsram;
+#define USE_MEMORY_FS
 
+uint32_t MEMFS_SIZE = 65536; // probably more than enough...
+#ifdef USE_MEMORY_FS
+#include <MemFile.h>
+MemFS memfs;
+#else
+#include <LittleFS.h>
+LittleFS_RAM lfsram;
+#endif
 #include "BogusFS.h"
 BogusFS bogusfs;
 
@@ -49,14 +55,23 @@ void setup() {
 // lets initialize a RAM drive.
 #if defined ARDUINO_TEENSY41
   if (external_psram_size)
-    LFSRAM_SIZE = 4 * 1024 * 1024;
+    MEMFS_SIZE = 4 * 1024 * 1024;
 #endif
-  if (lfsram.begin(LFSRAM_SIZE)) {
-    Serial.printf("Ram Drive of size: %u initialized\n", LFSRAM_SIZE);
+#ifdef USE_MEMORY_FS
+  if (memfs.begin(MEMFS_SIZE)) {
+    Serial.printf("Memory Drive of size: %u initialized\n", MEMFS_SIZE);
+    uint32_t istore = storage.addFilesystem(memfs, "RAM");
+    Serial.printf("Set Storage Index drive to %u\n", istore);
+  }
+  mscDisk = &memfs;  // so we don't start of with NULL pointer
+#else
+  if (lfsram.begin(MEMFS_SIZE)) {
+    Serial.printf("Ram Drive of size: %u initialized\n", MEMFS_SIZE);
     uint32_t istore = storage.addFilesystem(lfsram, "RAM");
     Serial.printf("Set Storage Index drive to %u\n", istore);
   }
   mscDisk = &lfsram;  // so we don't start of with NULL pointer
+#endif
 
   storage.addFilesystem(bogusfs, "Bogus");
 
