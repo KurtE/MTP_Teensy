@@ -57,7 +57,7 @@ void printf_debug(const char *format, ...);
 #endif
 
 // temporary include dump library.
-#include <MemoryHexDump.h>
+//#include <MemoryHexDump.h>
 
 /***************************************************************************************************/
 // Container Types
@@ -1503,9 +1503,9 @@ uint32_t MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
   printf("Format Complete(%u %u) ***\n", format_status, (uint32_t)emFormat);
 
   if (format_status == 1) {
-	Serial.println("Return Response OK");
+  Serial.println("Return Response OK");
     storage_->ResetIndex(); // maybe should add a less of sledge hammer here.
-	//send_DeviceResetEvent();
+  //send_DeviceResetEvent();
     return MTP_RESPONSE_OK;
   }
 
@@ -1862,7 +1862,7 @@ void MTPD::_printContainer(MTPContainer *c, const char *msg) {
   default:
     printf(" UNKWN: %x\n", c->type);
     DBGPRINTF("UNKWN: %x l:%d\n", c->op, c->len);
-    MemoryHexDump(*printStream_, (void*)c, 512, true);
+    //MemoryHexDump(*printStream_, (void*)c, 512, true);
     printf(" UNKWN: %x\n", c->type);  // print it again...
     break;
   case MTP_CONTAINER_TYPE_COMMAND:
@@ -2603,9 +2603,13 @@ void MTPD::_interval_timer_handler() {
 void MTPD::processIntervalTimer() {
   {
     if (usb_mtp_available())
-
     {
-      if (fetch_packet(rx_data_buffer)) {
+      int packet_len = fetch_packet(rx_data_buffer);
+      if (packet_len == 0) {
+        printf("***IT zero length packet ***");
+        printContainer();
+      }
+      if (packet_len > 0) {
         printContainer(); // to switch on set debug to 1 at beginning of file
 
         int op = CONTAINER->op;
@@ -2723,7 +2727,7 @@ void MTPD::loop(void) {
     printf("*** end Interval Timer ***\n");
   }
   if (usb_mtp_available()) {
-    if (fetch_packet(rx_data_buffer)) {
+    if (fetch_packet(rx_data_buffer) > 0) {
       //printContainer(); // to switch on set debug to 1 at beginning of file
       _printContainer(CONTAINER,"LP:");
 
