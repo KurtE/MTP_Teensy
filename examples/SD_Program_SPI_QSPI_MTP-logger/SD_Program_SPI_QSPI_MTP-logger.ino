@@ -33,7 +33,7 @@ SDClass sdSPI;
 
 // Experiment add memory FS to mainly hold the storage index
 // May want to wrap this all up as well
-//#include "LittleFSCombine.h"
+#include "LittleFSCombine.h"
 #include <LittleFS.h>
 uint32_t LFSRAM_SIZE = 65536; // probably more than enough...
 LittleFS_RAM lfsram;
@@ -41,13 +41,12 @@ LittleFS_RAM lfsram;
 LittleFS_Program lfsProg; // Used to create FS on the Flash memory of the chip
 
 #ifdef ARDUINO_TEENSY41
-LittleFS_QSPI lfsqspi;
+lfs_qspi lfsqspi;
 #endif
 
 // Experiment with LittleFS_SPI wrapper
-uint8_t lfsSPIPins[] = {3, 4, 5, 6};
-#define CLFSSPIPINS (sizeof(lfsSPIPins) / sizeof(lfsSPIPins[0]))
-LittleFS_SPI lfsspi[CLFSSPIPINS];
+lfs_spi lfsspi[] = {{3}, {4}, {5}, {6}};
+#define CLFSSPIPINS (sizeof(lfsspi) / sizeof(lfsspi[0]))
 
 FS *myfs = &lfsProg; // current default FS...
 
@@ -142,15 +141,15 @@ void setup() {
 
 #ifdef ARDUINO_TEENSY41
   if (lfsqspi.begin()) {
-    storage.addFilesystem(lfsqspi, lfsqspi.displayName());
+    storage.addFilesystem(*lfsqspi.fs(), lfsqspi.displayName());
   } else {
     Serial.println("T4.1 does not have external Flash chip");
   }
 #endif
 
   for (uint8_t i = 0; i < CLFSSPIPINS; i++) {
-    if (lfsspi[i].begin(lfsSPIPins[i])) {
-      storage.addFilesystem(lfsspi[i], lfsspi[i].displayName());
+    if (lfsspi[i].begin()) {
+      storage.addFilesystem(*lfsspi[i].fs(), lfsspi[i].displayName());
     }
   }
 
