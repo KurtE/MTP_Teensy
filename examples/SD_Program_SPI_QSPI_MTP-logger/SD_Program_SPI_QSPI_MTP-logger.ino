@@ -49,6 +49,9 @@ lfs_spi lfsspi[] = {{3}, {4}, {5}, {6}};
 #define CLFSSPIPINS (sizeof(lfsspi) / sizeof(lfsspi[0]))
 
 FS *myfs = &lfsProg; // current default FS...
+int myfs_index = 0;
+int index_sdio_storage = -1;
+int index_sdspi_storage = -1;
 
 static const uint32_t file_system_size = 1024 * 512;
 
@@ -156,12 +159,12 @@ void setup() {
 SDClass sdSPI;
 #if defined(USE_BUILTIN_SDCARD)
   if (sdSDIO.begin(BUILTIN_SDCARD)) {
-    storage.addFilesystem(sdSDIO, "SD_Builtin");
+    index_sdio_storage = storage.addFilesystem(sdSDIO, "SD_Builtin");
   }
 #endif
 
   if (sdSPI.begin(SD_ChipSelect)) {
-    storage.addFilesystem(sdSPI, "SD_SPI");
+    index_sdspi_storage = storage.addFilesystem(sdSPI, "SD_SPI");
   }
 
   DBGSerial.printf("%u Storage list initialized.\n", millis());
@@ -193,6 +196,7 @@ void loop() {
       if (storage_index < storage.getFSCount()) {
         DBGSerial.printf("Storage Index %u Name: %s Selected\n", storage_index,
                          storage.getStoreName(storage_index));
+        myfs_index = storage_index;
         myfs = storage.getStoreFS(storage_index);
         current_store = storage_index;
       } else {
@@ -205,6 +209,9 @@ void loop() {
       break;
     case 'e':
       eraseFiles();
+      break;
+    case 'f':
+      lowLevelFormat();
       break;
     case 's': {
       DBGSerial.println("\nLogging Data!!!");
@@ -301,7 +308,8 @@ void menu() {
   DBGSerial.println("\t1 - List Drives (Step 1)");
   DBGSerial.println("\t2 - Select Drive for Logging (Step 2)");
   DBGSerial.println("\tl - List files on disk");
-  DBGSerial.println("\te - Erase files on disk");
+  DBGSerial.println("\te - Erase/Format disk");
+  DBGSerial.println("\tf - Low Level Format (LittleFS)");
   DBGSerial.println("\ts - Start Logging data (Restarting logger will append "
                     "records to existing log)");
   DBGSerial.println("\tx - Stop Logging data");
@@ -321,7 +329,23 @@ void listFiles() {
 }
 
 void eraseFiles() {
+  DBGSerial.println("\n*** Erase/Format started ***");
+  myfs->format(0, '.', DBGSerial);
+  Serial.println("Completed, sending device reset event");
+  mtpd.send_DeviceResetEvent();
+}
 
+void lowLevelFormat() {
+  DBGSerial.print("\n*** Low Level Format ");
+  if ((myfs_index == index_sdio_storage) || (myfs_index == index_sdspi_storage)) {
+    DBGSerial.println("Not supported(yet) on SD drives ***");
+    return;
+  }
+  // see if I get away with simple cast
+  Serial.println("started ***");
+  myfs->format(1, '.', DBGSerial);  // try first by using the hack of 1...
+  Serial.println("Completed, sending device reset event");
+  mtpd.send_DeviceResetEvent();
 }
 
 void printDirectory(FS *pfs) {

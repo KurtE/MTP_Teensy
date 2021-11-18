@@ -32,7 +32,7 @@ class lfs_qspi {
 public:
   lfs_qspi(){}
   bool begin();
-  inline FS * fs() { return plfs;}
+  inline LittleFS * fs() { return plfs;}
   inline const char * displayName() {return display_name;}
   // You have full access to internals.
   uint8_t csPin;
@@ -67,7 +67,7 @@ class lfs_spi {
 public:
   lfs_spi(uint8_t pin) : csPin(pin) {}
   bool begin();
-  inline FS * fs() { return plfs;}
+  inline LittleFS * fs() { return plfs;}
   inline const char * displayName() {return display_name;}
   // You have full access to internals.
   uint8_t csPin;

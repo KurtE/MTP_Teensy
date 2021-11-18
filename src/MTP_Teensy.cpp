@@ -2490,6 +2490,8 @@ bool MTPD::SendObject() {
   uint32_t c_write_em = 0;
   uint32_t write_em_max = 0;
 
+  uint32_t last_n_write_times[32];
+
   while ((int)len > 0) {
     uint32_t bytes = MTP_RX_SIZE - index; // how many data in usb-packet
     bytes = min(bytes, len);              // loimit at end
@@ -2509,6 +2511,7 @@ bool MTPD::SendObject() {
           DISK_BUFFER_SIZE)
         return false;
       uint32_t em = emWrite;
+      last_n_write_times[c_write_em & 0x1f] = em;
       sum_write_em += em;
       c_write_em++;
       if (em > write_em_max)
@@ -2546,6 +2549,7 @@ bool MTPD::SendObject() {
     if (storage_->write((const char *)disk_buffer_, disk_pos) < disk_pos)
       return false;
     uint32_t em = emWrite;
+    last_n_write_times[c_write_em & 0x1f] = em;
     sum_write_em += em;
     c_write_em++;
     if (em > write_em_max)
@@ -2564,6 +2568,14 @@ bool MTPD::SendObject() {
   if (c_write_em)
     printf(" # Write: %u total:%u avg ms: %u max: %u\n", c_write_em,
            sum_write_em, sum_write_em / c_write_em, write_em_max);
+    printf("  >> Last write times\n ");
+    uint8_t dump_count = min(32u, c_write_em);
+    index = c_write_em;
+    while (dump_count--){
+      index = (index - 1) & 0x1f;
+      printf(" %u",last_n_write_times[index] );
+    }
+  printf("\n");
   printf(">>>Total Time: %u\n", (uint32_t)em_total);
   Serial.flush();
 
@@ -2813,7 +2825,7 @@ void MTPD::loop(void) {
 
         case 0x100D: // SendObject
           if (!SendObject()) {
-            return_code = MTP_RESPONSE_INCOMPLETE_TRANSFER;
+            return_code = 0; // MTP_RESPONSE_INCOMPLETE_TRANSFER;  // what happens if we don't send response...
             send_Event(
                 MTP_EVENT_CANCEL_TRANSACTION); // try sending an event to cancel?
           } else {
