@@ -2489,6 +2489,14 @@ bool MTPD::SendObject() {
   uint32_t sum_write_em = 0;
   uint32_t c_write_em = 0;
   uint32_t write_em_max = 0;
+  uint32_t write_em_max_index = 0;
+  uint32_t c_write_em_GE_10 = 0;
+  uint32_t c_write_em_GE_20 = 0;
+  uint32_t c_write_em_GE_30 = 0;
+  uint32_t c_write_em_GE_40 = 0;
+  uint32_t c_write_em_GE_50 = 0;
+  uint32_t c_write_em_GE_100 = 0;
+    
 
   uint32_t last_n_write_times[32];
 
@@ -2514,8 +2522,17 @@ bool MTPD::SendObject() {
       last_n_write_times[c_write_em & 0x1f] = em;
       sum_write_em += em;
       c_write_em++;
-      if (em > write_em_max)
+      if (em > write_em_max) {
         write_em_max = em;
+        write_em_max_index = c_write_em;
+      }
+      if (em >= 100) c_write_em_GE_100++;
+      else if (em >= 50) c_write_em_GE_50++;
+      else if (em >= 40) c_write_em_GE_40++;
+      else if (em >= 30) c_write_em_GE_30++;
+      else if (em >= 20) c_write_em_GE_20++;
+      else if (em >= 10) c_write_em_GE_10++;
+
       disk_pos = 0;
 
       if (bytes) // we have still data in transfer buffer, copy to initial
@@ -2552,8 +2569,16 @@ bool MTPD::SendObject() {
     last_n_write_times[c_write_em & 0x1f] = em;
     sum_write_em += em;
     c_write_em++;
-    if (em > write_em_max)
+    if (em > write_em_max) {
       write_em_max = em;
+        write_em_max_index = c_write_em;
+      }
+      if (em >= 100) c_write_em_GE_100++;
+      else if (em >= 50) c_write_em_GE_50++;
+      else if (em >= 40) c_write_em_GE_40++;
+      else if (em >= 30) c_write_em_GE_30++;
+      else if (em >= 20) c_write_em_GE_20++;
+      else if (em >= 10) c_write_em_GE_10++;
     disk_pos = 0;
   }
 
@@ -2566,8 +2591,10 @@ bool MTPD::SendObject() {
     printf(" # USB Packets: %u total: %u avg ms: %u max: %u\n", c_read_em,
            sum_read_em, sum_read_em / c_read_em, read_em_max);
   if (c_write_em)
-    printf(" # Write: %u total:%u avg ms: %u max: %u\n", c_write_em,
-           sum_write_em, sum_write_em / c_write_em, write_em_max);
+    printf(" # Write: %u total:%u avg ms: %u max: %u(%u)\n", c_write_em,
+           sum_write_em, sum_write_em / c_write_em, write_em_max, write_em_max_index);
+    printf("  >> >=100ms: %u 50:%u 40:%u 30:%u 20:%u 10:%u\n", c_write_em_GE_100,
+        c_write_em_GE_50, c_write_em_GE_40, c_write_em_GE_30, c_write_em_GE_20, c_write_em_GE_10);
     printf("  >> Last write times\n ");
     uint8_t dump_count = min(32u, c_write_em);
     index = c_write_em;
