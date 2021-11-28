@@ -110,7 +110,8 @@ size_t BogusFile::write(const void *buf, size_t size) {
 		_offset &= 0x1ff; // probably ok...
 	}
 	_file_size += size;
-	delayMicroseconds(20);
+	//delayMicroseconds(500);
+	delay(6);
 	digitalWriteFast(6, LOW);
 	return size;
 #endif

@@ -24,6 +24,7 @@
 
 // modified for SDFS by WMXZ
 //#define T4_USE_SIMPLE_SEND_OBJECT
+#define T4_SEND_OBJECT_WITH_TIMER
 
 #if defined(USB_MTPDISK) || defined(USB_MTPDISK_SERIAL)
 
@@ -57,7 +58,7 @@ void printf_debug(const char *format, ...);
 #endif
 
 // temporary include dump library.
-//#include <MemoryHexDump.h>
+#include <MemoryHexDump.h>
 
 /***************************************************************************************************/
 // Container Types
@@ -1677,6 +1678,13 @@ void MTPD::loop(void) {
 
 #elif defined(__IMXRT1062__)
 
+// IMXRT Static variables.
+uint8_t MTPD::disk_buffer_[DISK_BUFFER_SIZE] __attribute__((aligned(32)));
+uint8_t MTPD::disk_buffer2_[DISK_BUFFER_SIZE] __attribute__((aligned(32)));
+uint8_t *MTPD::next_fill_buffer_;
+volatile uint32_t MTPD::buffer_pos_;
+volatile uint32_t MTPD::count_bytes_left_ = 0;
+volatile uint32_t MTPD::count_background_reads_;
 int MTPD::push_packet(uint8_t *data_buffer, uint32_t len) {
   while (usb_mtp_send(data_buffer, len, 60) <= 0)
     ;
@@ -1729,19 +1737,19 @@ void MTPD::GetObject(uint32_t object_id) {
     uint32_t pos = 0; // into data
     uint32_t len = sizeof(MTPHeader);
 
-    disk_pos = DISK_BUFFER_SIZE;
+    buffer_pos_ = DISK_BUFFER_SIZE;
     while (pos < size) {
-      if (disk_pos == DISK_BUFFER_SIZE) {
+      if (buffer_pos_ == DISK_BUFFER_SIZE) {
         uint32_t nread = min(size - pos, (uint32_t)DISK_BUFFER_SIZE);
         storage_->read(object_id, pos, (char *)disk_buffer_, nread);
-        disk_pos = 0;
+        buffer_pos_ = 0;
       }
 
       uint32_t to_copy = min(size - pos, MTP_TX_SIZE - len);
-      to_copy = min(to_copy, DISK_BUFFER_SIZE - disk_pos);
+      to_copy = min(to_copy, DISK_BUFFER_SIZE - buffer_pos_);
 
-      memcpy(tx_data_buffer + len, disk_buffer_ + disk_pos, to_copy);
-      disk_pos += to_copy;
+      memcpy(tx_data_buffer + len, disk_buffer_ + buffer_pos_, to_copy);
+      buffer_pos_ += to_copy;
       pos += to_copy;
       len += to_copy;
 
@@ -1772,19 +1780,19 @@ uint32_t MTPD::GetPartialObject(uint32_t object_id, uint32_t offset,
     uint32_t pos = offset; // into data
     uint32_t len = sizeof(MTPHeader);
 
-    disk_pos = DISK_BUFFER_SIZE;
+    buffer_pos_ = DISK_BUFFER_SIZE;
     while (pos < size) {
-      if (disk_pos == DISK_BUFFER_SIZE) {
+      if (buffer_pos_ == DISK_BUFFER_SIZE) {
         uint32_t nread = min(size - pos, (uint32_t)DISK_BUFFER_SIZE);
         storage_->read(object_id, pos, (char *)disk_buffer_, nread);
-        disk_pos = 0;
+        buffer_pos_ = 0;
       }
 
       uint32_t to_copy = min(size - pos, MTP_TX_SIZE - len);
-      to_copy = min(to_copy, DISK_BUFFER_SIZE - disk_pos);
+      to_copy = min(to_copy, DISK_BUFFER_SIZE - buffer_pos_);
 
-      memcpy(tx_data_buffer + len, disk_buffer_ + disk_pos, to_copy);
-      disk_pos += to_copy;
+      memcpy(disk_buffer_ + len, disk_buffer_ + buffer_pos_, to_copy);
+      buffer_pos_ += to_copy;
       pos += to_copy;
       len += to_copy;
 
@@ -2396,9 +2404,9 @@ bool MTPD::SendObject() {
   pull_packet(rx_data_buffer);
   read(0, 0);
   //      printContainer();
-  uint32_t len = ReadMTPHeader();
+  uint32_t count_bytes_left_ = ReadMTPHeader();
   uint32_t index = sizeof(MTPHeader);
-  printf("MTPD::SendObject: len:%u\n", len);
+  printf("MTPD::SendObject: len:%u\n", count_bytes_left_);
   elapsedMicros em_total = 0;
 
   uint32_t sum_read_em = 0;
@@ -2410,22 +2418,22 @@ bool MTPD::SendObject() {
   uint32_t write_em_max = 0;
   // Quick and dirty write the first partial block of data.
   uint32_t bytes = MTP_RX_SIZE - index; // how many data in usb-packet
-  if (len) {
-    bytes = min(bytes, len);              // limit at end
+  if (count_bytes_left_) {
+    bytes = min(bytes, count_bytes_left_);              // limit at end
     elapsedMillis emWrite = 0;
-    //printf("    $$F: %u %u\n", bytes, len);
+    //printf("    $$F: %u %u\n", bytes, count_bytes_left_);
     if (storage_->write((const char *)rx_data_buffer + index, bytes) < bytes)
       return false;
     uint32_t em = emWrite;
     sum_write_em = em;
     c_write_em++;
     write_em_max = em;
-    len -= bytes;
+    count_bytes_left_ -= bytes;
   }
   
 
-  while ((int)len > 0) {
-    //if (len <  3276) g_usb_isr_print = 1;
+  while ((int)count_bytes_left_ > 0) {
+    //if (count_bytes_left_ <  3276) g_usb_isr_print = 1;
     elapsedMillis emRead = 0;
     if (usb_mtp_recv(rx_data_buffer, SENDOBJECT_READ_TIMEOUT_MS) > 0) { // read directly in.
       uint32_t em = emRead;
@@ -2438,10 +2446,10 @@ bool MTPD::SendObject() {
       break; //
     }
 
-    bytes = min((uint32_t)MTP_RX_SIZE, len);              // limit at end
+    bytes = min((uint32_t)MTP_RX_SIZE, count_bytes_left_);              // limit at end
 
     elapsedMillis emWrite = 0;
-    //printf("    $$:  %u %u\n", bytes, len);
+    //printf("    $$:  %u %u\n", bytes, count_bytes_left_);
     if (storage_->write((const char *)rx_data_buffer, bytes) < bytes)
       return false;
     uint32_t em = emWrite;
@@ -2450,10 +2458,10 @@ bool MTPD::SendObject() {
     if (em > write_em_max)
       write_em_max = em;
 
-    len -= bytes;
+    count_bytes_left_ -= bytes;
   }
 
-  printf("    $$*: %u\n", len);
+  printf("    $$*: %u\n", count_bytes_left_);
 
   // lets see if we should update the date and time stamps.
   storage_->updateDateTimeStamps(object_id_, dtCreated_, dtModified_);
@@ -2469,16 +2477,198 @@ bool MTPD::SendObject() {
   printf(">>>Total Time: %u\n", (uint32_t)em_total);
   Serial.flush();
 
-  return (len == 0);
+  return (count_bytes_left_ == 0);
+}
+#elif defined(T4_SEND_OBJECT_WITH_TIMER)
+//=============================================================================
+void MTPD::_send_object_interval_timer_handler() {
+  if (usb_mtp_available() == 0) return; // nothing to read
+
+  // Lets read the next buffer directly into the buffer
+  int cb_recv = usb_mtp_recv(next_fill_buffer_ + buffer_pos_, SENDOBJECT_READ_TIMEOUT_MS);
+  if (cb_recv > (int)count_bytes_left_) cb_recv = count_bytes_left_;
+  buffer_pos_ += cb_recv;
+  count_bytes_left_ -= cb_recv;
+  count_background_reads_++;
+  // we will stop reading these if the next read won't fit in buffer
+  if ((count_bytes_left_ == 0) || ((buffer_pos_ + cb_recv) >= DISK_BUFFER_SIZE))
+     g_intervaltimer.end();
+}
+
+bool MTPD::SendObject() {
+  pull_packet(rx_data_buffer);
+  read(0, 0);
+  //      printContainer();
+  count_bytes_left_ = ReadMTPHeader();
+  printf("MTPD::SendObject: len:%u\n", count_bytes_left_);
+  buffer_pos_ = 0;
+  elapsedMicros em_total = 0;
+
+  uint32_t sum_read_em = 0;
+  uint32_t c_read_em = 0;
+  uint32_t read_em_max = 0;
+
+  uint32_t sum_write_em = 0;
+  uint32_t c_write_em = 0;
+  uint32_t write_em_max = 0;
+  uint32_t write_em_max_index = 0;
+  uint32_t c_write_em_GE_10 = 0;
+  uint32_t c_write_em_GE_20 = 0;
+  uint32_t c_write_em_GE_30 = 0;
+  uint32_t c_write_em_GE_40 = 0;
+  uint32_t c_write_em_GE_50 = 0;
+  uint32_t c_write_em_GE_100 = 0;
+  count_background_reads_ = 0;
+    
+
+  uint32_t last_n_write_times[32];
+
+
+  // first copy in the rest of the first packet into the diskbuffer.
+  int cb_recv = MTP_RX_SIZE - sizeof(MTPHeader);
+  uint8_t *current_tx_buffer = disk_buffer_;
+  memcpy(current_tx_buffer, rx_data_buffer + sizeof(MTPHeader), cb_recv);
+
+  c_read_em = 1;
+  count_bytes_left_ -= cb_recv;
+  buffer_pos_ = cb_recv;
+
+
+
+  uint32_t rx_status_last = 0;
+  uint32_t rx_status;
+
+  while ((int)count_bytes_left_ > 0) {
+    // read in next sector
+    elapsedMillis emRead = 0;
+    cb_recv = usb_mtp_recv_extended(rx_data_buffer, &rx_status, SENDOBJECT_READ_TIMEOUT_MS);
+    if (rx_status != rx_status_last) {
+      printf("  >> %u %x!=%x\n", count_bytes_left_, rx_status, rx_status_last);
+      rx_status_last = rx_status;
+    }
+    static uint8_t dump_count = 3;
+    if (dump_count) {
+      MemoryHexDump(*printStream_, (void*)rx_data_buffer, cb_recv, true);
+      dump_count--;
+    }
+    //delayMicroseconds(50);
+    if (cb_recv > 0) { // read a packet of data
+      uint32_t em = emRead;
+      sum_read_em += em;
+      c_read_em++;
+      if (em > read_em_max)
+        read_em_max = em;
+    } else if (cb_recv == 0) {
+      printf("\nMTPD::SendObject *** USB Read 0 bytes ***\n");
+      break;
+    } else {
+      printf("\nMTPD::SendObject *** USB Read error ***\n");
+      break; //
+    }
+
+    // Now see how much of this that will fit into output buffer
+    uint32_t bytes = cb_recv; // how many data in usb-packet
+    bytes = min(bytes, count_bytes_left_);              // loimit at end
+    uint32_t to_copy = min(bytes, DISK_BUFFER_SIZE - buffer_pos_); // how many data to copy to disk buffer
+    //printf("    %u %u %u\n", count_bytes_left_, bytes, to_copy);
+    memcpy(current_tx_buffer + buffer_pos_, rx_data_buffer, to_copy);
+    buffer_pos_ += to_copy;
+    bytes -= to_copy;
+    count_bytes_left_ -= to_copy;
+    // printf("a %d %d %d %d %d\n", count_bytes_left_,buffer_pos_,bytes,index,to_copy);
+    //
+    if (buffer_pos_ == DISK_BUFFER_SIZE) {
+      next_fill_buffer_ = (current_tx_buffer == disk_buffer_)? disk_buffer2_ : disk_buffer_;
+      if (bytes) // we have still data in transfer buffer, copy to initial disk_buffer_
+      {
+        memcpy(next_fill_buffer_, rx_data_buffer + to_copy, bytes);
+        buffer_pos_ = bytes;
+        count_bytes_left_ -= bytes;
+      }
+
+      elapsedMillis emWrite = 0;
+      //g_intervaltimer.begin(&_send_object_interval_timer_handler, 15000); // try maybe 50 times per second...
+      uint32_t cbWrite = storage_->write((const char *)current_tx_buffer, DISK_BUFFER_SIZE);
+      uint32_t em = emWrite;
+      last_n_write_times[c_write_em & 0x1f] = em;
+      sum_write_em += em;
+      c_write_em++;
+      if (em > write_em_max) {
+        write_em_max = em;
+        write_em_max_index = c_write_em;
+      }
+      if (em >= 100) c_write_em_GE_100++;
+      else if (em >= 50) c_write_em_GE_50++;
+      else if (em >= 40) c_write_em_GE_40++;
+      else if (em >= 30) c_write_em_GE_30++;
+      else if (em >= 20) c_write_em_GE_20++;
+      else if (em >= 10) c_write_em_GE_10++;
+
+      //g_intervaltimer.end();      // try maybe 20 times per second...
+      if (cbWrite < DISK_BUFFER_SIZE) {
+        return false;
+      }      
+      current_tx_buffer = next_fill_buffer_;
+      // printf("b %d %d %d %d %d\n", count_bytes_left_,buffer_pos_,bytes,index,to_copy);
+    }
+  }
+
+  printf("count_bytes_left_ %d diskpos: %d\n", count_bytes_left_, buffer_pos_);
+  if (buffer_pos_) {
+    elapsedMillis emWrite = 0;
+    if (storage_->write((const char *)current_tx_buffer, buffer_pos_) < buffer_pos_)
+      return false;
+    uint32_t em = emWrite;
+    last_n_write_times[c_write_em & 0x1f] = em;
+    sum_write_em += em;
+    c_write_em++;
+    if (em > write_em_max) {
+      write_em_max = em;
+        write_em_max_index = c_write_em;
+      }
+      if (em >= 100) c_write_em_GE_100++;
+      else if (em >= 50) c_write_em_GE_50++;
+      else if (em >= 40) c_write_em_GE_40++;
+      else if (em >= 30) c_write_em_GE_30++;
+      else if (em >= 20) c_write_em_GE_20++;
+      else if (em >= 10) c_write_em_GE_10++;
+    buffer_pos_ = 0;
+  }
+
+  // lets see if we should update the date and time stamps.
+  storage_->updateDateTimeStamps(object_id_, dtCreated_, dtModified_);
+
+  storage_->close();
+
+  if (c_read_em)
+    printf(" # USB Packets: %u background: %u total: %u avg ms: %u max: %u\n", c_read_em, count_background_reads_,
+           sum_read_em, sum_read_em / c_read_em, read_em_max);
+  if (c_write_em)
+    printf(" # Write: %u total:%u avg ms: %u max: %u(%u)\n", c_write_em,
+           sum_write_em, sum_write_em / c_write_em, write_em_max, write_em_max_index);
+    printf("  >> >=100ms: %u 50:%u 40:%u 30:%u 20:%u 10:%u\n", c_write_em_GE_100,
+        c_write_em_GE_50, c_write_em_GE_40, c_write_em_GE_30, c_write_em_GE_20, c_write_em_GE_10);
+    printf("  >> Last write times\n ");
+    uint8_t dump_count = min(32u, c_write_em);
+    uint8_t index = c_write_em;
+    while (dump_count--){
+      index = (index - 1) & 0x1f;
+      printf(" %u",last_n_write_times[index] );
+    }
+  printf("\n");
+  printf(">>>Total Time: %u\n", (uint32_t)em_total);
+  Serial.flush();
+
+  return (count_bytes_left_ == 0);
 }
 #else
 bool MTPD::SendObject() {
   pull_packet(rx_data_buffer);
   read(0, 0);
   //      printContainer();
-  uint32_t len = ReadMTPHeader();
-  printf("MTPD::SendObject: len:%u\n", len);
-  disk_pos = 0;
+  uint32_t count_bytes_left_ = ReadMTPHeader();
+  printf("MTPD::SendObject: count_bytes_left_:%u\n", count_bytes_left_);
+  buffer_pos_ = 0;
   elapsedMicros em_total = 0;
 
   uint32_t sum_read_em = 0;
@@ -2498,57 +2688,54 @@ bool MTPD::SendObject() {
     
 
   uint32_t last_n_write_times[32];
-  uint8_t count_zero_packets = 0;
 
 
   // first copy in the rest of the first packet into the diskbuffer.
   int cb_recv = MTP_RX_SIZE - sizeof(MTPHeader);
   check_memcpy(disk_buffer_, rx_data_buffer + sizeof(MTPHeader), cb_recv, disk_buffer_, DISK_BUFFER_SIZE);
   c_read_em = 1;
-  len -= cb_recv;
-  disk_pos = cb_recv;
+  count_bytes_left_ -= cb_recv;
+  buffer_pos_ = cb_recv;
 
 
 
-
-  while ((int)len > 0) {
+  uint32_t rx_status_last = 0;
+  uint32_t rx_status;
+  while ((int)count_bytes_left_ > 0) {
     // read in next sector
     elapsedMillis emRead = 0;
-    cb_recv = usb_mtp_recv(rx_data_buffer, SENDOBJECT_READ_TIMEOUT_MS);
-    delayMicroseconds(50);
+    cb_recv = usb_mtp_recv_extended(rx_data_buffer, &rx_status, SENDOBJECT_READ_TIMEOUT_MS);
+    if (rx_status != rx_status_last) {
+      printf("  >> %u %x!=%x\n", count_bytes_left_, rx_status, rx_status_last);
+      rx_status_last = rx_status;
+    }
+    //delayMicroseconds(50);
     if (cb_recv > 0) { // read a packet of data
       uint32_t em = emRead;
       sum_read_em += em;
       c_read_em++;
       if (em > read_em_max)
         read_em_max = em;
-        if (count_zero_packets) {
-          count_zero_packets = 0;
-          printf("\nMTPD::SendObject *** Received packet after 0 packet ***\n");
-        }
     } else if (cb_recv == 0) {
       printf("\nMTPD::SendObject *** USB Read 0 bytes ***\n");
-      count_zero_packets++;
-      // don't sit here endless in 0 length packets. 
-      if (count_zero_packets > 1) break;
-
+      break;
     } else {
-      printf("\nMTPD::SendObject *** USB Read Timeout ***\n");
+      printf("\nMTPD::SendObject *** USB Read error ***\n");
       break; //
     }
 
     // Now see how much of this that will fit into output buffer
     uint32_t bytes = cb_recv; // how many data in usb-packet
-    bytes = min(bytes, len);              // loimit at end
-    uint32_t to_copy = min(bytes, DISK_BUFFER_SIZE - disk_pos); // how many data to copy to disk buffer
-    //printf("    %u %u %u\n", len, bytes, to_copy);
-    check_memcpy(disk_buffer_ + disk_pos, rx_data_buffer, to_copy, disk_buffer_, DISK_BUFFER_SIZE);
-    disk_pos += to_copy;
+    bytes = min(bytes, count_bytes_left_);              // loimit at end
+    uint32_t to_copy = min(bytes, DISK_BUFFER_SIZE - buffer_pos_); // how many data to copy to disk buffer
+    //printf("    %u %u %u\n", count_bytes_left_, bytes, to_copy);
+    check_memcpy(disk_buffer_ + buffer_pos_, rx_data_buffer, to_copy, disk_buffer_, DISK_BUFFER_SIZE);
+    buffer_pos_ += to_copy;
     bytes -= to_copy;
-    len -= to_copy;
-    // printf("a %d %d %d %d %d\n", len,disk_pos,bytes,index,to_copy);
+    count_bytes_left_ -= to_copy;
+    // printf("a %d %d %d %d %d\n", count_bytes_left_,buffer_pos_,bytes,index,to_copy);
     //
-    if (disk_pos == DISK_BUFFER_SIZE) {
+    if (buffer_pos_ == DISK_BUFFER_SIZE) {
       elapsedMillis emWrite = 0;
       if (storage_->write((const char *)disk_buffer_, DISK_BUFFER_SIZE) <
           DISK_BUFFER_SIZE)
@@ -2568,22 +2755,22 @@ bool MTPD::SendObject() {
       else if (em >= 20) c_write_em_GE_20++;
       else if (em >= 10) c_write_em_GE_10++;
 
-      disk_pos = 0;
+      buffer_pos_ = 0;
 
       if (bytes) // we have still data in transfer buffer, copy to initial disk_buffer_
       {
         check_memcpy(disk_buffer_, rx_data_buffer + to_copy, bytes, disk_buffer_, DISK_BUFFER_SIZE);
-        disk_pos += bytes;
-        len -= bytes;
+        buffer_pos_ += bytes;
+        count_bytes_left_ -= bytes;
       }
-      // printf("b %d %d %d %d %d\n", len,disk_pos,bytes,index,to_copy);
+      // printf("b %d %d %d %d %d\n", count_bytes_left_,buffer_pos_,bytes,index,to_copy);
     }
   }
 
-  printf("len %d diskpos: %u\n", len, disk_pos);
-  if (disk_pos) {
+  printf("count_bytes_left_ %d diskpos: %d\n", count_bytes_left_, buffer_pos_);
+  if (buffer_pos_) {
     elapsedMillis emWrite = 0;
-    if (storage_->write((const char *)disk_buffer_, disk_pos) < disk_pos)
+    if (storage_->write((const char *)disk_buffer_, buffer_pos_) < buffer_pos_)
       return false;
     uint32_t em = emWrite;
     last_n_write_times[c_write_em & 0x1f] = em;
@@ -2599,7 +2786,7 @@ bool MTPD::SendObject() {
       else if (em >= 30) c_write_em_GE_30++;
       else if (em >= 20) c_write_em_GE_20++;
       else if (em >= 10) c_write_em_GE_10++;
-    disk_pos = 0;
+    buffer_pos_ = 0;
   }
 
   // lets see if we should update the date and time stamps.
@@ -2626,7 +2813,7 @@ bool MTPD::SendObject() {
   printf(">>>Total Time: %u\n", (uint32_t)em_total);
   Serial.flush();
 
-  return (len == 0);
+  return (count_bytes_left_ == 0);
 }
 #endif
 

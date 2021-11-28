@@ -10,6 +10,7 @@
 #include <MTP_Teensy.h>
 
 #define USE_BUILTIN_SDCARD
+//#define USE_RAM_DRIVE
 #if defined(USE_BUILTIN_SDCARD) && defined(BUILTIN_SDCARD)
 #define CS_SD BUILTIN_SDCARD
 #else
@@ -29,7 +30,7 @@ uint8_t active_storage = 0;
 MTPStorage storage;
 MTPD mtpd(&storage);
 
-#define COUNT_MYFS 2 // could do by count, but can limit how many are created...
+#define COUNT_MYFS 1 // could do by count, but can limit how many are created...
 typedef struct {
   uint8_t csPin;
   const char *name;
@@ -43,9 +44,11 @@ SDList_t myfs[] = {
 
 // Experiment add memory FS to mainly hold the storage index
 // May want to wrap this all up as well
+#ifdef USE_RAM_DRIVE
 #include <LittleFS.h>
 #define LFSRAM_SIZE 65536 // probably more than enough...
 LittleFS_RAM lfsram;
+#endif
 
 #define DBGSerial Serial
 
@@ -82,6 +85,7 @@ void setup() {
   }
 
   // lets initialize a RAM drive.
+  #ifdef USE_RAM_DRIVE
   if (lfsram.begin(LFSRAM_SIZE)) {
     DBGSerial.printf("Ram Drive of size: %u initialized\n", LFSRAM_SIZE);
     uint32_t istore = storage.addFilesystem(lfsram, "RAM");
@@ -89,7 +93,7 @@ void setup() {
       storage.setIndexStore(istore);
     DBGSerial.printf("Set Storage Index drive to %u\n", istore);
   }
-
+#endif
   DBGSerial.println("SD initialized.");
 
   menu();

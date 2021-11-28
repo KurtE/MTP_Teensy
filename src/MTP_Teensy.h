@@ -97,13 +97,12 @@ private:
 // possible events for T3.xx ?
 
 #elif defined(__IMXRT1062__)
-#define MTP_RX_SIZE MTP_RX_SIZE_480
+#ifndef MTP_RX_SIZE 
+#define MTP_RX_SIZE MTP_RX_SIZE_480  // experiment to see if we can receive multiple packets...
+#endif
 #define MTP_TX_SIZE MTP_TX_SIZE_480
 
-  uint8_t tx_data_buffer[MTP_TX_SIZE] __attribute__((aligned(32)));
-
   static const uint32_t DISK_BUFFER_SIZE = 2 * 1024;
-  uint32_t disk_pos = 0;
 
   int push_packet(uint8_t *data_buffer, uint32_t len);
   int fetch_packet(uint8_t *data_buffer);
@@ -112,7 +111,13 @@ private:
   static uint32_t sessionID_;
   static const uint32_t SENDOBJECT_READ_TIMEOUT_MS = 1000;
   uint8_t rx_data_buffer[MTP_RX_SIZE] __attribute__((aligned(32)));
-  uint8_t disk_buffer_[DISK_BUFFER_SIZE] __attribute__((aligned(32)));
+  uint8_t tx_data_buffer[MTP_TX_SIZE] __attribute__((aligned(32)));
+  static uint8_t disk_buffer_[DISK_BUFFER_SIZE] __attribute__((aligned(32)));
+  static uint8_t disk_buffer2_[DISK_BUFFER_SIZE] __attribute__((aligned(32)));
+  static  uint8_t *next_fill_buffer_;
+  static volatile uint32_t buffer_pos_;
+  static volatile uint32_t count_bytes_left_;
+  static volatile uint32_t count_background_reads_;
 
 #endif
   //static time_t
@@ -174,7 +179,7 @@ private:
   static void _interval_timer_handler();
   static IntervalTimer g_intervaltimer;
   void processIntervalTimer();
-
+  static void _send_object_interval_timer_handler();
   uint32_t deleteObject(uint32_t p1);
   uint32_t copyObject(uint32_t p1, uint32_t p2, uint32_t p3/*, int &object_id*/);
   uint32_t moveObject(uint32_t p1, uint32_t p2, uint32_t p3);
