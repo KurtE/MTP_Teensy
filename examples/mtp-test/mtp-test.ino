@@ -1,4 +1,3 @@
-#include <SD.h>
 #include <MTP_Teensy.h>
 
 //---------------------------------------------------
@@ -6,7 +5,7 @@
 //---------------------------------------------------
 #define USE_SD  1         // SDFAT based SDIO and SPI
 #ifdef ARDUINO_TEENSY41
-#define USE_LFS_RAM 0     // T4.1 PSRAM (or RAM)
+#define USE_LFS_RAM 1     // T4.1 PSRAM (or RAM)
 #else
 #define USE_LFS_RAM 0     // T4.1 PSRAM (or RAM)
 #endif
@@ -48,6 +47,7 @@ MTPD    mtpd(&storage);
 // MSC & SD classes
 //=============================================================================
 #if USE_SD==1
+#include <SD.h>
 #define USE_BUILTIN_SDCARD
 #if defined(USE_BUILTIN_SDCARD) && defined(BUILTIN_SDCARD)
 #define CS_SD  BUILTIN_SDCARD
@@ -126,7 +126,7 @@ bool drive_previous_connected[CNT_DRIVES] = {false, false, false, false};
 
 #if USE_LFS_RAM==1
 const char *lfs_ram_str[] = {"RAM1", "RAM2"};  // edit to reflect your configuration
-const int lfs_ram_size[] = {200'000,4'000'000}; // edit to reflect your configuration
+const int lfs_ram_size[] = {200000,4000000}; // edit to reflect your configuration
 const int nfs_ram = sizeof(lfs_ram_str)/sizeof(const char *);
 LittleFS_RAM ramfs[nfs_ram];
 #endif
