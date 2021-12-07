@@ -6,6 +6,9 @@
 
   This example code is in the public domain.
 */
+
+#define PLAY_WAVE_FILES
+
 #include "SD.h"
 #include <MTP_Teensy.h>
 
@@ -59,6 +62,21 @@ static const uint32_t file_system_size = 1024 * 512;
 #ifdef ARDUINO_TEENSY41
 extern "C" uint8_t external_psram_size;
 #endif
+
+#ifdef PLAY_WAVE_FILES
+#include <Audio.h>
+
+// GUItool: begin automatically generated code
+AudioPlaySdWav           playWav; //xy=154,422
+AudioOutputI2S           i2s1;           //xy=334,89
+AudioConnection          patchCord3(playWav, 0, i2s1, 0);
+AudioConnection          patchCord4(playWav, 1, i2s1, 1);
+AudioControlSGTL5000     sgtl5000_1;     //xy=240,153
+// GUItool: end automatically generated code
+float volume = 0.7f;
+char filename[256] = "2001/stop.wav";
+#endif
+
 
 // Quick and Dirty memory Stream...
 class RAMStream : public Stream {
@@ -160,14 +178,32 @@ SDClass sdSPI;
 #if defined(USE_BUILTIN_SDCARD)
   if (sdSDIO.begin(BUILTIN_SDCARD)) {
     index_sdio_storage = storage.addFilesystem(sdSDIO, "SD_Builtin");
+  } else {
+    DBGSerial.println("SD_Builtin not added");
   }
 #endif
 
   if (sdSPI.begin(SD_ChipSelect)) {
     index_sdspi_storage = storage.addFilesystem(sdSPI, "SD_SPI");
+  } else {
+    DBGSerial.printf("SD_SPI(%d) not added", SD_ChipSelect);
   }
 
   DBGSerial.printf("%u Storage list initialized.\n", millis());
+
+#ifdef PLAY_WAVE_FILES
+  //Setup Audio
+  // Audio connections require memory to work.  For more
+  // detailed information, see the MemoryAndCpuUsage example
+  DBGSerial.printf("Setup Audio\n");
+  AudioMemory(40);
+
+  sgtl5000_1.enable();
+  sgtl5000_1.volume(volume);
+
+#endif
+
+
   menu();
 }
 
@@ -175,9 +211,6 @@ void loop() {
   if (DBGSerial.available()) {
     uint8_t command = DBGSerial.read();
     int ch = DBGSerial.read();
-    uint8_t storage_index = CommandLineReadNextNumber(ch, 0);
-    while (ch == ' ')
-      ch = DBGSerial.read();
 
     switch (command) {
     case '1': {
@@ -193,6 +226,10 @@ void loop() {
       storage.dumpIndexList();
     } break;
     case '2': {
+      uint8_t storage_index = CommandLineReadNextNumber(ch, 0);
+      while (ch == ' ') {
+        ch = DBGSerial.read();
+      }
       if (storage_index < storage.getFSCount()) {
         DBGSerial.printf("Storage Index %u Name: %s Selected\n", storage_index,
                          storage.getStoreName(storage_index));
@@ -233,6 +270,32 @@ void loop() {
     case 'd':
       dumpLog();
       break;
+#ifdef PLAY_WAVE_FILES
+    case 'P':
+      playDir(myfs);
+      DBGSerial.println("Finished Playlist");
+      break;
+    case 'p':
+    {
+      DBGSerial.print("Playing file: ");
+      while (ch == ' ') ch = Serial.read();
+      if (ch > ' ') {
+        char *psz = filename;
+        while (ch > ' ') {
+          *psz++ = ch;
+          ch = Serial.read();
+        }
+        *psz = '\0';
+      }
+
+      DBGSerial.println(filename);
+      // Start playing the file.  This sketch continues to
+      // run while the file plays.
+      playFile(myfs, filename);
+      DBGSerial.println("Done.");
+      break;
+    }
+#endif
     case '\r':
     case '\n':
     case 'h':
@@ -315,6 +378,10 @@ void menu() {
   DBGSerial.println("\tx - Stop Logging data");
   DBGSerial.println("\td - Dump Log");
   DBGSerial.println("\tr - Reset MTP");
+#ifdef PLAY_WAVE_FILES
+  DBGSerial.println("\tp[filename] - play audio wave file");
+  DBGSerial.println("\tP - Play all wave files");
+#endif  
   DBGSerial.println("\th - Menu");
   DBGSerial.println();
 }
@@ -395,3 +462,65 @@ uint32_t CommandLineReadNextNumber(int &ch, uint32_t default_num) {
   }
   return return_value;
 }
+
+#ifdef PLAY_WAVE_FILES
+void playFile(FS* pfs, const char *filename)
+{
+
+  if (strstr(filename, ".WAV") != NULL || strstr(filename, ".wav") != NULL ) {
+    Serial.printf("Playing file: '%s'\n", filename);
+    while (Serial.read() != -1) ; // clear out any keyboard data...
+    bool audio_began = playWav.play(pfs, filename);
+    if(!audio_began) {
+      Serial.println("  >>> Wave file failed to play");
+      return;
+    }
+    delay(5);
+    while (playWav.isPlaying()) {
+      if (Serial.available()){Serial.println("User Abort"); break;}
+      delay(250);
+    }
+    playWav.stop();
+    delay(250);
+  } else {
+    Serial.printf("File %s is not a wave file\n", filename);
+  }
+  while (Serial.read() != -1) ;
+}
+void playDir(FS *pfs) {
+  DBGSerial.println("Playing files on device");
+  playAll(pfs, pfs->open("/"));
+  DBGSerial.println();
+}
+
+void playAll(FS* pfs, File dir){
+  char filename[64];
+  char filnam[64];
+   while(true) {
+     File entry =  dir.openNextFile();
+     if (! entry) {
+       // no more files
+       // rewind to begining of directory and start over
+       dir.rewindDirectory();
+       break;
+     }
+     //DBGSerial.print(entry.name());
+     if (entry.isDirectory()) {
+       //DBGSerial.println("Directory/");
+       //do nothing for now
+       //DBGSerial.println(entry.name());
+       playAll(pfs, entry);
+     } else {
+       // files have sizes, directories do not
+       //DBGSerial.print("\t\t");
+       //DBGSerial.println(entry.size(), DEC);
+       // files have sizes, directories do not
+       strcpy(filename, dir.name());
+       if(strlen(dir.name()) > 0) strcat(filename, "/");
+       strcat(filename, strcpy(filnam, entry.name()));
+       playFile(pfs, filename);
+     }
+   entry.close();
+ }
+}
+#endif
