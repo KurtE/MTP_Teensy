@@ -68,9 +68,12 @@ extern "C" uint8_t external_psram_size;
 
 // GUItool: begin automatically generated code
 AudioPlaySdWav           playWav; //xy=154,422
+AudioPlaySdRaw           playRaw; //xy=154,422
 AudioOutputI2S           i2s1;           //xy=334,89
 AudioConnection          patchCord3(playWav, 0, i2s1, 0);
 AudioConnection          patchCord4(playWav, 1, i2s1, 1);
+AudioConnection          patchCord7(playRaw, 0, i2s1, 0);
+AudioConnection          patchCord8(playRaw, 1, i2s1, 1);
 AudioControlSGTL5000     sgtl5000_1;     //xy=240,153
 // GUItool: end automatically generated code
 float volume = 0.7f;
@@ -481,6 +484,21 @@ void playFile(FS* pfs, const char *filename)
       delay(250);
     }
     playWav.stop();
+    delay(250);
+  } else if (strstr(filename, ".RAW") != NULL || strstr(filename, ".raw") != NULL ) {
+    Serial.printf("Playing file: '%s'\n", filename);
+    while (Serial.read() != -1) ; // clear out any keyboard data...
+    bool audio_began = playRaw.play(pfs, filename);
+    if(!audio_began) {
+      Serial.println("  >>> Wave file failed to play");
+      return;
+    }
+    delay(5);
+    while (playRaw.isPlaying()) {
+      if (Serial.available()){Serial.println("User Abort"); break;}
+      delay(250);
+    }
+    playRaw.stop();
     delay(250);
   } else {
     Serial.printf("File %s is not a wave file\n", filename);
