@@ -73,7 +73,6 @@ AudioOutputI2S           i2s1;           //xy=334,89
 AudioConnection          patchCord3(playWav, 0, i2s1, 0);
 AudioConnection          patchCord4(playWav, 1, i2s1, 1);
 AudioConnection          patchCord7(playRaw, 0, i2s1, 0);
-AudioConnection          patchCord8(playRaw, 1, i2s1, 1);
 AudioControlSGTL5000     sgtl5000_1;     //xy=240,153
 // GUItool: end automatically generated code
 float volume = 0.7f;
