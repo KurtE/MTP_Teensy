@@ -1,8 +1,22 @@
 /*
   LittleFS  datalogger
 
-  This example shows how to log data from three analog sensors
-  to an storage device such as a FLASH.
+  Analyzes incoming LargeIndexedTestfile.txt file, detects lost USB packets
+
+    program to create LargeIndexedTestfile.txt, msg 421
+    https://forum.pjrc.com/threads/68139?p=292501&viewfull=1#post292501
+
+    info, msg 461
+    https://forum.pjrc.com/threads/68139?p=293064&viewfull=1#post293064
+
+    reproducible test run, msg 563
+    https://forum.pjrc.com/threads/68139?p=293786&viewfull=1#post293786
+
+    summary, msg 569
+    https://forum.pjrc.com/threads/68139?p=293921&viewfull=1#post293921
+
+    USB packet loss problem fixed, msg 627
+    https://forum.pjrc.com/threads/68139?p=294860&viewfull=1#post294860
 
   This example code is in the public domain.
 */
