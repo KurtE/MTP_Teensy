@@ -2580,7 +2580,7 @@ bool MTPD::SendObject() {
     }
   }
 
-  printf("len %d\n",disk_pos);
+  printf("len %d diskpos: %u\n", len, disk_pos);
   if (disk_pos) {
     elapsedMillis emWrite = 0;
     if (storage_->write((const char *)disk_buffer_, disk_pos) < disk_pos)

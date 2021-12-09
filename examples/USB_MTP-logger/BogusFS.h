@@ -91,7 +91,7 @@ size_t BogusFile::write(const void *buf, size_t size) {
 		int32_t packet_number = 0;
 		for (uint16_t i = 0; pb[i] >= '0' && pb[i] <= '9'; i++) packet_number = packet_number * 10 + pb[i] - '0';
 		if (packet_number != (_last_packet_number + 1)) {
-			if (_error_count < 10) 	Serial.printf("BF Sequence error %d %d\n", packet_number, _last_packet_number);
+			if (_error_count < 10) 	Serial.printf("$$$BF Sequence error %d %d\n", packet_number, _last_packet_number);
 			_error_count++;
 		}
 		_last_packet_number = packet_number;
@@ -100,7 +100,7 @@ size_t BogusFile::write(const void *buf, size_t size) {
 			int32_t packet_number = 0;
 			for (uint16_t i = _offset; pb[i] >= '0' && pb[i] <= '9'; i++) packet_number = packet_number * 10 + pb[i] - '0';
 			if (packet_number != (_last_packet_number + 1)) {
-				if (_error_count < 10) 	Serial.printf("BF Sequence error %d %d\n", packet_number, _last_packet_number);
+				if (_error_count < 10) 	Serial.printf("$$$BF Sequence error %d %d\n", packet_number, _last_packet_number);
 				_error_count++;
 			}
 			_last_packet_number = packet_number;
