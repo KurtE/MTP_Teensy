@@ -29,10 +29,13 @@ MTPD mtpd(&storage);
 #if defined(ARDUINO_TEENSY41) || defined(ARDUINO_TEENSY36) || defined(ARDUINO_TEENSY35)
 #define USE_BUILTIN_SDCARD
 SDClass sdSDIO;
+bool sdio_previously_present;
 #endif
 
 const int SD_ChipSelect = 10;
 SDClass sdSPI;
+elapsedMillis elapsed_millis_since_last_sd_check = 0;
+#define TIME_BETWEEN_SD_CHECKS_MS 1000
 
 // Experiment add memory FS to mainly hold the storage index
 // May want to wrap this all up as well
@@ -176,20 +179,21 @@ void setup() {
     }
   }
 
-SDClass sdSPI;
 #if defined(USE_BUILTIN_SDCARD)
-  if (sdSDIO.begin(BUILTIN_SDCARD)) {
-    index_sdio_storage = storage.addFilesystem(sdSDIO, "SD_Builtin");
-  } else {
-    DBGSerial.println("SD_Builtin not added");
-  }
+  // always add
+  sdio_previously_present = sdSDIO.begin(BUILTIN_SDCARD);
+  index_sdio_storage = storage.addFilesystem(sdSDIO, "SD_Builtin");
 #endif
 
+SDClass sdSPI;
   if (sdSPI.begin(SD_ChipSelect)) {
     index_sdspi_storage = storage.addFilesystem(sdSPI, "SD_SPI");
   } else {
     DBGSerial.printf("SD_SPI(%d) not added", SD_ChipSelect);
+    index_sdspi_storage = -1; 
   }
+
+  elapsed_millis_since_last_sd_check = 0;
 
   DBGSerial.printf("%u Storage list initialized.\n", millis());
 
@@ -308,6 +312,20 @@ void loop() {
       ; // remove rest of characters.
   } else {
     mtpd.loop();
+    if (elapsed_millis_since_last_sd_check >= TIME_BETWEEN_SD_CHECKS_MS) {
+      elapsed_millis_since_last_sd_check = 0; 
+      #ifdef USE_BUILTIN_SDCARD
+      elapsedMicros em = 0;
+      bool sdio_present = sdSDIO.mediaPresent();
+      DBGSerial.printf("Check SDIO %u %u %u\n", sdio_present, sdio_previously_present, (uint32_t)em);
+      if (sdio_present != sdio_previously_present) {
+        sdio_previously_present = sdio_present;
+        if (sdio_present) DBGSerial.printf("###SD Media inserted(%d)\n", index_sdio_storage);
+        else DBGSerial.printf("###SD Media Removed(%d)\n", index_sdio_storage);
+        mtpd.send_DeviceResetEvent();
+      }
+      #endif
+    }
   }
 
   if (write_data)
