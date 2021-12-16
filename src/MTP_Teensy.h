@@ -102,7 +102,7 @@ private:
 
   uint8_t tx_data_buffer[MTP_TX_SIZE] __attribute__((aligned(32)));
 
-  static const uint32_t DISK_BUFFER_SIZE = 2 * 1024;
+  static const uint32_t DISK_BUFFER_SIZE = 4 * 1024;
   uint32_t disk_pos = 0;
 
   int push_packet(uint8_t *data_buffer, uint32_t len);
