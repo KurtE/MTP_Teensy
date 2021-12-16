@@ -227,7 +227,10 @@ void loop() {
           storage_changed = true;
           myfs[i].media_present = media_present;
           if (media_present) DBGSerial.printf("\n### %s(%d) inserted dt:%u\n",  myfs[i].name, i, (uint32_t)em);
-          else DBGSerial.printf("\n### %s(%d) removed dt:%u\n",  myfs[i].name, i, (uint32_t)em);
+          else {
+            DBGSerial.printf("\n### %s(%d) removed dt:%u\n",  myfs[i].name, i, (uint32_t)em);
+            myfs[i].sd.sdfs.end();
+          }
         } else {
           DBGSerial.printf("  Check %s %u %u\n", myfs[i].name, media_present, (uint32_t)em);
         }
