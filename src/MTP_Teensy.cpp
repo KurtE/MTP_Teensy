@@ -2509,10 +2509,6 @@ bool MTPD::SendObject() {
   len -= cb_recv;
   disk_pos = cb_recv;
 
-printf("Before while len>0: %d, %d\n", cb_recv, len);
-
-
-
   while ((int)len > 0) {
     // read in next sector
     elapsedMillis emRead = 0;
@@ -2543,12 +2539,12 @@ printf("Before while len>0: %d, %d\n", cb_recv, len);
     uint32_t bytes = cb_recv; // how many data in usb-packet
     bytes = min(bytes, len);              // loimit at end
     uint32_t to_copy = min(bytes, DISK_BUFFER_SIZE - disk_pos); // how many data to copy to disk buffer
-    printf("len, bytes,to_copy:    %u %u %u\n", len, bytes, to_copy);
+    //  printf("len, bytes,to_copy:    %u %u %u\n", len, bytes, to_copy);
     check_memcpy(disk_buffer_ + disk_pos, rx_data_buffer, to_copy, disk_buffer_, DISK_BUFFER_SIZE);
     disk_pos += to_copy;
     bytes -= to_copy;
     len -= to_copy;
-     printf("a %d %d %d %d %d\n", len,disk_pos,bytes,index,to_copy);
+    // printf("a %d %d %d %d %d\n", len,disk_pos,bytes,index,to_copy);
     //
     if (disk_pos == DISK_BUFFER_SIZE) {
       elapsedMillis emWrite = 0;
@@ -2582,7 +2578,7 @@ printf("Before while len>0: %d, %d\n", cb_recv, len);
     }
   }
 
-  printf("len %d diskpos: %u\n", len, disk_pos);
+  //  printf("len %d diskpos: %u\n", len, disk_pos);
   if (disk_pos) {
     elapsedMillis emWrite = 0;
     if (storage_->write((const char *)disk_buffer_, disk_pos) < disk_pos)
