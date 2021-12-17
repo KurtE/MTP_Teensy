@@ -301,6 +301,12 @@ int MTPD::begin() {
   g_intervaltimer.begin(&_interval_timer_handler,
                         50000); // try maybe 20 times per second...
 
+#if defined(__IMXRT1062__)
+  // get our actual transfer sizes
+  mtp_rx_size_ = usb_mtp_rxSize();
+  mtp_tx_size_ = usb_mtp_txSize();
+#endif
+
   return usb_init_events();
 }
 
@@ -1706,14 +1712,14 @@ void MTPD::write(const char *data, int len) {
     //
     int pos = 0; // into data
     while (pos < len) {
-      int avail = tx_data_buffer + MTP_TX_SIZE - dst;
+      int avail = tx_data_buffer + mtp_tx_size_ - dst;
       int to_copy = min(len - pos, avail);
       memcpy(dst, src, to_copy);
       pos += to_copy;
       src += to_copy;
       dst += to_copy;
-      if (dst == tx_data_buffer + MTP_TX_SIZE) {
-        push_packet(tx_data_buffer, MTP_TX_SIZE);
+      if (dst == tx_data_buffer + mtp_tx_size_) {
+        push_packet(tx_data_buffer, mtp_tx_size_);
         dst = tx_data_buffer;
       }
     }
@@ -1737,7 +1743,7 @@ void MTPD::GetObject(uint32_t object_id) {
         disk_pos = 0;
       }
 
-      uint32_t to_copy = min(size - pos, MTP_TX_SIZE - len);
+      uint32_t to_copy = min(size - pos, mtp_tx_size_ - len);
       to_copy = min(to_copy, DISK_BUFFER_SIZE - disk_pos);
 
       memcpy(tx_data_buffer + len, disk_buffer_ + disk_pos, to_copy);
@@ -1745,13 +1751,13 @@ void MTPD::GetObject(uint32_t object_id) {
       pos += to_copy;
       len += to_copy;
 
-      if (len == MTP_TX_SIZE) {
-        push_packet(tx_data_buffer, MTP_TX_SIZE);
+      if (len == (uint32_t)mtp_tx_size_) {
+        push_packet(tx_data_buffer, mtp_tx_size_);
         len = 0;
       }
     }
     if (len > 0) {
-      push_packet(tx_data_buffer, MTP_TX_SIZE);
+      push_packet(tx_data_buffer, mtp_tx_size_);
       len = 0;
     }
   }
@@ -1780,7 +1786,7 @@ uint32_t MTPD::GetPartialObject(uint32_t object_id, uint32_t offset,
         disk_pos = 0;
       }
 
-      uint32_t to_copy = min(size - pos, MTP_TX_SIZE - len);
+      uint32_t to_copy = min(size - pos, mtp_tx_size_ - len);
       to_copy = min(to_copy, DISK_BUFFER_SIZE - disk_pos);
 
       memcpy(tx_data_buffer + len, disk_buffer_ + disk_pos, to_copy);
@@ -1788,13 +1794,13 @@ uint32_t MTPD::GetPartialObject(uint32_t object_id, uint32_t offset,
       pos += to_copy;
       len += to_copy;
 
-      if (len == MTP_TX_SIZE) {
-        push_packet(tx_data_buffer, MTP_TX_SIZE);
+      if (len == (uint32_t)mtp_tx_size_) {
+        push_packet(tx_data_buffer, mtp_tx_size_);
         len = 0;
       }
     }
     if (len > 0) {
-      push_packet(tx_data_buffer, MTP_TX_SIZE);
+      push_packet(tx_data_buffer, mtp_tx_size_);
       len = 0;
     }
   }
@@ -1820,7 +1826,7 @@ uint32_t MTPD::GetPartialObject(uint32_t object_id, uint32_t offset,
     FUN;                                                                       \
                                                                                \
     uint32_t rest;                                                             \
-    rest = (header.len % MTP_TX_SIZE);                                         \
+    rest = (header.len % mtp_tx_size_);                                         \
     if (rest > 0) {                                                            \
       push_packet(tx_data_buffer, rest);                                       \
     }                                                                          \
@@ -1844,7 +1850,7 @@ uint32_t MTPD::GetPartialObject(uint32_t object_id, uint32_t offset,
     FUN;                                                                       \
                                                                                \
     uint32_t rest;                                                             \
-    rest = (header.len % MTP_TX_SIZE);                                         \
+    rest = (header.len % mtp_tx_size_);                                         \
     if (rest > 0) {                                                            \
       push_packet(tx_data_buffer, rest);                                       \
     }                                                                          \
@@ -2262,7 +2268,7 @@ void MTPD::read(char *data, uint32_t size) {
   }
 
   while (size) {
-    uint32_t to_copy = MTP_RX_SIZE - index;
+    uint32_t to_copy = mtp_rx_size_ - index;
     to_copy = min(to_copy, size);
     if (data) {
       memcpy(data, rx_data_buffer + index, to_copy);
@@ -2270,7 +2276,7 @@ void MTPD::read(char *data, uint32_t size) {
     }
     size -= to_copy;
     index += to_copy;
-    if (index == MTP_RX_SIZE) {
+    if (index == mtp_rx_size_) {
       pull_packet(rx_data_buffer);
       index = 0;
     }
@@ -2291,7 +2297,7 @@ uint32_t MTPD::SendObjectInfo(uint32_t storage, uint32_t parent,
   dtCreated_ = 0;
   dtModified_ = 0;
 
-  printf("ST:%x ", read32());
+  printf("Len:%d ST:%x ", len, read32());
   len -= 4; // storage
   uint16_t oformat = read16();
   len -= 2; // format
@@ -2503,7 +2509,7 @@ bool MTPD::SendObject() {
 
   // first copy in the rest of the first packet into the diskbuffer.
   int cb_recv = MTP_RX_SIZE - sizeof(MTPHeader);
-  if (cb_recv > len) cb_recv = len;   
+  if (cb_recv > (int)len) cb_recv = len;   
   check_memcpy(disk_buffer_, rx_data_buffer + sizeof(MTPHeader), cb_recv, disk_buffer_, DISK_BUFFER_SIZE);
   c_read_em = 1;
   len -= cb_recv;

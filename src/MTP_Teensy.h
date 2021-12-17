@@ -99,6 +99,8 @@ private:
 #elif defined(__IMXRT1062__)
 #define MTP_RX_SIZE MTP_RX_SIZE_480
 #define MTP_TX_SIZE MTP_TX_SIZE_480
+  int  mtp_rx_size_ = MTP_RX_SIZE;
+  int  mtp_tx_size_ = MTP_TX_SIZE;
 
   uint8_t tx_data_buffer[MTP_TX_SIZE] __attribute__((aligned(32)));
 
