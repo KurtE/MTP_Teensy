@@ -26,20 +26,20 @@ uint8_t current_store = 0;
 MTPStorage storage;
 MTPD mtpd(&storage);
 
-#if defined(ARDUINO_TEENSY41) || defined(ARDUINO_TEENSY36) || defined(ARDUINO_TEENSY35)
+#if defined(ARDUINO_TEENSY41) || defined(ARDUINO_TEENSY36) || defined(ARDUINO_TEENSY35) || defined(ARDUINO_TEENSY_MICROMOD) || defined(ARDUINO_TEENSY40)
 #define USE_BUILTIN_SDCARD
 SDClass sdSDIO;
 bool sdio_previously_present;
 #endif
 
+#define ENABLE_SPI_SD_MEDIA_PRESENT
 const int SD_ChipSelect = 10;
 SDClass sdSPI;
 elapsedMillis elapsed_millis_since_last_sd_check = 0;
+bool auto_sd_mediaPresent = true;
+bool sdspi_previously_present;
 #define TIME_BETWEEN_SD_CHECKS_MS 1000
 
-// Experiment add memory FS to mainly hold the storage index
-// May want to wrap this all up as well
-#include "LittleFSCombine.h"
 #include <LittleFS.h>
 uint32_t LFSRAM_SIZE = 65536; // probably more than enough...
 LittleFS_RAM lfsram;
@@ -47,11 +47,11 @@ LittleFS_RAM lfsram;
 LittleFS_Program lfsProg; // Used to create FS on the Flash memory of the chip
 
 #ifdef ARDUINO_TEENSY41
-lfs_qspi lfsqspi;
+LittleFS_QSPI lfsqspi;
 #endif
 
 // Experiment with LittleFS_SPI wrapper
-lfs_spi lfsspi[] = {{3}, {4}, {5}, {6}};
+LittleFS_SPI lfsspi[] = {{3}, {4}, {5}, {6}};
 #define CLFSSPIPINS (sizeof(lfsspi) / sizeof(lfsspi[0]))
 
 FS *myfs = &lfsProg; // current default FS...
@@ -175,7 +175,7 @@ void setup() {
 
   for (uint8_t i = 0; i < CLFSSPIPINS; i++) {
     if (lfsspi[i].begin()) {
-      storage.addFilesystem(*lfsspi[i].fs(), lfsspi[i].displayName());
+      storage.addFilesystem(lfsspi[i], lfsspi[i].displayName());
     }
   }
 
@@ -185,14 +185,18 @@ void setup() {
   index_sdio_storage = storage.addFilesystem(sdSDIO, "SD_Builtin");
 #endif
 
-SDClass sdSPI;
+  #ifdef ENABLE_SPI_SD_MEDIA_PRESENT
+  sdspi_previously_present = sdSPI.begin(SD_ChipSelect);
+  index_sdspi_storage = storage.addFilesystem(sdSPI, "SD_SPI");
+  Serial.printf("*** SD SPI(%u) added FS: %u %u\n", SD_ChipSelect, sdspi_previously_present, index_sdspi_storage);
+  #else
   if (sdSPI.begin(SD_ChipSelect)) {
     index_sdspi_storage = storage.addFilesystem(sdSPI, "SD_SPI");
   } else {
     DBGSerial.printf("SD_SPI(%d) not added", SD_ChipSelect);
     index_sdspi_storage = -1; 
   }
-
+  #endif
   elapsed_millis_since_last_sd_check = 0;
 
   DBGSerial.printf("%u Storage list initialized.\n", millis());
@@ -276,6 +280,14 @@ void loop() {
     case 'd':
       dumpLog();
       break;
+    case 'c': 
+      {
+        while (ch == ' ') ch = Serial.read();
+        if ((ch == 'a') || (ch == 'A')) auto_sd_mediaPresent = true;
+        else if ((ch == 'f') || (ch == 'F')) auto_sd_mediaPresent = false;
+        else checkSDMediaChanges();
+        break;  
+      }
 #ifdef PLAY_WAVE_FILES
     case 'P':
       playDir(myfs);
@@ -312,24 +324,45 @@ void loop() {
       ; // remove rest of characters.
   } else {
     mtpd.loop();
-    if (elapsed_millis_since_last_sd_check >= TIME_BETWEEN_SD_CHECKS_MS) {
+    if (auto_sd_mediaPresent && (elapsed_millis_since_last_sd_check >= TIME_BETWEEN_SD_CHECKS_MS)) {
       elapsed_millis_since_last_sd_check = 0; 
-      #ifdef USE_BUILTIN_SDCARD
-      elapsedMicros em = 0;
-      bool sdio_present = sdSDIO.mediaPresent();
-      DBGSerial.printf("Check SDIO %u %u %u\n", sdio_present, sdio_previously_present, (uint32_t)em);
-      if (sdio_present != sdio_previously_present) {
-        sdio_previously_present = sdio_present;
-        if (sdio_present) DBGSerial.printf("###SD Media inserted(%d)\n", index_sdio_storage);
-        else DBGSerial.printf("###SD Media Removed(%d)\n", index_sdio_storage);
-        mtpd.send_DeviceResetEvent();
-      }
-      #endif
+      checkSDMediaChanges();
     }
   }
 
   if (write_data)
     logData();
+}
+
+void checkSDMediaChanges() {
+  #ifdef USE_BUILTIN_SDCARD
+  elapsedMicros em = 0;
+  bool sdio_present = sdSDIO.mediaPresent();
+  DBGSerial.printf("Check SD IO %u %u %u\n", sdio_present, sdio_previously_present, (uint32_t)em);
+  if (sdio_present != sdio_previously_present) {
+    sdio_previously_present = sdio_present;
+    if (sdio_present) DBGSerial.printf("###SD Media inserted(%d)\n", index_sdio_storage);
+    else {
+      sdSDIO.sdfs.end();
+      DBGSerial.printf("###SD Media Removed(%d)\n", index_sdio_storage);
+    }
+    mtpd.send_DeviceResetEvent();
+  }
+  #endif
+  #ifdef ENABLE_SPI_SD_MEDIA_PRESENT
+  elapsedMicros emspi = 0;
+  bool sdspi_present = sdSPI.mediaPresent();
+  DBGSerial.printf("Check SD SPI %u %u %u\n", sdspi_present, sdspi_previously_present, (uint32_t)emspi);
+  if (sdspi_present != sdspi_previously_present) {
+    sdspi_previously_present = sdspi_present;
+    if (sdspi_present) DBGSerial.printf("###SD SPI Media inserted(%d)\n", index_sdspi_storage);
+    else {
+      DBGSerial.printf("###SD SPI Media Removed(%d)\n", index_sdspi_storage);
+      sdSPI.sdfs.end();
+    } 
+    mtpd.send_DeviceResetEvent();
+  }
+#endif
 }
 
 void logData() {
@@ -389,7 +422,7 @@ void menu() {
   DBGSerial.println();
   DBGSerial.println("Menu Options:");
   DBGSerial.println("\t1 - List Drives (Step 1)");
-  DBGSerial.println("\t2 - Select Drive for Logging (Step 2)");
+  DBGSerial.println("\t2# - Select Drive for Logging (Step 2)");
   DBGSerial.println("\tl - List files on disk");
   DBGSerial.println("\te - Erase/Format disk");
   DBGSerial.println("\tf - Low Level Format (LittleFS)");
@@ -397,6 +430,7 @@ void menu() {
                     "records to existing log)");
   DBGSerial.println("\tx - Stop Logging data");
   DBGSerial.println("\td - Dump Log");
+  DBGSerial.println("\tc[A/F] - Check SD media changes A-Auto, F-Auto Off, else now");
   DBGSerial.println("\tr - Reset MTP");
 #ifdef PLAY_WAVE_FILES
   DBGSerial.println("\tp[filename] - play audio wave file");
@@ -445,7 +479,7 @@ void printDirectory(File dir, int numSpaces) {
   while (true) {
     File entry = dir.openNextFile();
     if (!entry) {
-      // DBGSerial.println("** no more files **");
+      // DBGSerial.priBBBntln("** no more files **");
       break;
     }
     printSpaces(numSpaces);

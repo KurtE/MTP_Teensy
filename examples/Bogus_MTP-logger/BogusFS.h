@@ -116,7 +116,7 @@ size_t BogusFile::write(const void *buf, size_t size) {
 #endif
 }
 
-class BogusFS : public  FS
+class BogusFS : public FS
 {
 public:
 	BogusFS() {};
