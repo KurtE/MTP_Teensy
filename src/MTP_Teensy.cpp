@@ -1684,8 +1684,12 @@ void MTPD::loop(void) {
 #elif defined(__IMXRT1062__)
 
 int MTPD::push_packet(uint8_t *data_buffer, uint32_t len) {
-  while (usb_mtp_send(data_buffer, len, 60) <= 0)
-    ;
+  int count_sent;
+  uint8_t loop_count = 0;
+  while ((count_sent = usb_mtp_send(data_buffer, len, 60)) <= 0) {
+    printf("push_packet: l:%u ret:%d loop:%u\n", len, count_sent, loop_count++);
+    if (loop_count == 5) return 0;
+  }
   return 1;
 }
 
@@ -1728,6 +1732,7 @@ void MTPD::write(const char *data, int len) {
 
 void MTPD::GetObject(uint32_t object_id) {
   uint32_t size = storage_->GetSize(object_id);
+  printf("\nGetObject(%u) size: %u\n", object_id, size);
 
   if (write_get_length_) {
     write_length_ += size;
@@ -1737,9 +1742,17 @@ void MTPD::GetObject(uint32_t object_id) {
 
     disk_pos = DISK_BUFFER_SIZE;
     while (pos < size) {
+      // experiment to see if any data pending from host...
+      if (usb_mtp_available()) {
+        uint8_t peek_data_buffer[MTP_RX_SIZE] __attribute__((aligned(32)));
+        int cb_peek = usb_mtp_peek(peek_data_buffer, 60);
+        printf("  << usb_mtp_available cb: %d>>\n", cb_peek);
+        if (cb_peek > 0)_printContainer((struct MTPContainer *)(peek_data_buffer),"Peek:");
+      }
       if (disk_pos == DISK_BUFFER_SIZE) {
         uint32_t nread = min(size - pos, (uint32_t)DISK_BUFFER_SIZE);
         storage_->read(object_id, pos, (char *)disk_buffer_, nread);
+        printf("  >>r p:%u l:%u\n", pos, nread);
         disk_pos = 0;
       }
 
@@ -1753,13 +1766,19 @@ void MTPD::GetObject(uint32_t object_id) {
 
       if (len == (uint32_t)mtp_tx_size_) {
         push_packet(tx_data_buffer, mtp_tx_size_);
+        printf("    >>w dp:%u p:%u len:%u\n", disk_pos, pos, len);
         len = 0;
       }
     }
+    printf("    >>>>w len:%u\n", len);
     if (len > 0) {
-      push_packet(tx_data_buffer, mtp_tx_size_);
+      // experiment zero out remaining part... 
+      memset(tx_data_buffer + len, 0, mtp_tx_size_ - len);
+      //push_packet(tx_data_buffer, mtp_tx_size_);
+      push_packet(tx_data_buffer, len);
       len = 0;
     }
+    printf("    >><< Done\n");
   }
 }
 uint32_t MTPD::GetPartialObject(uint32_t object_id, uint32_t offset,

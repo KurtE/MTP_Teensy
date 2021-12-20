@@ -36,7 +36,7 @@ bool sdio_previously_present;
 const int SD_ChipSelect = 10;
 SDClass sdSPI;
 elapsedMillis elapsed_millis_since_last_sd_check = 0;
-bool auto_sd_mediaPresent = true;
+bool auto_sd_mediaPresent = false;
 bool sdspi_previously_present;
 #define TIME_BETWEEN_SD_CHECKS_MS 1000
 
