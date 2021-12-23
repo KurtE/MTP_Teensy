@@ -790,6 +790,8 @@ uint32_t MTPD::moveObject(uint32_t handle, uint32_t newStorage,
 uint32_t MTPD::copyObject(uint32_t handle, uint32_t newStorage,
                           uint32_t newHandle) {
   uint32_t store1 = Storage2Store(newStorage);
+  if (newHandle == 0) newHandle = store1;
+
   return storage_->copy(handle, store1, newHandle);
 }
 
@@ -1744,10 +1746,11 @@ void MTPD::GetObject(uint32_t object_id) {
     while (pos < size) {
       // experiment to see if any data pending from host...
       if (usb_mtp_available()) {
-        uint8_t peek_data_buffer[MTP_RX_SIZE] __attribute__((aligned(32)));
-        int cb_peek = usb_mtp_peek(peek_data_buffer, 60);
+//        uint8_t peek_data_buffer[MTP_RX_SIZE] __attribute__((aligned(32)));
+          int cb_peek = -1;
+//        int cb_peek = usb_mtp_peek(peek_data_buffer, 60);
         printf("  << usb_mtp_available cb: %d>>\n", cb_peek);
-        if (cb_peek > 0)_printContainer((struct MTPContainer *)(peek_data_buffer),"Peek:");
+//        if (cb_peek > 0)_printContainer((struct MTPContainer *)(peek_data_buffer),"Peek:");
       }
       if (disk_pos == DISK_BUFFER_SIZE) {
         uint32_t nread = min(size - pos, (uint32_t)DISK_BUFFER_SIZE);
