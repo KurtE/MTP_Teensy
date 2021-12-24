@@ -781,6 +781,7 @@ uint32_t MTPD::deleteObject(uint32_t handle) {
 uint32_t MTPD::moveObject(uint32_t handle, uint32_t newStorage,
                           uint32_t newHandle) {
   uint32_t store1 = Storage2Store(newStorage);
+  if (newHandle == 0) newHandle = store1;
   if (storage_->move(handle, store1, newHandle))
     return 0x2001;
   else
