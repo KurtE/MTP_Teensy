@@ -120,19 +120,25 @@ void MTPStorage::ResetIndex()
 }
 
 
-void MTPStorage::WriteIndexRecord(uint32_t i, const Record &r)
+bool MTPStorage::WriteIndexRecord(uint32_t i, const Record &r)
 {
 	OpenIndex();
 	mtp_lock_storage(true);
+	bool write_succeeded = true;
 	if (i < MTPD_MAX_FILESYSTEMS) {
 		// all we need is the first child pointer and if it was scanned
 		store_first_child_[i] = r.child;
 		store_scanned_[i] = r.scanned;
 	} else {
 		index_.seek((i - MTPD_MAX_FILESYSTEMS) * sizeof(r));		
-		index_.write((char *)&r, sizeof(r));
+		size_t bytes_written = index_.write((char *)&r, sizeof(r));
+		if (bytes_written != sizeof(r)) {
+			MTPD::PrintStream()->printf(F("$$$ Failed to write Index record: %u bytes written: %u\n"), i, bytes_written);
+			write_succeeded = false;
+		}
 	}
 	mtp_lock_storage(false);
+	return write_succeeded;
 }
 
 uint32_t MTPStorage::AppendIndexRecord(const Record &r)
@@ -168,7 +174,7 @@ Record MTPStorage::ReadIndexRecord(uint32_t i)
 	} else {
 		bool seek_ok = index_.seek((i - MTPD_MAX_FILESYSTEMS) * sizeof(ret));		
 		int cb_read = index_.read((char *)&ret, sizeof(ret));
-		Serial.printf("ReadIndexRecord(%u): %u %d %s\n", i, seek_ok, cb_read, ret.name);
+		if (cb_read != sizeof(ret))Serial.printf("ReadIndexRecord(%u): %u %d %s\n", i, seek_ok, cb_read, ret.name);
 	}
 
 	mtp_lock_storage(false);
@@ -500,8 +506,30 @@ uint32_t MTPStorage::Create(uint32_t store, uint32_t parent, bool folder, const 
 	MTPD::PrintStream()->printf("MTPStorage::create(%u, %u, %u, %s)\n", store, parent, folder, filename);
 	uint32_t ret;
 	if (parent == 0xFFFFFFFFUL) parent = store;
+	ScanDir(store, parent); // make sure the parent is scanned...
 	Record p = ReadIndexRecord(parent);
 	Record r;
+
+	// See if the name already exists in the parent
+	uint32_t index = p.child;
+	while (index) {
+		r = ReadIndexRecord(index);
+		if (strcmp(filename, r.name) == 0) break; // found a match
+		index = r.sibling;
+	}
+
+	if (index) {
+		// found that name in our list
+		MTPD::PrintStream()->printf("    >> Parent (%u) already contains %s(%u)\n", parent, filename, index);
+		if (folder != r.isdir) {
+			MTPD::PrintStream()->printf("    >> Not same type: cur:%u new:%u\n", r.isdir, folder);
+			return 0xFFFFFFFFUL;
+		}
+
+		MTPD::PrintStream()->printf("    >> using index\n", index);
+		return index;
+	}
+
 	strlcpy(r.name, filename, MAX_FILENAME_LEN);
 	r.store = p.store;
 	r.parent = parent;
@@ -797,7 +825,7 @@ uint32_t MTPStorage::copy(uint32_t handle, uint32_t newStore, uint32_t newParent
 	Record p2 = ReadIndexRecord(newParent ? newParent : newStore); // 0 means root of store
 	uint32_t newHandle;
 	if (p1.isdir) {
-		ScanDir(p1.store + 1, handle);
+		ScanDir(p1.store, handle);
 		newHandle = Create(p2.store, newParent, p1.isdir, p1.name);
 		CopyFiles(handle, p2.store, newHandle);
 	} else {

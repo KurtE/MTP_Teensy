@@ -151,7 +151,7 @@ public:
 	void ScanDir(uint32_t storage, uint32_t i);
 	void ScanAll(uint32_t storage);
 	void removeFile(uint32_t store, const char *filename);
-	void WriteIndexRecord(uint32_t i, const Record &r);
+	bool WriteIndexRecord(uint32_t i, const Record &r);
 	uint32_t AppendIndexRecord(const Record &r);
 	Record ReadIndexRecord(uint32_t i);
 	uint16_t ConstructFilename(int i, char *out, int len);
