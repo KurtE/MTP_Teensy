@@ -70,6 +70,10 @@ public:
 		}
 		return 0xFFFFFFFFUL;
 	}
+	enum {NO_ERROR=0, SOURCE_OPEN_FAIL, DEST_OPEN_FAIL, READ_ERROR, WRITE_ERROR, 
+				RENAME_FAIL, MKDIR_FAIL, REMOVE_FAIL, RMDIR_FAIL};
+	inline uint8_t getLastError() {return last_error_;}
+	inline void setLastError(uint8_t error) {last_error_ = error;}
 	const char *getStoreName(uint32_t store) {
 		if (store < (uint32_t)fsCount) return name[store];
 		return nullptr;
@@ -113,7 +117,8 @@ public:
 	uint64_t usedSize(uint32_t store) {
 		return fs[store]->usedSize();
 	}
-	bool copy(uint32_t store0, char *oldfilename, uint32_t store1, char *newfilename);
+	bool CompleteCopyFile(uint32_t from, uint32_t to); 
+	bool CopyByPathNames(uint32_t store0, char *oldfilename, uint32_t store1, char *newfilename);
 	bool moveDir(uint32_t store0, char *oldfilename, uint32_t store1, char *newfilename);
 	//void loop();
 	bool formatStore(uint32_t store, uint32_t p2) {
@@ -143,7 +148,7 @@ public:
 	bool rename(uint32_t handle, const char *name);
 	bool move(uint32_t handle, uint32_t newStorage, uint32_t newParent);
 	uint32_t copy(uint32_t handle, uint32_t newStorage, uint32_t newParent);
-	bool CopyFiles(uint32_t storage, uint32_t handle, uint32_t newHandle);
+	bool CopyFiles(uint32_t handle, uint32_t newHandle);
 	uint32_t MapFileNameToIndex(uint32_t storage, const char *pathname,
 		bool addLastNode = false, bool *node_added = nullptr);
 	void OpenIndex();
@@ -151,7 +156,7 @@ public:
 	void ScanDir(uint32_t storage, uint32_t i);
 	void ScanAll(uint32_t storage);
 	void removeFile(uint32_t store, const char *filename);
-	void WriteIndexRecord(uint32_t i, const Record &r);
+	bool WriteIndexRecord(uint32_t i, const Record &r);
 	uint32_t AppendIndexRecord(const Record &r);
 	Record ReadIndexRecord(uint32_t i);
 	uint16_t ConstructFilename(int i, char *out, int len);
@@ -182,6 +187,7 @@ private:
 	const char **sd_str = 0;
 	uint32_t mode_ = 0;
 	uint32_t open_file_ = 0xFFFFFFFEUL;
+	uint8_t last_error_ = 0;
 };
 
 void mtp_yield(void);
