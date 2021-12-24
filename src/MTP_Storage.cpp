@@ -32,7 +32,7 @@
 #include "MTP_Teensy.h"
 #include "MTP_Storage.h"
 
-#define DEBUG 0
+#define DEBUG 2
 
 #if DEBUG > 0
 #define USE_DBG_MACROS 1
@@ -166,8 +166,9 @@ Record MTPStorage::ReadIndexRecord(uint32_t i)
 		ret.dtCreate = 0;
 		strcpy(ret.name, "/");
 	} else {
-		index_.seek((i - MTPD_MAX_FILESYSTEMS) * sizeof(ret));		
-		index_.read((char *)&ret, sizeof(ret));
+		bool seek_ok = index_.seek((i - MTPD_MAX_FILESYSTEMS) * sizeof(ret));		
+		int cb_read = index_.read((char *)&ret, sizeof(ret));
+		Serial.printf("ReadIndexRecord(%u): %u %d %s\n", i, seek_ok, cb_read, ret.name);
 	}
 
 	mtp_lock_storage(false);
@@ -496,6 +497,7 @@ bool MTPStorage::DeleteObject(uint32_t object)
 
 uint32_t MTPStorage::Create(uint32_t store, uint32_t parent, bool folder, const char *filename)
 {
+	MTPD::PrintStream()->printf("MTPStorage::create(%u, %u, %u, %s)\n", store, parent, folder, filename);
 	uint32_t ret;
 	if (parent == 0xFFFFFFFFUL) parent = store;
 	Record p = ReadIndexRecord(parent);
@@ -506,19 +508,25 @@ uint32_t MTPStorage::Create(uint32_t store, uint32_t parent, bool folder, const 
 	r.child = 0;
 	r.sibling = p.child;
 	r.isdir = folder;
+	r.dtModify = 0;
+	r.dtCreate = 0;
 	// New folder is empty, scanned = true.
 	r.scanned = 1;
 	ret = p.child = AppendIndexRecord(r);
-	r.dtModify = 0;
-	r.dtCreate = 0;
 	WriteIndexRecord(parent, p);
+	printRecordIncludeName(parent, &p);
+	printRecordIncludeName(ret, &r);
+	dumpIndexList();
 	if (folder) {
 		char filename[MAX_FILENAME_LEN];
 		ConstructFilename(ret, filename, MAX_FILENAME_LEN);
+		MTPD::PrintStream()->printf("    >>(%u, %s)\n", ret, filename);
 		mtp_lock_storage(true);
 		mkdir(store, filename);
+		Serial.println("    >> After mkdir"); Serial.flush();
 		mtp_lock_storage(false);
 		OpenFileByIndex(ret, FILE_READ);
+		Serial.println("    >> After OpenFileByIndex"); Serial.flush();
 		if (!file_) {
 			MTPD::PrintStream()->printf(
 				"MTPStorage::Create %s failed to open folder\n", filename);
@@ -783,7 +791,7 @@ fail:
 
 uint32_t MTPStorage::copy(uint32_t handle, uint32_t newStore, uint32_t newParent)
 {
-	//MTPD::PrintStream()->printf("MTPStorage::copy(%u, %u, %u)\n", handle, newStore, newParent);
+	MTPD::PrintStream()->printf("MTPStorage::copy(%u, %u, %u)\n", handle, newStore, newParent);
 	if (newParent == 0xFFFFFFFFUL) newParent = newStore;
 	Record p1 = ReadIndexRecord(handle);
 	Record p2 = ReadIndexRecord(newParent ? newParent : newStore); // 0 means root of store

@@ -51,7 +51,7 @@ LittleFS_QSPI lfsqspi;
 #endif
 
 // Experiment with LittleFS_SPI wrapper
-LittleFS_SPI lfsspi[] = {{3}, {4}, {5}, {6}};
+LittleFS_SPI lfsspi[] = {{3}, {4}, {5}, {6}, {7}};
 #define CLFSSPIPINS (sizeof(lfsspi) / sizeof(lfsspi[0]))
 
 FS *myfs = &lfsProg; // current default FS...
@@ -162,7 +162,7 @@ void setup() {
     uint32_t istore = storage.addFilesystem(lfsram, "RAM");
 //    if (istore != 0xFFFFFFFFUL)
 //      storage.setIndexStore(istore);
-    DBGSerial.printf("Set Storage Index drive to %u\n", istore);
+//    DBGSerial.printf("Set Storage Index drive to %u\n", istore);
   }
 
 #ifdef ARDUINO_TEENSY41
@@ -183,6 +183,8 @@ void setup() {
   // always add
   sdio_previously_present = sdSDIO.begin(BUILTIN_SDCARD);
   index_sdio_storage = storage.addFilesystem(sdSDIO, "SD_Builtin");
+  storage.setIndexStore(index_sdio_storage);
+  DBGSerial.printf("Set Storage Index drive to %u\n", index_sdio_storage);
 #endif
 
   #ifdef ENABLE_SPI_SD_MEDIA_PRESENT
