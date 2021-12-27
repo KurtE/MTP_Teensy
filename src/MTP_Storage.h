@@ -113,7 +113,8 @@ public:
 	uint64_t usedSize(uint32_t store) {
 		return fs[store]->usedSize();
 	}
-	bool copy(uint32_t store0, char *oldfilename, uint32_t store1, char *newfilename);
+	bool CompleteCopyFile(uint32_t from, uint32_t to); 
+	bool CopyByPathNames(uint32_t store0, char *oldfilename, uint32_t store1, char *newfilename);
 	bool moveDir(uint32_t store0, char *oldfilename, uint32_t store1, char *newfilename);
 	//void loop();
 	bool formatStore(uint32_t store, uint32_t p2) {
@@ -143,7 +144,7 @@ public:
 	bool rename(uint32_t handle, const char *name);
 	bool move(uint32_t handle, uint32_t newStorage, uint32_t newParent);
 	uint32_t copy(uint32_t handle, uint32_t newStorage, uint32_t newParent);
-	bool CopyFiles(uint32_t storage, uint32_t handle, uint32_t newHandle);
+	bool CopyFiles(uint32_t handle, uint32_t newHandle);
 	uint32_t MapFileNameToIndex(uint32_t storage, const char *pathname,
 		bool addLastNode = false, bool *node_added = nullptr);
 	void OpenIndex();
