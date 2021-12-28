@@ -48,7 +48,7 @@ extern "C" int usb_init_events(void);
 
 #define USE_EVENTS 1
 
-#ifdef __IMXRT1062__
+// probably ok to default larger verbose output on these for now
 #if defined(__IMXRT1062__) || defined(__MK64FX512__) || defined(__MK66FX1M0__)
 #define MTP_VERBOSE_PRINT_CONTAINER 1
 #endif
