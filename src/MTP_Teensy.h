@@ -49,6 +49,7 @@ extern "C" int usb_init_events(void);
 #define USE_EVENTS 1
 
 #ifdef __IMXRT1062__
+#if defined(__IMXRT1062__) || defined(__MK64FX512__) || defined(__MK66FX1M0__)
 #define MTP_VERBOSE_PRINT_CONTAINER 1
 #endif
 
@@ -66,6 +67,7 @@ public:
   static void PrintStream(Stream *stream) { printStream_ = stream; }
 
 private:
+  friend class MTPStorage;
   MTPStorage *storage_;
   static Stream *printStream_;
 
@@ -114,7 +116,7 @@ private:
   static uint32_t sessionID_;
   static const uint32_t SENDOBJECT_READ_TIMEOUT_MS = 1000;
   uint8_t rx_data_buffer[MTP_RX_SIZE] __attribute__((aligned(32)));
-  uint8_t disk_buffer_[DISK_BUFFER_SIZE] __attribute__((aligned(32)));
+  static uint8_t disk_buffer_[DISK_BUFFER_SIZE] __attribute__((aligned(32)));
 
 #endif
   //static time_t

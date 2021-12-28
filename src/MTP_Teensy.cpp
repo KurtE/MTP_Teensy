@@ -39,7 +39,12 @@
 #include "usb_names.h"
 extern struct usb_string_descriptor_struct usb_string_serial_number;
 
+// Define some of the static members
 Stream *MTPD::printStream_ = &Serial;
+
+#if defined(__IMXRT1062__)
+DMAMEM uint8_t MTPD::disk_buffer_[DISK_BUFFER_SIZE] __attribute__((aligned(32)));
+#endif
 
 #define DEBUG 2
 #if DEBUG > 0
@@ -1631,6 +1636,7 @@ void MTPD::loop(void) {
           } else {
             p1 = return_code;
             return_code = 0x2001;
+            len = receive_buffer->len = 16;
           }
           break;
 
@@ -2934,9 +2940,20 @@ void MTPD::loop(void) {
           if (!return_code) {
             return_code = 0x2005;
             len = 12;
-          } else {
+          } else { 
             p1 = return_code;
-            return_code = 0x2001;
+            uint8_t error_code = storage_->getLastError();
+            switch (error_code) {
+              default: 
+                return_code = 0x2001;
+                break;
+              case MTPStorage::RMDIR_FAIL:
+              case MTPStorage::WRITE_ERROR:
+              case MTPStorage::DEST_OPEN_FAIL:
+                return_code = MTP_RESPONSE_STORAGE_FULL;
+                break;
+            }
+            //return_code = 0x2001;
             len = 16;
           }
           break;

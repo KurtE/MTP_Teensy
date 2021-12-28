@@ -70,6 +70,10 @@ public:
 		}
 		return 0xFFFFFFFFUL;
 	}
+	enum {NO_ERROR=0, SOURCE_OPEN_FAIL, DEST_OPEN_FAIL, READ_ERROR, WRITE_ERROR, 
+				RENAME_FAIL, MKDIR_FAIL, REMOVE_FAIL, RMDIR_FAIL};
+	inline uint8_t getLastError() {return last_error_;}
+	inline void setLastError(uint8_t error) {last_error_ = error;}
 	const char *getStoreName(uint32_t store) {
 		if (store < (uint32_t)fsCount) return name[store];
 		return nullptr;
@@ -183,6 +187,7 @@ private:
 	const char **sd_str = 0;
 	uint32_t mode_ = 0;
 	uint32_t open_file_ = 0xFFFFFFFEUL;
+	uint8_t last_error_ = 0;
 };
 
 void mtp_yield(void);
