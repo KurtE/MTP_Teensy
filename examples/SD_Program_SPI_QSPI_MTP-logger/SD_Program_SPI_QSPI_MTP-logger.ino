@@ -36,7 +36,7 @@ bool sdio_previously_present;
 const int SD_ChipSelect = 10;
 SDClass sdSPI;
 elapsedMillis elapsed_millis_since_last_sd_check = 0;
-bool auto_sd_mediaPresent = true;
+bool auto_sd_mediaPresent = false;
 bool sdspi_previously_present;
 #define TIME_BETWEEN_SD_CHECKS_MS 1000
 
@@ -51,7 +51,7 @@ LittleFS_QSPI lfsqspi;
 #endif
 
 // Experiment with LittleFS_SPI wrapper
-LittleFS_SPI lfsspi[] = {{3}, {4}, {5}, {6}};
+LittleFS_SPI lfsspi[] = {{3}, {4}, {5}, {6}, {7}};
 #define CLFSSPIPINS (sizeof(lfsspi) / sizeof(lfsspi[0]))
 
 FS *myfs = &lfsProg; // current default FS...
@@ -160,9 +160,10 @@ void setup() {
   if (lfsram.begin(LFSRAM_SIZE)) {
     DBGSerial.printf("Ram Drive of size: %u initialized\n", LFSRAM_SIZE);
     uint32_t istore = storage.addFilesystem(lfsram, "RAM");
-//    if (istore != 0xFFFFFFFFUL)
-//      storage.setIndexStore(istore);
-    DBGSerial.printf("Set Storage Index drive to %u\n", istore);
+    if (istore != 0xFFFFFFFFUL) {
+      storage.setIndexStore(istore);
+      DBGSerial.printf("Set Storage Index drive to %u\n", istore);
+    }
   }
 
 #ifdef ARDUINO_TEENSY41
@@ -183,6 +184,8 @@ void setup() {
   // always add
   sdio_previously_present = sdSDIO.begin(BUILTIN_SDCARD);
   index_sdio_storage = storage.addFilesystem(sdSDIO, "SD_Builtin");
+  //storage.setIndexStore(index_sdio_storage);
+  //DBGSerial.printf("Set Storage Index drive to %u\n", index_sdio_storage);
 #endif
 
   #ifdef ENABLE_SPI_SD_MEDIA_PRESENT

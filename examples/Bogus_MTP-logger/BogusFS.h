@@ -1,6 +1,5 @@
 #ifndef __BogusFS_H__
 #define __BogusFS_H__
-//#define T4_USE_SIMPLE_SEND_OBJECT // should match mtp_teensy
 #include <Arduino.h>
 #include <FS.h>
 
@@ -65,22 +64,6 @@ public:
 };
 
 size_t BogusFile::write(const void *buf, size_t size) {
-#ifdef T4_USE_SIMPLE_SEND_OBJECT // should match mtp_teensy
-//	digitalWriteFast(6, HIGH);
-	const uint8_t *pb = (const uint8_t*)buf;
-	int32_t packet_number = 0;
-	for (uint16_t i = 0; pb[i] >= '0' && pb[i] <= '9'; i++) packet_number = packet_number * 10 + pb[i] - '0';
-	if (packet_number != (_last_packet_number + 1)) {
-		if (_error_count < 10) 	Serial.printf("$$$ BF Sequence error %d %d\n", packet_number, _last_packet_number);
-		_error_count++;
-	}
-	_last_packet_number = packet_number;
-	_file_size += size;
-	//delayMicroseconds(500);
-	delay(1);
-//	digitalWriteFast(6, LOW);
-	return size;
-#else
 	// lets walk through the data and see if we have sequence numbers
 	digitalWriteFast(6, HIGH);
 	const uint8_t *pb = (const uint8_t*)buf;
@@ -113,7 +96,6 @@ size_t BogusFile::write(const void *buf, size_t size) {
 	delayMicroseconds(20);
 	digitalWriteFast(6, LOW);
 	return size;
-#endif
 }
 
 class BogusFS : public FS

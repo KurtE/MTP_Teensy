@@ -70,6 +70,14 @@ static void dbgPrint(uint16_t line) {
 #define DBG_HALT_IF(b)
 #endif // USE_DBG_MACROS
 
+#if DEBUG > 1
+#define DBGPrintf(...) MTPD::PrintStream()->printf(__VA_ARGS__)
+#else
+#define DBGPrintf(...)
+#endif
+
+
+
 #define sd_isOpen(x) (x)
 #define sd_getName(x, y, n) strlcpy(y, x.name(), n)
 
@@ -120,19 +128,25 @@ void MTPStorage::ResetIndex()
 }
 
 
-void MTPStorage::WriteIndexRecord(uint32_t i, const Record &r)
+bool MTPStorage::WriteIndexRecord(uint32_t i, const Record &r)
 {
 	OpenIndex();
 	mtp_lock_storage(true);
+	bool write_succeeded = true;
 	if (i < MTPD_MAX_FILESYSTEMS) {
 		// all we need is the first child pointer and if it was scanned
 		store_first_child_[i] = r.child;
 		store_scanned_[i] = r.scanned;
 	} else {
 		index_.seek((i - MTPD_MAX_FILESYSTEMS) * sizeof(r));		
-		index_.write((char *)&r, sizeof(r));
+		size_t bytes_written = index_.write((char *)&r, sizeof(r));
+		if (bytes_written != sizeof(r)) {
+			DBGPrintf(F("$$$ Failed to write Index record: %u bytes written: %u\n"), i, bytes_written);
+			write_succeeded = false;
+		}
 	}
 	mtp_lock_storage(false);
+	return write_succeeded;
 }
 
 uint32_t MTPStorage::AppendIndexRecord(const Record &r)
@@ -166,8 +180,12 @@ Record MTPStorage::ReadIndexRecord(uint32_t i)
 		ret.dtCreate = 0;
 		strcpy(ret.name, "/");
 	} else {
-		index_.seek((i - MTPD_MAX_FILESYSTEMS) * sizeof(ret));		
-		index_.read((char *)&ret, sizeof(ret));
+		bool seek_ok  __attribute__((unused)) = index_.seek((i - MTPD_MAX_FILESYSTEMS) * sizeof(ret));		
+		int cb_read = index_.read((char *)&ret, sizeof(ret));
+		if (cb_read != sizeof(ret)) {
+			DBGPrintf("ReadIndexRecord(%u): %u %d %s\n", i, seek_ok, cb_read, ret.name);
+			memset(&ret, 0, sizeof(ret));
+		}
 	}
 
 	mtp_lock_storage(false);
@@ -206,7 +224,7 @@ void MTPStorage::OpenFileByIndex(uint32_t i, uint32_t mode)
 	}
 	file_ = open(store, filename, mode);
 	if (!sd_isOpen(file_)) {
-		MTPD::PrintStream()->printf(
+		DBGPrintf(
 			"OpenFileByIndex failed to open (%u):%s mode: %u\n", i, filename, mode);
 		open_file_ = 0xFFFFFFFEUL;
 	} else {
@@ -232,7 +250,7 @@ void MTPStorage::GenerateIndex(uint32_t store)
 		index_.seek(0, SeekSet);
 		index_.truncate();
 	} else {
-    MTPD::PrintStream()->printf("    remove called: %u %s\n", index_file_storage_, indexFile); 
+    DBGPrintf("    remove called: %u %s\n", index_file_storage_, indexFile); 
 		remove(index_file_storage_, indexFile);
 	}
 	mtp_lock_storage(false);
@@ -258,7 +276,7 @@ void MTPStorage::GenerateIndex(uint32_t store)
 
 void MTPStorage::ScanDir(uint32_t store, uint32_t i)
 {
-  MTPD::PrintStream()->printf("** ScanDir called %u %u\n", store, i); 
+  DBGPrintf("** ScanDir called %u %u\n", store, i); 
 	if (i == 0xFFFFFFFFUL) i = store;
 	Record record = ReadIndexRecord(i);
 	if (record.isdir && !record.scanned) {
@@ -398,13 +416,13 @@ bool MTPStorage::updateDateTimeStamps(uint32_t handle, uint32_t dtCreated, uint3
 	Record r = ReadIndexRecord(handle);
 	DateTimeFields dtf;
 	if ((dtCreated == 0) && (dtModified == 0)) {
-		MTPD::PrintStream()->printf("&&DT (0,0) (%u,%u)\n", r.dtCreate, r.dtModify);
+		DBGPrintf("&&DT (0,0) (%u,%u)\n", r.dtCreate, r.dtModify);
 		return true;
 
 	}
 	OpenFileByIndex(handle, FILE_READ);
 	if (!file_) {
-		MTPD::PrintStream()->printf(
+		DBGPrintf(
 			"MTPStorage::updateDateTimeStamps failed to open file\n");
 		return false;
 	}
@@ -496,31 +514,60 @@ bool MTPStorage::DeleteObject(uint32_t object)
 
 uint32_t MTPStorage::Create(uint32_t store, uint32_t parent, bool folder, const char *filename)
 {
+	DBGPrintf("MTPStorage::create(%u, %u, %u, %s)\n", store, parent, folder, filename);
 	uint32_t ret;
 	if (parent == 0xFFFFFFFFUL) parent = store;
+	ScanDir(store, parent); // make sure the parent is scanned...
 	Record p = ReadIndexRecord(parent);
 	Record r;
+
+	// See if the name already exists in the parent
+	uint32_t index = p.child;
+	while (index) {
+		r = ReadIndexRecord(index);
+		if (strcmp(filename, r.name) == 0) break; // found a match
+		index = r.sibling;
+	}
+
+	if (index) {
+		// found that name in our list
+		DBGPrintf("    >> Parent (%u) already contains %s(%u)\n", parent, filename, index);
+		if (folder != r.isdir) {
+			DBGPrintf("    >> Not same type: cur:%u new:%u\n", r.isdir, folder);
+			return 0xFFFFFFFFUL;
+		}
+
+		DBGPrintf("    >> using index\n", index);
+		return index;
+	}
+
 	strlcpy(r.name, filename, MAX_FILENAME_LEN);
 	r.store = p.store;
 	r.parent = parent;
 	r.child = 0;
 	r.sibling = p.child;
 	r.isdir = folder;
+	r.dtModify = 0;
+	r.dtCreate = 0;
 	// New folder is empty, scanned = true.
 	r.scanned = 1;
 	ret = p.child = AppendIndexRecord(r);
-	r.dtModify = 0;
-	r.dtCreate = 0;
 	WriteIndexRecord(parent, p);
+	printRecordIncludeName(parent, &p);
+	printRecordIncludeName(ret, &r);
+	dumpIndexList();
 	if (folder) {
 		char filename[MAX_FILENAME_LEN];
 		ConstructFilename(ret, filename, MAX_FILENAME_LEN);
+		DBGPrintf("    >>(%u, %s)\n", ret, filename);
 		mtp_lock_storage(true);
 		mkdir(store, filename);
+		MTPD::PrintStream()->println("    >> After mkdir"); MTPD::PrintStream()->flush();
 		mtp_lock_storage(false);
 		OpenFileByIndex(ret, FILE_READ);
+		MTPD::PrintStream()->println("    >> After OpenFileByIndex"); MTPD::PrintStream()->flush();
 		if (!file_) {
-			MTPD::PrintStream()->printf(
+			DBGPrintf(
 				"MTPStorage::Create %s failed to open folder\n", filename);
 		} else {
 			DateTimeFields dtf;
@@ -535,7 +582,7 @@ uint32_t MTPStorage::Create(uint32_t store, uint32_t parent, bool folder, const 
 		OpenFileByIndex(ret, FILE_WRITE_BEGIN);
 		// lets check to see if we opened the file or not...
 		if (!file_) {
-			MTPD::PrintStream()->printf(
+			DBGPrintf(
 				"MTPStorage::Create %s failed to create file\n", filename);
 			DeleteObject(ret);  // note this will mark that new item as deleted...
 			ret = 0xFFFFFFFFUL; // return an error code...
@@ -641,9 +688,9 @@ void MTPStorage::printRecord(int h, Record *p)
 
 void MTPStorage::printRecordIncludeName(int h, Record *p)
 {
-	MTPD::PrintStream()->printf("%d: %d %d %d %d %d %d %s\n", h, p->store,
+	MTPD::PrintStream()->printf("%d: %u %u %u %u %u %u %u %u %s\n", h, p->store,
                               p->isdir, p->scanned, p->parent, p->sibling,
-                              p->child, p->name);
+                              p->child, p->dtModify, p->dtCreate, p->name);
 }
 
 /*
@@ -671,62 +718,71 @@ void MTPStorage::printRecordIncludeName(int h, Record *p)
  *
 */
 
-
+//=============================================================================
+// move: process the mtp moveObject command
+//=============================================================================
+// lets see if we are just doing a simple rename or if we need to do full
+// move. 
 bool MTPStorage::move(uint32_t handle, uint32_t newStore, uint32_t newParent)
 {
-#if DEBUG > 1
-	MTPD::PrintStream()->printf("MTPStorage::move %d -> %d %d\n", handle, newStore, newParent);
-#endif
-	if (newParent == 0xFFFFFFFFUL) {
-		newParent = newStore; // storage runs from 1, while record.store runs from 0
-	}
+	DBGPrintf("MTPStorage::move %d -> %d %d\n", handle, newStore, newParent);
+	setLastError(NO_ERROR);
 	Record p1 = ReadIndexRecord(handle);
-	Record p2 = ReadIndexRecord(newParent);
-	Record p3 = ReadIndexRecord(p1.parent);
 
-	if (p1.isdir) {
-		if (!p1.scanned) {
-			ScanDir(p1.store, handle); // in case scan directory
-			WriteIndexRecord(handle, p1);
-		}
-	}
-
-	Record p1o = p1;
-	Record p2o = p2;
-	Record p3o = p3;
+	ScanDir(newStore, newParent);  // make sure the new parent has been enumerated. 
 
 	char oldName[MAX_FILENAME_LEN];
 	ConstructFilename(handle, oldName, MAX_FILENAME_LEN);
 
-#if DEBUG > 1
-	MTPD::PrintStream()->print(p1.store);
-	MTPD::PrintStream()->print(": ");
-	MTPD::PrintStream()->println(oldName);
-	dumpIndexList();
-#endif
-
-	uint32_t jx = -1;
-	Record pxo;
+	// try hack use temporary one to generate new path name.
+	char newName[MAX_FILENAME_LEN];
+	// first get the path name for new parent 
+	ConstructFilename(newParent, newName, MAX_FILENAME_LEN);
+	if (newName[1] != 0) strlcat(newName, "/", MAX_FILENAME_LEN); 
+	strlcat(newName, p1.name, MAX_FILENAME_LEN);
+	DBGPrintf("    >>From:%u %s to:%u %s\n", p1.store, oldName, newStore, newName);
+	if (p1.store == newStore) {
+			MTPD::PrintStream()->println("  >> Move same storage");
+		if (!rename(newStore, oldName, newName)) {
+			DBG_FAIL_MACRO;
+			setLastError(RENAME_FAIL);
+			// failed, so simply return... did not change anything. 
+			return false;
+		}
+	} else if (!p1.isdir) {
+			MTPD::PrintStream()->println("  >> Move differnt storage file");
+		if (CopyByPathNames(p1.store, oldName, newStore, newName)) {
+			remove(p1.store, oldName);
+		} else {
+			DBG_FAIL_MACRO;
+			return false;
+		}
+	} else { // move directory cross mtp-disks
+			MTPD::PrintStream()->println("  >> Move differnt storage directory");
+		if (!moveDir(p1.store, oldName, newStore, newName)) {
+			DBG_FAIL_MACRO;
+			return false;
+		}
+	}
 
 	// remove index from old parent
-	Record px;
-	if (p3.child == handle) {
-		p3.child = p1.sibling;
-		WriteIndexRecord(p1.parent, p3);
+	Record p2 = ReadIndexRecord(p1.parent);
+	if (p2.child == handle) {  // was first on in list. 
+		p2.child = p1.sibling;
+		WriteIndexRecord(p1.parent, p2);
 	} else {
-		jx = p3.child;
-		px = ReadIndexRecord(jx);
-		pxo = px;
+		uint32_t jx = p2.child;
+		Record px = ReadIndexRecord(jx);
 		while (handle != px.sibling) {
 			jx = px.sibling;
 			px = ReadIndexRecord(jx);
-			pxo = px;
 		}
 		px.sibling = p1.sibling;
 		WriteIndexRecord(jx, px);
 	}
 
 	// add to new parent
+	p2 = ReadIndexRecord(newParent);
 	p1.parent = newParent;
 	p1.store = p2.store;
 	p1.sibling = p2.child;
@@ -734,127 +790,273 @@ bool MTPStorage::move(uint32_t handle, uint32_t newStore, uint32_t newParent)
 	WriteIndexRecord(handle, p1);
 	WriteIndexRecord(newParent, p2);
 
-	// now working on disk storage
-	char newName[MAX_FILENAME_LEN];
-	ConstructFilename(handle, newName, MAX_FILENAME_LEN);
+	// Should be done
+	return true;
 
-#if DEBUG > 1
-	MTPD::PrintStream()->print(p1.store);
-	MTPD::PrintStream()->print(": ");
-	MTPD::PrintStream()->println(newName);
-	dumpIndexList();
-#endif
-
-	if (p1o.store == p2o.store) { // do a simple rename (works for files and directories)
-		if (rename(p1o.store, oldName, newName)) {
-			return true;
-		} else {
-			DBG_FAIL_MACRO;
-			goto fail;
-		}
-	} else if (!p1o.isdir) {
-		if (copy(p1o.store, oldName, p2o.store, newName)) {
-			remove(p2o.store, oldName);
-			return true;
-		} else {
-			DBG_FAIL_MACRO;
-			goto fail;
-		}
-	} else { // move directory cross mtp-disks
-		if (moveDir(p1o.store, oldName, p2o.store, newName)) {
-			return true;
-		} else {
-			DBG_FAIL_MACRO;
-			goto fail;
-		}
-	}
-fail:
-	// undo changes in index list
-	if (jx < 0) {
-		WriteIndexRecord(p1.parent, p3o);
-	} else {
-		WriteIndexRecord(jx, pxo);
-	}
-	WriteIndexRecord(handle, p1o);
-	WriteIndexRecord(newParent, p2o);
-	return false;
 }
 
+// old and new are directory paths
+bool MTPStorage::moveDir(uint32_t store0, char *oldfilename, uint32_t store1, char *newfilename)
+{
+	char tmp0Name[MAX_FILENAME_LEN];
+	char tmp1Name[MAX_FILENAME_LEN];
+
+	if (!mkdir(store1, newfilename)) {
+		setLastError(MKDIR_FAIL);
+		DBG_FAIL_MACRO;
+		return false;
+	}
+	File f1 = open(store0, oldfilename, FILE_READ);
+	if (!f1) {
+		setLastError(SOURCE_OPEN_FAIL);
+		DBG_FAIL_MACRO;
+		return false;
+	}
+	while (1) {
+		strlcpy(tmp0Name, oldfilename, MAX_FILENAME_LEN);
+		if (tmp0Name[strlen(tmp0Name) - 1] != '/') {
+			strlcat(tmp0Name, "/", MAX_FILENAME_LEN);
+		}
+		strlcpy(tmp1Name, newfilename, MAX_FILENAME_LEN);
+		if (tmp1Name[strlen(tmp1Name) - 1] != '/') {
+			strlcat(tmp1Name, "/", MAX_FILENAME_LEN);
+		}
+		File f2 = f1.openNextFile();
+		if (!f2) break; {
+			// generate filenames
+			strlcat(tmp0Name, f2.name(), MAX_FILENAME_LEN);
+			strlcat(tmp1Name, f2.name(), MAX_FILENAME_LEN);
+			if (f2.isDirectory()) {
+				if (!moveDir(store0, tmp0Name, store1, tmp1Name)) {
+					DBG_FAIL_MACRO;
+					return false;
+				}
+			} else {
+				if (!CopyByPathNames(store0, tmp0Name, store1, tmp1Name)) {
+					DBG_FAIL_MACRO;
+					return false;
+				}
+				if (!remove(store0, tmp0Name)) {
+					setLastError(REMOVE_FAIL);
+					DBG_FAIL_MACRO;
+					return false;
+				}
+			}
+		}
+	}
+	if (rmdir(store0, oldfilename)) return true;
+	setLastError(RMDIR_FAIL);
+	DBG_FAIL_MACRO;
+	return false;
+
+}
+
+//=============================================================================
+// copy: process the copy command, some functions below used by move as well
+//=============================================================================
 
 uint32_t MTPStorage::copy(uint32_t handle, uint32_t newStore, uint32_t newParent)
 {
-	//MTPD::PrintStream()->printf("MTPStorage::copy(%u, %u, %u)\n", handle, newStore, newParent);
+	setLastError(NO_ERROR);
+	DBGPrintf("MTPStorage::copy(%u, %u, %u)\n", handle, newStore, newParent);
 	if (newParent == 0xFFFFFFFFUL) newParent = newStore;
 	Record p1 = ReadIndexRecord(handle);
-	Record p2 = ReadIndexRecord(newParent ? newParent : newStore); // 0 means root of store
-	uint32_t newHandle;
-	if (p1.isdir) {
-		ScanDir(p1.store + 1, handle);
-		newHandle = Create(p2.store, newParent, p1.isdir, p1.name);
-		CopyFiles(handle, p2.store, newHandle);
-	} else {
-		Record r;
-		strlcpy(r.name, p1.name, MAX_FILENAME_LEN);
-		r.store = p2.store;
-		r.parent = newParent;
-		r.child = p1.child; // child for non directory is size... Cheat here and just say it is the same size
-		r.sibling = p2.child;
-		r.isdir = 0;
-		r.scanned = 0;
-		newHandle = p2.child = AppendIndexRecord(r);
-		WriteIndexRecord(newParent, p2);
-		char oldfilename[MAX_FILENAME_LEN];
-		char newfilename[MAX_FILENAME_LEN];
-		uint32_t store0 = ConstructFilename(handle, oldfilename, MAX_FILENAME_LEN);
-		uint32_t store1 = ConstructFilename(newHandle, newfilename, MAX_FILENAME_LEN);
+	Record p2 = ReadIndexRecord(newParent); // 0 means root of store
 
-		if (copy(store0, oldfilename, store1, newfilename)) {
-			// Update the date times based on the one we copied from...
-			updateDateTimeStamps(newHandle, p1.dtCreate, p1.dtModify);
-		}
+	uint32_t newHandle = Create(p2.store, newParent, p1.isdir, p1.name);
+	if (newHandle == 0xFFFFFFFFUL) {
+		setLastError(DEST_OPEN_FAIL);
+		DBG_FAIL_MACRO;
+	} else if (p1.isdir) {
+		ScanDir(p1.store, handle);
+		CopyFiles(handle, newHandle);
+	} else {
+		CompleteCopyFile(handle, newHandle);
 	}
 	return newHandle;
 }
 
 
 // assume handle and newHandle point to existing directories
-bool MTPStorage::CopyFiles(uint32_t handle, uint32_t store, uint32_t newHandle)
+bool MTPStorage::CopyFiles(uint32_t handle, uint32_t newHandle)
 {
-	if (newHandle == 0xFFFFFFFFUL) {
-		newHandle = store;
-	}
-#if DEBUG > 1
-	MTPD::PrintStream()->printf("%d -> %d\n", handle, newHandle);
-#endif
-	Record p1 = ReadIndexRecord(handle);
-	Record p2 = ReadIndexRecord(newHandle);
-	uint32_t ix = p1.child;
+	DBGPrintf("%d -> %d\n", handle, newHandle);
+	bool copy_completed_without_error = true;
+	Record r = ReadIndexRecord(handle);
+	uint32_t source_store = r.store;
+	uint32_t ix = r.child;
 	uint32_t iy = 0;
+
+	r = ReadIndexRecord(newHandle);
+	uint32_t target_store = r.store;
 	while (ix) { // get child
 		Record px = ReadIndexRecord(ix);
-		Record py = px;
-		py.store = p2.store;
-		py.parent = newHandle;
-		py.sibling = iy;
-		iy = AppendIndexRecord(py);
-		char oldfilename[MAX_FILENAME_LEN];
-		char newfilename[MAX_FILENAME_LEN];
-		ConstructFilename(ix, oldfilename, MAX_FILENAME_LEN);
-		ConstructFilename(iy, newfilename, MAX_FILENAME_LEN);
-		if (py.isdir) {
-			mkdir(py.store, newfilename);
-			ScanDir(p1.store, ix);
-			CopyFiles(ix, p2.store, iy);
-		} else {
-			copy(p1.store, oldfilename, py.store, newfilename);
+		iy = Create(target_store, newHandle, px.isdir, px.name);
+		if (iy != 0xFFFFFFFFUL) {
+			if (px.isdir) {
+				ScanDir(source_store, ix);
+				if (!CopyFiles(ix, iy)) {
+					copy_completed_without_error = false;
+					break;
+				}
+			} else {
+				if (!CompleteCopyFile(ix, iy)) {
+					copy_completed_without_error = false;
+					break;
+				}
+			}
 		}
 		ix = px.sibling;
 	}
-	p2.child = iy;
-	WriteIndexRecord(newHandle, p2);
-	return true;
+	r.child = iy;
+	WriteIndexRecord(newHandle, r);
+	return copy_completed_without_error;
 }
 
+#if defined(__IMXRT1062__)
+	#define COPY_BUFFER MTPD::disk_buffer_
+	#define COPY_BUFFER_SIZE MTPD::DISK_BUFFER_SIZE
+#else
+	#define COPY_BUFFER (copy_buffer)
+	#define COPY_BUFFER_SIZE 512
+#endif
+
+bool MTPStorage::CompleteCopyFile(uint32_t from, uint32_t to)
+{
+
+	Record r = ReadIndexRecord(to);
+	bool copy_completed_without_error = true;
+	
+	// open the source file...
+	// the Create call should have opened the target. 
+#if !defined(__IMXRT1062__)
+	uint8_t *copy_buffer = (uint8_t *)malloc(COPY_BUFFER_SIZE);
+	if (!copy_buffer) return false;
+#endif
+
+	char source_file_name[MAX_FILENAME_LEN];
+	uint32_t store0 = ConstructFilename(from, source_file_name, MAX_FILENAME_LEN);
+	DBGPrintf("  >> CompleteCopyFile(%u, %u) %s\n", from, to, source_file_name);
+	File f1 = open(store0, source_file_name, FILE_READ);
+	if (!f1) {
+		setLastError(DEST_OPEN_FAIL);
+		DBG_FAIL_MACRO;
+#if !defined(__IMXRT1062__)
+		free(copy_buffer);
+#endif
+		return false;
+	}
+	file_.truncate();	// make sure to remove old data... Should we do this at end? 
+
+
+	int nd = -1;
+
+	while (f1.available() > 0) {
+		nd = f1.read(COPY_BUFFER, COPY_BUFFER_SIZE);
+		if (nd < 0) { // read error
+			setLastError(READ_ERROR);
+			copy_completed_without_error = false;
+			DBG_FAIL_MACRO;
+			break;
+		}
+		size_t cb_written = file_.write(COPY_BUFFER, nd); 
+		if (cb_written < (uint32_t)nd) {
+			setLastError(WRITE_ERROR);
+			DBG_FAIL_MACRO;
+			copy_completed_without_error = false;
+			break;
+		}
+		if ((uint32_t)nd < COPY_BUFFER_SIZE) break; // end of file
+	}
+
+	DateTimeFields dtf;
+	if (f1.getModifyTime(dtf)) {
+		DBGPrintf("  >> Updated Modify Date\n");
+		file_.setModifyTime(dtf);
+		r.dtModify = makeTime(dtf);
+	}
+
+#if !defined(__IMXRT1062__)
+		free(copy_buffer);
+#endif
+	// close source file
+	f1.close();
+
+	mtp_lock_storage(true);
+	r.child = (uint32_t)file_.size();
+	WriteIndexRecord(to, r);
+#if DEBUG > 1
+	MTPD::PrintStream()->print("  >>"); printRecordIncludeName(to, &r);
+#endif
+	file_.close();
+	mtp_lock_storage(false);
+	DBGPrintf("  >> return %u\n", copy_completed_without_error);
+	return copy_completed_without_error;
+}
+#if 1
+bool MTPStorage::CopyByPathNames(uint32_t store0, char *oldfilename, uint32_t store1, char *newfilename)
+{
+#if !defined(__IMXRT1062__)
+	uint8_t *copy_buffer = (uint8_t *)malloc(COPY_BUFFER_SIZE);
+	if (!copy_buffer) return false;
+#endif
+	int nd = -1;
+
+#if DEBUG > 1
+	MTPD::PrintStream()->print("MTPStorage::CopyByPathNames - From ");
+	MTPD::PrintStream()->print(store0);
+	MTPD::PrintStream()->print(": ");
+	MTPD::PrintStream()->println(oldfilename);
+	MTPD::PrintStream()->print("To   ");
+	MTPD::PrintStream()->print(store1);
+	MTPD::PrintStream()->print(": ");
+	MTPD::PrintStream()->println(newfilename);
+#endif
+
+	File f1 = open(store0, oldfilename, FILE_READ);
+	if (!f1) {
+		DBG_FAIL_MACRO;
+#if !defined(__IMXRT1062__)
+		free(copy_buffer);
+#endif
+		return false;
+	}
+	File f2 = open(store1, newfilename, FILE_WRITE_BEGIN);
+	if (!f2) {
+		f1.close();
+		DBG_FAIL_MACRO;
+#if !defined(__IMXRT1062__)
+		free(copy_buffer);
+#endif
+		return false;
+	}
+	while (f1.available() > 0) {
+		nd = f1.read(COPY_BUFFER, COPY_BUFFER_SIZE);
+		if (nd < 0) break; // read error
+		f2.write(COPY_BUFFER, nd);
+		if ((uint32_t)nd < COPY_BUFFER_SIZE) break; // end of file
+	}
+	// Lets see if we can set the modify date of the new file to that of the
+	// file we are copying from.
+	DateTimeFields tm;
+	if (f1.getModifyTime(tm)) {
+		DBGPrintf("  >> Updated Modify Date");
+		f2.setModifyTime(tm);
+	}
+
+	// close all files
+	f1.close();
+	f2.close();
+#if !defined(__IMXRT1062__)
+		free(copy_buffer);
+#endif
+	if (nd < 0) {
+		DBG_FAIL_MACRO;
+		return false;
+	}
+	return true;
+}
+#endif
 
 uint32_t MTPStorage::addFilesystem(FS &disk, const char *diskname)
 {
@@ -862,7 +1064,7 @@ uint32_t MTPStorage::addFilesystem(FS &disk, const char *diskname)
 		name[fsCount] = diskname;
 		fs[fsCount] = &disk;
 		store_storage_minor_index_[fsCount] = 1; // start off with 1
-		MTPD::PrintStream()->printf("addFilesystem: %d %s %x\n", fsCount, diskname, (uint32_t)fs[fsCount]);
+		DBGPrintf("addFilesystem: %d %s %x\n", fsCount, diskname, (uint32_t)fs[fsCount]);
 		return fsCount++;
 	} else {
 		// See if we can reuse index
@@ -874,7 +1076,7 @@ uint32_t MTPStorage::addFilesystem(FS &disk, const char *diskname)
 				store_first_child_[store] = 0;
 				store_scanned_[store] = false;
 				store_storage_minor_index_[store]++;
-				MTPD::PrintStream()->printf("addFilesystem(%u): %d %s %x\n", store_storage_minor_index_[store], store, diskname, (uint32_t)fs[store]);
+				DBGPrintf("addFilesystem(%u): %d %s %x\n", store_storage_minor_index_[store], store, diskname, (uint32_t)fs[store]);
 				return store;
 			}
 		}		
@@ -908,110 +1110,11 @@ bool MTPStorage::clearStoreIndexItems(uint32_t store)
 }
 
 
-
-bool MTPStorage::copy(uint32_t store0, char *oldfilename, uint32_t store1, char *newfilename)
-{
-	const int nbuf = 2048;
-	char buffer[nbuf];
-	int nd = -1;
-
-#if DEBUG > 1
-	MTPD::PrintStream()->print("MTPStorage::copy - From ");
-	MTPD::PrintStream()->print(store0);
-	MTPD::PrintStream()->print(": ");
-	MTPD::PrintStream()->println(oldfilename);
-	MTPD::PrintStream()->print("To   ");
-	MTPD::PrintStream()->print(store1);
-	MTPD::PrintStream()->print(": ");
-	MTPD::PrintStream()->println(newfilename);
-#endif
-
-	File f1 = open(store0, oldfilename, FILE_READ);
-	if (!f1) {
-		DBG_FAIL_MACRO;
-		return false;
-	}
-	File f2 = open(store1, newfilename, FILE_WRITE_BEGIN);
-	if (!f2) {
-		f1.close();
-		DBG_FAIL_MACRO;
-		return false;
-	}
-	while (f1.available() > 0) {
-		nd = f1.read(buffer, nbuf);
-		if (nd < 0) break; // read error
-		f2.write(buffer, nd);
-		if (nd < nbuf) break; // end of file
-	}
-	// close all files
-	f1.close();
-	f2.close();
-	if (nd < 0) {
-		DBG_FAIL_MACRO;
-		return false;
-	}
-	return true;
-}
-
-// old and new are directory paths
-bool MTPStorage::moveDir(uint32_t store0, char *oldfilename, uint32_t store1, char *newfilename)
-{
-	char tmp0Name[MAX_FILENAME_LEN];
-	char tmp1Name[MAX_FILENAME_LEN];
-
-	if (!mkdir(store1, newfilename)) {
-		DBG_FAIL_MACRO;
-		return false;
-	}
-	File f1 = open(store0, oldfilename, FILE_READ);
-	if (!f1) {
-		DBG_FAIL_MACRO;
-		return false;
-	}
-	while (1) {
-		strlcpy(tmp0Name, oldfilename, MAX_FILENAME_LEN);
-		if (tmp0Name[strlen(tmp0Name) - 1] != '/') {
-			strlcat(tmp0Name, "/", MAX_FILENAME_LEN);
-		}
-		strlcpy(tmp1Name, newfilename, MAX_FILENAME_LEN);
-		if (tmp1Name[strlen(tmp1Name) - 1] != '/') {
-			strlcat(tmp1Name, "/", MAX_FILENAME_LEN);
-		}
-		File f2 = f1.openNextFile();
-		if (!f2) break; {
-			// generate filenames
-			strlcat(tmp0Name, f2.name(), MAX_FILENAME_LEN);
-			strlcat(tmp1Name, f2.name(), MAX_FILENAME_LEN);
-			if (f2.isDirectory()) {
-				if (!moveDir(store0, tmp0Name, store1, tmp1Name)) {
-					DBG_FAIL_MACRO;
-					return false;
-				}
-			} else {
-				if (!copy(store0, tmp0Name, store1, tmp1Name)) {
-					DBG_FAIL_MACRO;
-					return false;
-				}
-				if (!remove(store0, tmp0Name)) {
-					DBG_FAIL_MACRO;
-					return false;
-				}
-			}
-		}
-	}
-	return rmdir(store0, oldfilename);
-}
-
-
-
-
-
-
 uint32_t MTPStorage::MapFileNameToIndex(uint32_t storage, const char *pathname,
                                         bool addLastNode, bool *node_added)
 {
 	const char *path_parser = pathname;
-	MTPD::PrintStream()->printf(
+	DBGPrintf(
 		"MTPStorage_SD::MapFileNameToIndex %u %s add:%d\n",
 		storage, pathname, addLastNode);
 	// We will only walk as far as we have enumerated
@@ -1039,7 +1142,7 @@ uint32_t MTPStorage::MapFileNameToIndex(uint32_t storage, const char *pathname,
 		*psz = '\0'; // terminate the string.
 
 		// Now lets see if we can find this item in the record list.
-		MTPD::PrintStream()->printf("Looking for: %s\n", filename);
+		DBGPrintf("Looking for: %s\n", filename);
 		index = record.child;
 		while (index) {
 			record = ReadIndexRecord(index);
@@ -1051,7 +1154,7 @@ uint32_t MTPStorage::MapFileNameToIndex(uint32_t storage, const char *pathname,
 		if (index) {
 			// found a match. return it.
 			if (*path_parser == '\0') {
-				MTPD::PrintStream()->printf("Found Node: %d\n", index);
+				DBGPrintf("Found Node: %d\n", index);
 				return index;
 			}
 
@@ -1099,7 +1202,7 @@ uint32_t MTPStorage::MapFileNameToIndex(uint32_t storage, const char *pathname,
 			index = record.child = AppendIndexRecord(r);
 			WriteIndexRecord(parent, record);
 
-			MTPD::PrintStream()->printf("New node created: %d\n", index);
+			DBGPrintf("New node created: %d\n", index);
 			record = ReadIndexRecord(index);
 			printRecordIncludeName(index, &record);
 			if (node_added) *node_added = true;

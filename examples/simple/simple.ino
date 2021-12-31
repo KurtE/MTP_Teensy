@@ -39,12 +39,14 @@ void setup()
   MTP.begin();
 
   // Add a RAM Disk
+#if 0
   if (ramdisk.begin(65536)) {
     storage.addFilesystem(ramdisk, "RAM");
     // storage.setIndexStore(istore);
     DBGSerial.println("Ram disk initialized");
   }
-
+#endif
+  
   // Add the SD Card
   if (SD.begin(SD_ChipSelect)) {
     storage.addFilesystem(SD, "SD_Card");
