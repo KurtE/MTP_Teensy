@@ -23,7 +23,6 @@
 // SOFTWARE.
 
 // modified for SDFS by WMXZ
-//#define T4_USE_SIMPLE_SEND_OBJECT
 
 #if defined(USB_MTPDISK) || defined(USB_MTPDISK_SERIAL)
 
@@ -2422,91 +2421,6 @@ void MTPD::check_memcpy(uint8_t *pdest, const uint8_t *psrc, size_t size, const 
   memcpy(pdest, psrc, size);  
 }
 
-#ifdef T4_USE_SIMPLE_SEND_OBJECT
-extern "C" {
-extern bool g_usb_isr_print;
-}
-
-bool MTPD::SendObject() {
-  pull_packet(rx_data_buffer);
-  read(0, 0);
-  //      printContainer();
-  uint32_t len = ReadMTPHeader();
-  uint32_t index = sizeof(MTPHeader);
-  printf("MTPD::SendObject: len:%u\n", len);
-  elapsedMicros em_total = 0;
-
-  uint32_t sum_read_em = 0;
-  uint32_t c_read_em = 0;
-  uint32_t read_em_max = 0;
-
-  uint32_t sum_write_em = 0;
-  uint32_t c_write_em = 0;
-  uint32_t write_em_max = 0;
-  // Quick and dirty write the first partial block of data.
-  uint32_t bytes = MTP_RX_SIZE - index; // how many data in usb-packet
-  if (len) {
-    bytes = min(bytes, len);              // limit at end
-    elapsedMillis emWrite = 0;
-    //printf("    $$F: %u %u\n", bytes, len);
-    if (storage_->write((const char *)rx_data_buffer + index, bytes) < bytes)
-      return false;
-    uint32_t em = emWrite;
-    sum_write_em = em;
-    c_write_em++;
-    write_em_max = em;
-    len -= bytes;
-  }
-  
-
-  while ((int)len > 0) {
-    //if (len <  3276) g_usb_isr_print = 1;
-    elapsedMillis emRead = 0;
-    if (usb_mtp_recv(rx_data_buffer, SENDOBJECT_READ_TIMEOUT_MS) > 0) { // read directly in.
-      uint32_t em = emRead;
-      sum_read_em += em;
-      c_read_em++;
-      if (em > read_em_max)
-        read_em_max = em;
-    } else {
-      printf("\nMTPD::SendObject *** USB Read Timeout ***\n");
-      break; //
-    }
-
-    bytes = min((uint32_t)MTP_RX_SIZE, len);              // limit at end
-
-    elapsedMillis emWrite = 0;
-    //printf("    $$:  %u %u\n", bytes, len);
-    if (storage_->write((const char *)rx_data_buffer, bytes) < bytes)
-      return false;
-    uint32_t em = emWrite;
-    sum_write_em += em;
-    c_write_em++;
-    if (em > write_em_max)
-      write_em_max = em;
-
-    len -= bytes;
-  }
-
-  printf("    $$*: %u\n", len);
-
-  // lets see if we should update the date and time stamps.
-  storage_->updateDateTimeStamps(object_id_, dtCreated_, dtModified_);
-
-  storage_->close();
-
-  if (c_read_em)
-    printf(" # USB Packets: %u total: %u avg ms: %u max: %u\n", c_read_em,
-           sum_read_em, sum_read_em / c_read_em, read_em_max);
-  if (c_write_em)
-    printf(" # Write: %u total:%u avg ms: %u max: %u\n", c_write_em,
-           sum_write_em, sum_write_em / c_write_em, write_em_max);
-  printf(">>>Total Time: %u\n", (uint32_t)em_total);
-  Serial.flush();
-
-  return (len == 0);
-}
-#else
 bool MTPD::SendObject() {
   pull_packet(rx_data_buffer);
   read(0, 0);
@@ -2533,7 +2447,6 @@ bool MTPD::SendObject() {
     
 
   uint32_t last_n_write_times[32];
-  uint8_t count_zero_packets = 0;
 
 
   // first copy in the rest of the first packet into the diskbuffer.
@@ -2545,6 +2458,11 @@ bool MTPD::SendObject() {
   disk_pos = cb_recv;
 
   while ((int)len > 0) {
+    // check mtp status
+    if (usb_mtp_status != 0x1) {
+      printf("\nMTPD::SendObject *** MTP status %u ***\n", usb_mtp_status);
+      break;
+    }
     // read in next sector
     elapsedMillis emRead = 0;
     cb_recv = usb_mtp_recv(rx_data_buffer, SENDOBJECT_READ_TIMEOUT_MS);
@@ -2555,18 +2473,9 @@ bool MTPD::SendObject() {
       c_read_em++;
       if (em > read_em_max)
         read_em_max = em;
-        if (count_zero_packets) {
-          count_zero_packets = 0;
-          printf("\nMTPD::SendObject *** Received packet after 0 packet ***\n");
-        }
-    } else if (cb_recv == 0) {
-      printf("\nMTPD::SendObject *** USB Read 0 bytes ***\n");
-      count_zero_packets++;
-      // don't sit here endless in 0 length packets. 
-      if (count_zero_packets > 1) break;
-
     } else {
-      printf("\nMTPD::SendObject *** USB Read Timeout ***\n");
+      if (cb_recv == 0) printf("\nMTPD::SendObject *** USB Read 0 bytes ***\n");
+      else printf("\nMTPD::SendObject *** USB Read Timeout ***\n");
       break; //
     }
 
@@ -2612,6 +2521,8 @@ bool MTPD::SendObject() {
       // printf("b %d %d %d %d %d\n", len,disk_pos,bytes,index,to_copy);
     }
   }
+
+  // BUGBUG - should we leave the file if we did not receive all of it? 
 
   //  printf("len %d diskpos: %u\n", len, disk_pos);
   if (disk_pos) {
@@ -2661,7 +2572,6 @@ bool MTPD::SendObject() {
 
   return (len == 0);
 }
-#endif
 
 //=============================================================
 
@@ -3004,6 +2914,12 @@ void MTPD::loop(void) {
       }
     }
   }
+
+  // check here to mske sure the USB status is reset
+  if (usb_mtp_status != 0x01) {
+    printf("mtpd::Loop usb_mtp_status %u != 0x1 reset\n", usb_mtp_status);
+    usb_mtp_status = 0x01;
+  } 
 
   // See if Storage needs to do anything
   storage_->loop();
