@@ -1741,23 +1741,21 @@ void MTPD::write(const char *data, int len) {
 
 void MTPD::GetObject(uint32_t object_id) {
   uint32_t size = storage_->GetSize(object_id);
+  int ret;
   printf("\nGetObject(%u) size: %u\n", object_id, size);
-
   if (write_get_length_) {
     write_length_ += size;
   } else {
     uint32_t pos = 0; // into data
     uint32_t len = sizeof(MTPHeader);
 
+    // hack to use the storage error... 
+    storage_->setLastError(0); // no error.
     disk_pos = DISK_BUFFER_SIZE;
     while (pos < size) {
-      // experiment to see if any data pending from host...
-      if (usb_mtp_available()) {
-//        uint8_t peek_data_buffer[MTP_RX_SIZE] __attribute__((aligned(32)));
-          int cb_peek = -1;
-//        int cb_peek = usb_mtp_peek(peek_data_buffer, 60);
-        printf("  << usb_mtp_available cb: %d>>\n", cb_peek);
-//        if (cb_peek > 0)_printContainer((struct MTPContainer *)(peek_data_buffer),"Peek:");
+      if (usb_mtp_status != 0x1) {
+        printf("\nMTPD::GetObject *** MTP status %x ***\n", usb_mtp_status);
+        break;
       }
       if (disk_pos == DISK_BUFFER_SIZE) {
         uint32_t nread = min(size - pos, (uint32_t)DISK_BUFFER_SIZE);
@@ -1775,22 +1773,33 @@ void MTPD::GetObject(uint32_t object_id) {
       len += to_copy;
 
       if (len == (uint32_t)mtp_tx_size_) {
-        push_packet(tx_data_buffer, mtp_tx_size_);
-        printf("    >>w dp:%u p:%u len:%u\n", disk_pos, pos, len);
+        ret = push_packet(tx_data_buffer, mtp_tx_size_);
+        printf("    >>w dp:%u p:%u len:%u ret:%d\n", disk_pos, pos, len, ret);
+        if (ret <= 0) {
+          printf("    >> write failed - abort\n");
+          storage_->setLastError(MTPStorage::WRITE_ERROR); // no error.
+          break;
+        }
+
         len = 0;
       }
     }
     printf("    >>>>w len:%u\n", len);
-    if (len > 0) {
+    if ((pos == size) && (len > 0)) {
       // experiment zero out remaining part... 
       memset(tx_data_buffer + len, 0, mtp_tx_size_ - len);
       //push_packet(tx_data_buffer, mtp_tx_size_);
-      push_packet(tx_data_buffer, len);
+      ret = push_packet(tx_data_buffer, len);
+      if (ret <= 0) {
+          printf("    >> write failed - abort\n");
+          storage_->setLastError(MTPStorage::WRITE_ERROR); // no error.
+      }
       len = 0;
     }
     printf("    >><< Done\n");
   }
 }
+
 uint32_t MTPD::GetPartialObject(uint32_t object_id, uint32_t offset,
                                 uint32_t NumBytes) {
   uint32_t size = storage_->GetSize(object_id);
@@ -2461,7 +2470,7 @@ bool MTPD::SendObject() {
   while ((int)len > 0) {
     // check mtp status
     if (usb_mtp_status != 0x1) {
-      printf("\nMTPD::SendObject *** MTP status %u ***\n", usb_mtp_status);
+      printf("\nMTPD::SendObject *** MTP status %x ***\n", usb_mtp_status);
       break;
     }
     // read in next sector
@@ -2792,6 +2801,7 @@ void MTPD::loop(void) {
 
         case 0x1009: // GetObject
           TRANSMIT(GetObject(p1));
+          if (storage_->getLastError() != 0) return_code = MTP_RESPONSE_INCOMPLETE_TRANSFER;
           break;
 
         case 0x100B: // DeleteObject
@@ -2893,7 +2903,11 @@ void MTPD::loop(void) {
           return_code = 0x2005; // operation not supported
           break;
         }
-        if (return_code) {
+        if (usb_mtp_status != 0x01) {
+          // Guess if USB not correct try to reset and not send response
+          printf("mtpd::Loop usb_mtp_status %x != 0x1 reset\n", usb_mtp_status);
+          usb_mtp_status = 0x01;
+        } else if (return_code) {
           CONTAINER->type = 3;
           if (len > 512) {// BUGBUG::Core usb should let use know packet size...
             len = 512; // 
@@ -2918,7 +2932,7 @@ void MTPD::loop(void) {
 
   // check here to mske sure the USB status is reset
   if (usb_mtp_status != 0x01) {
-    printf("mtpd::Loop usb_mtp_status %u != 0x1 reset\n", usb_mtp_status);
+    printf("mtpd::Loop usb_mtp_status %x != 0x1 reset\n", usb_mtp_status);
     usb_mtp_status = 0x01;
   } 
 
