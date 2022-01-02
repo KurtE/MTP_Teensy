@@ -868,8 +868,6 @@ void MTPD::GetObject(uint32_t object_id) { // T3
   }
 }
 
-#define CONTAINER ((struct MTPContainer *)(receive_buffer->buf))
-
 #define TRANSMIT(FUN)                                                          \
   do {                                                                         \
     write_length_ = 0;                                                         \
@@ -879,33 +877,15 @@ void MTPD::GetObject(uint32_t object_id) { // T3
     MTPHeader header;                                                          \
     header.len = write_length_ + 12;                                           \
     header.type = 2;                                                           \
-    header.op = CONTAINER->op;                                                 \
-    header.transaction_id = CONTAINER->transaction_id;                         \
+    const struct MTPContainer *c = (struct MTPContainer *)(receive_buffer->buf); \
+    header.op = c->op;                                                         \
+    header.transaction_id = c->transaction_id;                                 \
     write((char *)&header, sizeof(header));                                    \
     FUN;                                                                       \
     get_buffer();                                                              \
     usb_tx(MTP_TX_ENDPOINT, data_buffer_);                                     \
     data_buffer_ = NULL;                                                       \
   } while (0)
-
-#if MTP_VERBOSE_PRINT_CONTAINER
-#define printContainer() _printContainer(CONTAINER);
-
-#else
-
-#define printContainer()                                                       \
-  {                                                                            \
-    printf("%x %d %d %d: ", CONTAINER->op, CONTAINER->len, CONTAINER->type,    \
-           CONTAINER->transaction_id);                                         \
-    if (CONTAINER->len > 12)                                                   \
-      printf(" %x", CONTAINER->params[0]);                                     \
-    if (CONTAINER->len > 16)                                                   \
-      printf(" %x", CONTAINER->params[1]);                                     \
-    if (CONTAINER->len > 20)                                                   \
-      printf(" %x", CONTAINER->params[2]);                                     \
-    printf("\n");                                                              \
-  }
-#endif
 
 void MTPD::read(char *data, uint32_t size) { // T3
   while (size) {
@@ -1078,13 +1058,15 @@ void MTPD::_interval_timer_handler() { // T3
 void MTPD::processIntervalTimer() { // T3
   usb_packet_t *receive_buffer;
   if ((receive_buffer = usb_rx(MTP_RX_ENDPOINT))) {
-    printContainer();
 
-    int op = CONTAINER->op;
-    int p1 = CONTAINER->params[0];
-    int id = CONTAINER->transaction_id;
-    int len = CONTAINER->len;
-    int typ = CONTAINER->type;
+    struct MTPContainer *container = (struct MTPContainer *)(receive_buffer->buf);
+    printContainer(container);
+
+    int op = container->op;
+    int p1 = container->params[0];
+    int id = container->transaction_id;
+    int len = container->len;
+    int typ = container->type;
     TID = id;
 
     uint32_t return_code = 0;
@@ -1112,13 +1094,13 @@ void MTPD::processIntervalTimer() { // T3
       }
     }
     if (return_code) {
-      CONTAINER->type = 3;
-      CONTAINER->len = len;
-      CONTAINER->op = return_code;
-      CONTAINER->transaction_id = id;
-      CONTAINER->params[0] = p1;
+      container->type = 3;
+      container->len = len;
+      container->op = return_code;
+      container->transaction_id = id;
+      container->params[0] = p1;
 #if DEBUG > 1
-      printContainer();
+      printContainer(container);
 #endif
 
       usb_tx(MTP_TX_ENDPOINT, receive_buffer);
@@ -1156,15 +1138,16 @@ void MTPD::loop(void) { // T3
   }
   usb_packet_t *receive_buffer;
   if ((receive_buffer = usb_rx(MTP_RX_ENDPOINT))) {
-    printContainer();
+    struct MTPContainer *container = (struct MTPContainer *)(receive_buffer->buf);
+    printContainer(container);
 
-    int op = CONTAINER->op;
-    int p1 = CONTAINER->params[0];
-    int p2 = CONTAINER->params[1];
-    int p3 = CONTAINER->params[2];
-    int id = CONTAINER->transaction_id;
-    int len = CONTAINER->len;
-    int typ = CONTAINER->type;
+    int op = container->op;
+    int p1 = container->params[0];
+    int p2 = container->params[1];
+    int p3 = container->params[2];
+    int id = container->transaction_id;
+    int len = container->len;
+    int typ = container->type;
     TID = id;
 
     uint32_t return_code = 0;
@@ -1223,8 +1206,8 @@ void MTPD::loop(void) { // T3
           return_code = SendObjectInfo(p1,  // storage
                                        p2,  // parent
                                        p3); // returned new object ID
-          CONTAINER->params[1] = p2;
-          CONTAINER->params[2] = p3;
+          container->params[1] = p2;
+          container->params[2] = p3;
           len = receive_buffer->len = 12 + 3 * 4;
           break;
         case 0x100D: // SendObject
@@ -1287,13 +1270,13 @@ void MTPD::loop(void) { // T3
       }
     }
     if (return_code) {
-      CONTAINER->type = 3;
-      CONTAINER->len = len;
-      CONTAINER->op = return_code;
-      CONTAINER->transaction_id = id;
-      CONTAINER->params[0] = p1;
+      container->type = 3;
+      container->len = len;
+      container->op = return_code;
+      container->transaction_id = id;
+      container->params[0] = p1;
 #if DEBUG > 1
-      printContainer();
+      printContainer(container);
 #endif
       usb_tx(MTP_TX_ENDPOINT, receive_buffer);
       receive_buffer = 0;
@@ -1303,9 +1286,9 @@ void MTPD::loop(void) { // T3
 
   }
   // Maybe put event handling inside mtp_yield()?
-  if ((receive_buffer = usb_rx(MTP_EVENT_ENDPOINT))) {
+  if ((receive_buffer = usb_rx(MTP_EVENT_ENDPOINT)) != NULL) {
     printf("Event: ");
-    printContainer();
+    printContainer(receive_buffer);
     usb_free(receive_buffer);
   }
   // See if Storage needs to do anything
@@ -1471,8 +1454,6 @@ uint32_t MTPD::GetPartialObject(uint32_t object_id, uint32_t offset, uint32_t Nu
   return size;
 }
 
-#define CONTAINER ((struct MTPContainer *)(rx_data_buffer))
-
 #define TRANSMIT(FUN)                                                          \
   do {                                                                         \
     write_length_ = 0;                                                         \
@@ -1482,8 +1463,9 @@ uint32_t MTPD::GetPartialObject(uint32_t object_id, uint32_t offset, uint32_t Nu
     MTPHeader header;                                                          \
     header.len = write_length_ + sizeof(header);                               \
     header.type = 2;                                                           \
-    header.op = CONTAINER->op;                                                 \
-    header.transaction_id = CONTAINER->transaction_id;                         \
+    const struct MTPContainer *c = (struct MTPContainer *)(rx_data_buffer);    \
+    header.op = c->op;                                                         \
+    header.transaction_id = c->transaction_id;                                 \
     write_length_ = 0;                                                         \
     write_get_length_ = false;                                                 \
     write((char *)&header, sizeof(header));                                    \
@@ -1505,8 +1487,9 @@ uint32_t MTPD::GetPartialObject(uint32_t object_id, uint32_t offset, uint32_t Nu
     MTPContainer header;                                                       \
     header.len = write_length_ + sizeof(MTPHeader) + 4;                        \
     header.type = 2;                                                           \
-    header.op = CONTAINER->op;                                                 \
-    header.transaction_id = CONTAINER->transaction_id;                         \
+    const struct MTPContainer *c = (struct MTPContainer *)(rx_data_buffer);    \
+    header.op = c->op;                                                         \
+    header.transaction_id = c->transaction_id;                                 \
     header.params[0] = dlen;                                                   \
     write_length_ = 0;                                                         \
     write_get_length_ = false;                                                 \
@@ -1520,24 +1503,6 @@ uint32_t MTPD::GetPartialObject(uint32_t object_id, uint32_t offset, uint32_t Nu
     }                                                                          \
   } while (0)
 
-#if MTP_VERBOSE_PRINT_CONTAINER
-
-#define printContainer() _printContainer(CONTAINER);
-
-#else
-#define printContainer()                                                       \
-  {                                                                            \
-    printf("%x %d %d %d: ", CONTAINER->op, CONTAINER->len, CONTAINER->type,    \
-           CONTAINER->transaction_id);                                         \
-    if (CONTAINER->len > 12)                                                   \
-      printf(" %x", CONTAINER->params[0]);                                     \
-    if (CONTAINER->len > 16)                                                   \
-      printf(" %x", CONTAINER->params[1]);                                     \
-    if (CONTAINER->len > 20)                                                   \
-      printf(" %x", CONTAINER->params[2]);                                     \
-    printf("\r\n");                                                            \
-  }
-#endif
 
 void MTPD::read(char *data, uint32_t size) { // T4
   static int index = 0;
@@ -1565,9 +1530,8 @@ void MTPD::read(char *data, uint32_t size) { // T4
 uint32_t MTPD::SendObjectInfo(uint32_t storage, uint32_t parent, int &object_id) { // T4
   pull_packet(rx_data_buffer);
   read(0, 0); // resync read
-  printContainer();
-  printf("SendObjectInfo: %u %u %x: ", storage, parent,
-         (uint32_t)rx_data_buffer);
+  printContainer(rx_data_buffer);
+  printf("SendObjectInfo: %u %u %x: ", storage, parent, (uint32_t)rx_data_buffer);
   uint32_t store = Storage2Store(storage);
 
   int len = ReadMTPHeader();
@@ -1674,7 +1638,7 @@ void MTPD::check_memcpy(uint8_t *pdest, const uint8_t *psrc, size_t size, const 
 bool MTPD::SendObject() { // T4
   pull_packet(rx_data_buffer);
   read(0, 0);
-  //      printContainer();
+  // printContainer(rx_data_buffer);
   uint32_t len = ReadMTPHeader();
   printf("MTPD::SendObject: len:%u\n", len);
   disk_pos = 0;
@@ -1828,7 +1792,7 @@ bool MTPD::SendObject() { // T4
 uint32_t MTPD::setObjectPropValue(uint32_t handle, uint32_t p2) { // T4
   pull_packet(rx_data_buffer);
   read(0, 0);
-  // printContainer();
+  // printContainer(rx_data_buffer);
 
   if (p2 == 0xDC07) {
     char filename[MAX_FILENAME_LEN];
@@ -1854,25 +1818,25 @@ void MTPD::_interval_timer_handler() { // T4
 
 void MTPD::processIntervalTimer() { // T4
   {
-    if (usb_mtp_available())
-    {
+    if (usb_mtp_available()) {
       int packet_len = fetch_packet(rx_data_buffer);
       if (packet_len == 0) {
         printf("***IT zero length packet ***");
-        printContainer();
+        printContainer(rx_data_buffer);
       }
       if (packet_len > 0) {
-        printContainer(); // to switch on set debug to 1 at beginning of file
+        struct MTPContainer *container = (struct MTPContainer *)(rx_data_buffer);
+        printContainer(container); // to switch on set debug to 1 at beginning of file
 
-        int op = CONTAINER->op;
-        int p1 = CONTAINER->params[0];
+        int op = container->op;
+        int p1 = container->params[0];
 #if 0 // so far not processing messages that use these
             int p2 = CONTAINER->params[1];
             int p3 = CONTAINER->params[2];
 #endif
-        int id = CONTAINER->transaction_id;
-        int len = CONTAINER->len;
-        int typ = CONTAINER->type;
+        int id = container->transaction_id;
+        int len = container->len;
+        int typ = container->type;
         TID = id;
 
         int return_code = MTP_RESPONSE_OK;
@@ -1899,17 +1863,16 @@ void MTPD::processIntervalTimer() { // T4
         }
         if (return_code) {
           // BUGBUG - assumes that the receive buffer is still the same
-          CONTAINER->type = 3;
-          CONTAINER->len = len;
-          CONTAINER->op = return_code;
-          CONTAINER->transaction_id = id;
-          CONTAINER->params[0] = p1;
+          container->type = 3;
+          container->len = len;
+          container->op = return_code;
+          container->transaction_id = id;
+          container->params[0] = p1;
 #if DEBUG > 1
-          printContainer(); // to switch on set debug to 2 at beginning of file
+          printContainer(container); // to switch on set debug to 2 at beginning of file
 #endif
           memcpy(tx_data_buffer, rx_data_buffer, len);
-          push_packet(tx_data_buffer,
-                      len); // for acknowledge use rx_data_buffer
+          push_packet(tx_data_buffer, len); // for acknowledge use rx_data_buffer
         }
       }
     }
@@ -1918,10 +1881,11 @@ void MTPD::processIntervalTimer() { // T4
   if (dtFormatStart_ && ((millis() - dtFormatStart_) > MAX_FORMAT_TIME_)) {
     // BUGBUG assume the data has not changed since call to format
     printf(">>> Format timeout <<< try to force sending response\n");
-    int len = CONTAINER->len;
-    CONTAINER->type = 3;
-    CONTAINER->op = MTP_RESPONSE_OK;
-    printContainer(); // to switch on set debug to 2 at beginning of file
+    struct MTPContainer *container = (struct MTPContainer *)(rx_data_buffer);
+    int len = container->len;
+    container->type = 3;
+    container->op = MTP_RESPONSE_OK;
+    printContainer(container); // to switch on set debug to 2 at beginning of file
 
     memcpy(tx_data_buffer, rx_data_buffer, len);
     push_packet(tx_data_buffer, len); // for acknowledge use rx_data_buffer
@@ -1954,10 +1918,11 @@ uint32_t MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) { /
     storage_->clearStoreIndexItems(store); // maybe should add a less of sledge hammer here.
     // Lets first make sure to send response.
     if (dtFormatStart_ != 0) {
-      int len = CONTAINER->len;
-      CONTAINER->type = 3;
-      CONTAINER->op = MTP_RESPONSE_OK;
-      printContainer(); // to switch on set debug to 2 at beginning of file
+      struct MTPContainer *container = (struct MTPContainer *)(rx_data_buffer);
+      int len = container->len;
+      container->type = 3;
+      container->op = MTP_RESPONSE_OK;
+      printContainer(container); // to switch on set debug to 2 at beginning of file
 
       memcpy(tx_data_buffer, rx_data_buffer, len);
       push_packet(tx_data_buffer, len); // for acknowledge use rx_data_buffer
@@ -1980,16 +1945,16 @@ void MTPD::loop(void) { // T4
   }
   if (usb_mtp_available()) {
     if (fetch_packet(rx_data_buffer) > 0) {
-      //printContainer(); // to switch on set debug to 1 at beginning of file
-      _printContainer(CONTAINER,"LP:");
+      struct MTPContainer *container = (struct MTPContainer *)(rx_data_buffer);
+      printContainer(container,"LP:");
 
-      int op = CONTAINER->op;
-      int p1 = CONTAINER->params[0];
-      int p2 = CONTAINER->params[1];
-      int p3 = CONTAINER->params[2];
-      int id = CONTAINER->transaction_id;
-      int len = CONTAINER->len;
-      int typ = CONTAINER->type;
+      int op = container->op;
+      int p1 = container->params[0];
+      int p2 = container->params[1];
+      int p3 = container->params[2];
+      int id = container->transaction_id;
+      int len = container->len;
+      int typ = container->type;
       TID = id;
       int return_code = 0x2001; // OK use as default value
 
@@ -2059,8 +2024,8 @@ void MTPD::loop(void) { // T4
                                        p2,  // parent
                                        p3); // returned object id;
 
-          CONTAINER->params[1] = p2;
-          CONTAINER->params[2] = p3;
+          container->params[1] = p2;
+          container->params[2] = p3;
           len = 12 + 3 * 4;
           break;
 
@@ -2148,17 +2113,17 @@ void MTPD::loop(void) { // T4
           printf("mtpd::Loop usb_mtp_status %x != 0x1 reset\n", usb_mtp_status);
           usb_mtp_status = 0x01;
         } else if (return_code) {
-          CONTAINER->type = 3;
+          container->type = 3;
           if (len > 512) {// BUGBUG::Core usb should let use know packet size...
             len = 512; // 
             printf("!!! RX Packet length > 512 Set to 512\n");
           }
-          CONTAINER->len = len;
-          CONTAINER->op = return_code;
-          CONTAINER->transaction_id = id;
-          CONTAINER->params[0] = p1;
+          container->len = len;
+          container->op = return_code;
+          container->transaction_id = id;
+          container->params[0] = p1;
   #if DEBUG > 1
-          printContainer(); // to switch on set debug to 2 at beginning of file
+          printContainer(container); // to switch on set debug to 2 at beginning of file
   #endif
 
           memcpy(tx_data_buffer, rx_data_buffer, len);
@@ -2424,8 +2389,22 @@ bool MTPD::send_removeObjectEvent(uint32_t store, const char *pathname) {
 
 
 
-#if MTP_VERBOSE_PRINT_CONTAINER
-void MTPD::_printContainer(MTPContainer *c, const char *msg) {
+
+void MTPD::printContainer(const void *container, const char *msg) {
+  const struct MTPContainer *c = (const struct MTPContainer *)container;
+#ifndef MTP_VERBOSE_PRINT_CONTAINER
+  printf("%x %d %d %d: ", c->op, c->len, c->type, c->transaction_id);
+  if (c->len > 12) {
+    printf(" %x", c->params[0]);
+  }
+  if (c->len > 16) {
+    printf(" %x", c->params[1]);
+  }
+  if (c->len > 20) {
+    printf(" %x", c->params[2]);
+  }
+  printf("\n");
+#else // MTP_VERBOSE_PRINT_CONTAINER
   int print_property_name = -1; // no
   if (msg) {
     printf("%s", msg);

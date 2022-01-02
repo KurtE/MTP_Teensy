@@ -220,9 +220,7 @@ public:
   // unclear if should pass in pfs or store?
   bool send_addObjectEvent(uint32_t store, const char *pathname);
   bool send_removeObjectEvent(uint32_t store, const char *pathname);
-#if MTP_VERBOSE_PRINT_CONTAINER
-  void _printContainer(MTPContainer *c, const char *msg = nullptr);
-#endif
+  void printContainer(const void *container, const char *msg = nullptr);
 #endif
   // Support for SendObject, holding parameters from SendObjectInfo.
   int object_id_;
