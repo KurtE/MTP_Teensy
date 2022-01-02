@@ -810,7 +810,7 @@ void MTPD::openSession(uint32_t id) {
     defined(__MK64FX512__) || defined(__MK66FX1M0__)
 
 //  usb_packet_t *data_buffer_ = NULL;
-void MTPD::get_buffer() {
+void MTPD::get_buffer() { // T3
   while (!data_buffer_) {
     data_buffer_ = usb_malloc();
     if (!data_buffer_)
@@ -818,7 +818,7 @@ void MTPD::get_buffer() {
   }
 }
 
-void MTPD::receive_buffer() {
+void MTPD::receive_buffer() { // T3
   while (!data_buffer_) {
     data_buffer_ = usb_rx(MTP_RX_ENDPOINT);
     if (!data_buffer_)
@@ -826,7 +826,7 @@ void MTPD::receive_buffer() {
   }
 }
 
-void MTPD::write(const char *data, int len) {
+void MTPD::write(const char *data, int len) { // T3
   if (write_get_length_) {
     write_length_ += len;
   } else {
@@ -845,7 +845,7 @@ void MTPD::write(const char *data, int len) {
     }
   }
 }
-void MTPD::GetObject(uint32_t object_id) {
+void MTPD::GetObject(uint32_t object_id) { // T3
   uint32_t size = storage_->GetSize(object_id);
   if (write_get_length_) {
     write_length_ += size;
@@ -907,7 +907,7 @@ void MTPD::GetObject(uint32_t object_id) {
   }
 #endif
 
-void MTPD::read(char *data, uint32_t size) {
+void MTPD::read(char *data, uint32_t size) { // T3
   while (size) {
     receive_buffer();
     uint32_t to_copy = data_buffer_->len - data_buffer_->index;
@@ -925,8 +925,7 @@ void MTPD::read(char *data, uint32_t size) {
   }
 }
 
-uint32_t MTPD::SendObjectInfo(uint32_t storage, uint32_t parent,
-                              int &object_id) {
+uint32_t MTPD::SendObjectInfo(uint32_t storage, uint32_t parent, int &object_id) { // T3
   uint32_t len = ReadMTPHeader();
   char filename[MAX_FILENAME_LEN];
   dtCreated_ = 0;
@@ -1008,7 +1007,7 @@ uint32_t MTPD::SendObjectInfo(uint32_t storage, uint32_t parent,
   return MTP_RESPONSE_OK;
 }
 
-bool MTPD::receive_buffer_timeout(uint32_t to) {
+bool MTPD::receive_buffer_timeout(uint32_t to) { // T3
   elapsedMillis em = 0;
   while (!data_buffer_) {
     data_buffer_ = usb_rx(MTP_RX_ENDPOINT);
@@ -1024,7 +1023,7 @@ bool MTPD::receive_buffer_timeout(uint32_t to) {
 }
 
 
-bool MTPD::SendObject() {
+bool MTPD::SendObject() { // T3
   uint32_t len = ReadMTPHeader();
   printf("MTPD::SendObject %u\n", len);
 //  uint32_t expected_read_count = 1 + (len-52+63)/64; 
@@ -1054,7 +1053,7 @@ bool MTPD::SendObject() {
   return true;
 }
 
-uint32_t MTPD::setObjectPropValue(uint32_t p1, uint32_t p2) {
+uint32_t MTPD::setObjectPropValue(uint32_t p1, uint32_t p2) { // T3
   receive_buffer();
   if (p2 == 0xDC07) {
     char filename[MAX_FILENAME_LEN];
@@ -1071,12 +1070,12 @@ uint32_t MTPD::setObjectPropValue(uint32_t p1, uint32_t p2) {
 MTPD *MTPD::g_pmtpd_interval = nullptr;
 IntervalTimer MTPD::g_intervaltimer;
 
-void MTPD::_interval_timer_handler() {
+void MTPD::_interval_timer_handler() { // T3
   if (g_pmtpd_interval)
     g_pmtpd_interval->processIntervalTimer();
 }
 
-void MTPD::processIntervalTimer() {
+void MTPD::processIntervalTimer() { // T3
   usb_packet_t *receive_buffer;
   if ((receive_buffer = usb_rx(MTP_RX_ENDPOINT))) {
     printContainer();
@@ -1130,7 +1129,7 @@ void MTPD::processIntervalTimer() {
   }
 }
 
-uint32_t MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
+uint32_t MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) { // T3
   printf(" MTPD::formatStore1442 called post:%u\n", post_process);
   uint32_t store = Storage2Store(storage);
   // see if we should bail early.
@@ -1149,7 +1148,7 @@ uint32_t MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
   return MTP_RESPONSE_OPERATION_NOT_SUPPORTED; // 0x2005
 }
 
-void MTPD::loop(void) {
+void MTPD::loop(void) { // T3
   if (g_pmtpd_interval) {
     g_pmtpd_interval = nullptr; // clear out timer.
     g_intervaltimer.end();      // try maybe 20 times per second...
@@ -1313,9 +1312,14 @@ void MTPD::loop(void) {
   storage_->loop();
 }
 
+
+
+
+
+
 #elif defined(__IMXRT1062__)
 
-int MTPD::push_packet(uint8_t *data_buffer, uint32_t len) {
+int MTPD::push_packet(uint8_t *data_buffer, uint32_t len) { // T4
   int count_sent;
   uint8_t loop_count = 0;
   while ((count_sent = usb_mtp_send(data_buffer, len, 60)) <= 0) {
@@ -1325,17 +1329,17 @@ int MTPD::push_packet(uint8_t *data_buffer, uint32_t len) {
   return 1;
 }
 
-int MTPD::pull_packet(uint8_t *data_buffer) {
+int MTPD::pull_packet(uint8_t *data_buffer) { // T4
   while (!usb_mtp_available())
     ;
   return usb_mtp_recv(data_buffer, 60);
 }
 
-int MTPD::fetch_packet(uint8_t *data_buffer) {
+int MTPD::fetch_packet(uint8_t *data_buffer) { // T4
   return usb_mtp_recv(data_buffer, 60);
 }
 
-void MTPD::write(const char *data, int len) {
+void MTPD::write(const char *data, int len) { // T4
   if (write_get_length_) {
     write_length_ += len;
   } else {
@@ -1362,7 +1366,7 @@ void MTPD::write(const char *data, int len) {
   }
 }
 
-void MTPD::GetObject(uint32_t object_id) {
+void MTPD::GetObject(uint32_t object_id) { // T4
   uint32_t size = storage_->GetSize(object_id);
   int ret;
   printf("\nGetObject(%u) size: %u\n", object_id, size);
@@ -1423,8 +1427,7 @@ void MTPD::GetObject(uint32_t object_id) {
   }
 }
 
-uint32_t MTPD::GetPartialObject(uint32_t object_id, uint32_t offset,
-                                uint32_t NumBytes) {
+uint32_t MTPD::GetPartialObject(uint32_t object_id, uint32_t offset, uint32_t NumBytes) { // T4
   uint32_t size = storage_->GetSize(object_id);
 
   size -= offset;
@@ -1536,7 +1539,7 @@ uint32_t MTPD::GetPartialObject(uint32_t object_id, uint32_t offset,
   }
 #endif
 
-void MTPD::read(char *data, uint32_t size) {
+void MTPD::read(char *data, uint32_t size) { // T4
   static int index = 0;
   if (!size) {
     index = 0;
@@ -1559,8 +1562,7 @@ void MTPD::read(char *data, uint32_t size) {
   }
 }
 
-uint32_t MTPD::SendObjectInfo(uint32_t storage, uint32_t parent,
-                              int &object_id) {
+uint32_t MTPD::SendObjectInfo(uint32_t storage, uint32_t parent, int &object_id) { // T4
   pull_packet(rx_data_buffer);
   read(0, 0); // resync read
   printContainer();
@@ -1660,7 +1662,7 @@ uint32_t MTPD::SendObjectInfo(uint32_t storage, uint32_t parent,
   return MTP_RESPONSE_OK;
 }
 
-void MTPD::check_memcpy(uint8_t *pdest, const uint8_t *psrc, size_t size, const uint8_t *pb, size_t pb_size) {
+void MTPD::check_memcpy(uint8_t *pdest, const uint8_t *psrc, size_t size, const uint8_t *pb, size_t pb_size) { // T4
   static uint32_t call_count = 0;
   call_count++;
   if (((uint32_t)pdest < (uint32_t)pb) || (((uint32_t)pdest + size) > ((uint32_t)pb + pb_size)) ) {
@@ -1669,7 +1671,7 @@ void MTPD::check_memcpy(uint8_t *pdest, const uint8_t *psrc, size_t size, const 
   memcpy(pdest, psrc, size);  
 }
 
-bool MTPD::SendObject() {
+bool MTPD::SendObject() { // T4
   pull_packet(rx_data_buffer);
   read(0, 0);
   //      printContainer();
@@ -1823,7 +1825,7 @@ bool MTPD::SendObject() {
 
 //=============================================================
 
-uint32_t MTPD::setObjectPropValue(uint32_t handle, uint32_t p2) {
+uint32_t MTPD::setObjectPropValue(uint32_t handle, uint32_t p2) { // T4
   pull_packet(rx_data_buffer);
   read(0, 0);
   // printContainer();
@@ -1845,12 +1847,12 @@ uint32_t MTPD::setObjectPropValue(uint32_t handle, uint32_t p2) {
 MTPD *MTPD::g_pmtpd_interval = nullptr;
 IntervalTimer MTPD::g_intervaltimer;
 
-void MTPD::_interval_timer_handler() {
+void MTPD::_interval_timer_handler() { // T4
   if (g_pmtpd_interval)
     g_pmtpd_interval->processIntervalTimer();
 }
 
-void MTPD::processIntervalTimer() {
+void MTPD::processIntervalTimer() { // T4
   {
     if (usb_mtp_available())
     {
@@ -1927,7 +1929,7 @@ void MTPD::processIntervalTimer() {
   }
 }
 
-uint32_t MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
+uint32_t MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) { // T4
   printf(" MTPD::formatStore2523 called\n");
   uint32_t store = Storage2Store(storage);
 
@@ -1970,7 +1972,7 @@ uint32_t MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) {
   return MTP_RESPONSE_OPERATION_NOT_SUPPORTED; // 0x2005
 }
 
-void MTPD::loop(void) {
+void MTPD::loop(void) { // T4
   if (g_pmtpd_interval) {
     g_pmtpd_interval = nullptr; // clear out timer.
     g_intervaltimer.end();      // try maybe 20 times per second...
@@ -2178,7 +2180,10 @@ void MTPD::loop(void) {
   storage_->loop();
 }
 
-#endif
+#endif // __IMXRT1062__
+
+
+
 #if USE_EVENTS == 1
 
 #if defined(__MK20DX128__) || defined(__MK20DX256__) ||                        \
@@ -2188,7 +2193,7 @@ void MTPD::loop(void) {
 extern "C" {
 usb_packet_t *tx_event_packet = NULL;
 
-int usb_init_events(void) {
+int usb_init_events(void) { // T3
   //     tx_event_packet = usb_malloc();
   //     if(tx_event_packet) return 1; else return 0;
   return 1;
@@ -2196,7 +2201,7 @@ int usb_init_events(void) {
 
 #define EVENT_TX_PACKET_LIMIT 4
 
-int usb_mtp_sendEvent(const void *buffer, uint32_t len, uint32_t timeout) {
+int usb_mtp_sendEvent(const void *buffer, uint32_t len, uint32_t timeout) { // T3
 //  digitalWriteFast(4, HIGH);
   usb_packet_t *event_packet;
   // printf("usb_mtp_sendEvent: called %x %x\n", (uint32_t)buffer, len);
@@ -2253,7 +2258,7 @@ static transfer_t tx_event_transfer[1] __attribute__((used, aligned(32)));
 static uint8_t tx_event_buffer[MTP_EVENT_SIZE]
     __attribute__((used, aligned(32)));
 
-int usb_init_events(void) {
+int usb_init_events(void) { // T4
   // usb_config_tx(MTP_EVENT_ENDPOINT, MTP_EVENT_SIZE, 0, txEvent_event);
   //
   // usb_config_rx(MTP_EVENT_ENDPOINT, MTP_EVENT_SIZE, 0, rxEvent_event);
@@ -2263,7 +2268,7 @@ int usb_init_events(void) {
   return 1;
 }
 
-static int usb_mtp_wait(transfer_t *xfer, uint32_t timeout) {
+static int usb_mtp_wait(transfer_t *xfer, uint32_t timeout) { // T4
   uint32_t wait_begin_at = systick_millis_count;
   while (1) {
     if (!usb_configuration)
@@ -2278,7 +2283,7 @@ static int usb_mtp_wait(transfer_t *xfer, uint32_t timeout) {
   return 1;
 }
 
-int usb_mtp_recvEvent(void *buffer, uint32_t len, uint32_t timeout) {
+int usb_mtp_recvEvent(void *buffer, uint32_t len, uint32_t timeout) { // T4
 #if 0
       int ret= usb_mtp_wait(rx_event_transfer, timeout); if(ret<=0) return ret;
 
@@ -2293,7 +2298,7 @@ int usb_mtp_recvEvent(void *buffer, uint32_t len, uint32_t timeout) {
   return MTP_EVENT_SIZE;
 }
 
-int usb_mtp_sendEvent(const void *buffer, uint32_t len, uint32_t timeout) {
+int usb_mtp_sendEvent(const void *buffer, uint32_t len, uint32_t timeout) { // T4
   transfer_t *xfer = tx_event_transfer;
   int ret = usb_mtp_wait(xfer, timeout);
   if (ret <= 0)
@@ -2307,7 +2312,10 @@ int usb_mtp_sendEvent(const void *buffer, uint32_t len, uint32_t timeout) {
 }
 }  // extern "C"
 
-#endif
+#endif // __IMXRT1062__
+
+
+
 const uint32_t EVENT_TIMEOUT = 60;
 
 int MTPD::send_Event(uint16_t eventCode) {
@@ -2412,7 +2420,7 @@ bool MTPD::send_removeObjectEvent(uint32_t store, const char *pathname) {
   return false;
 }
 
-#endif
+#endif // USE_EVENTS
 
 
 
