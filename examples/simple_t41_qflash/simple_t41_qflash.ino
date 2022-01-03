@@ -1,63 +1,58 @@
-#include <SD.h>
 #include <LittleFS.h>
 #include <MTP_Teensy.h>
 
-#define DBGSerial Serial
+#ifndef ARDUINO_TEENSY41
+#error "This only runs on a Teesny 4.1 with QSPI chips installed on bottom of board"
+#endif
 
 MTPStorage storage;     // TODO: storage inside MTP instance, not separate class
 MTPD    MTP(&storage);  // TODO: MTP instance created by default
 
-LittleFS_QSPIFlash qspiflash;
-LittleFS_QPINAND   qspinand;
-
+LittleFS_QSPI qspi;
 void setup()
 {
-  DBGSerial.begin(9600);
-  while (!DBGSerial && millis() < 5000) {
+  Serial.begin(9600);
+  while (!Serial && millis() < 5000) {
     // wait for serial port to connect.
   }
 
-  DBGSerial.print(CrashReport);
-  DBGSerial.println("\n" __FILE__ " " __DATE__ " " __TIME__);
+  Serial.print(CrashReport);
+  Serial.println("\n" __FILE__ " " __DATE__ " " __TIME__);
   delay(1000);
 
   // mandatory to begin the MTP session.
   MTP.begin();
   
   // try to add QSPI Flash
-  if (qspiflash.begin()) {
-    storage.addFilesystem(qspiflash, "QSPI Flash");
-    DBGSerial.println("Added QSPI Flash");
-  } else if (qspinand.begin()) {
-    storage.addFilesystem(qspinand, "QSPI NAND");
-    DBGSerial.println("Added QSPI Nand");
+  if (qspi.begin()) {
+    storage.addFilesystem(qspi, qspi.displayName());
   } else {
-    DBGSerial.println("No QSPI Flash found");
+    Serial.println("No QSPI Flash found");
   }
-  DBGSerial.println("\nSetup done");
+  Serial.println("\nSetup done");
 }
 
 
 void loop()
 {
-  if ( DBGSerial.available() ) {
-    uint8_t command = DBGSerial.read();
+  if ( Serial.available() ) {
+    uint8_t command = Serial.read();
 
     uint32_t fsCount;
     switch (command) {
       case '1':
         // first dump list of storages:
         fsCount = storage.getFSCount();
-        DBGSerial.printf("\nDump Storage list(%u)\n", fsCount);
+        Serial.printf("\nDump Storage list(%u)\n", fsCount);
         for (uint32_t ii = 0; ii < fsCount; ii++) {
-          DBGSerial.printf("store:%u storage:%x name:%s fs:%x\n", ii, MTP.Store2Storage(ii),
+          Serial.printf("store:%u storage:%x name:%s fs:%x\n", ii, MTP.Store2Storage(ii),
                            storage.getStoreName(ii), (uint32_t)storage.getStoreFS(ii));
         }
-        DBGSerial.println("\nDump Index List");
+        Serial.println("\nDump Index List");
         storage.dumpIndexList();
         break;
       case'r':
-        DBGSerial.println("Reset");
+        Serial.println("Reset");
         MTP.send_DeviceResetEvent();
         break;
 
@@ -65,7 +60,7 @@ void loop()
       case '\n':
       case 'h': menu(); break;
     }
-    while (DBGSerial.read() != -1) ; // remove rest of characters.
+    while (Serial.read() != -1) ; // remove rest of characters.
   } else {
     MTP.loop();
     //#if USE_MSC > 0
@@ -76,9 +71,9 @@ void loop()
 
 void menu()
 {
-  DBGSerial.println();
-  DBGSerial.println("Menu Options:");
-  DBGSerial.println("\t1 - List Drives (Step 1)");
-  DBGSerial.println("\tr - Reset MTP");
-  DBGSerial.println();
+  Serial.println();
+  Serial.println("Menu Options:");
+  Serial.println("\t1 - List Drives (Step 1)");
+  Serial.println("\tr - Reset MTP");
+  Serial.println();
 }
