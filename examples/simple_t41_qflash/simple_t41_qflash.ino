@@ -63,9 +63,6 @@ void loop()
     while (Serial.read() != -1) ; // remove rest of characters.
   } else {
     MTP.loop();
-    //#if USE_MSC > 0
-    //usbmsc.checkUSBStatus(false);
-    //#endif
   }
 }
 
