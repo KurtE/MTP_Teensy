@@ -811,12 +811,67 @@ void MTPD::openSession(uint32_t id) {
 
 
 
+
+
+
+
+
+
+
 #if defined(__MK20DX128__) || defined(__MK20DX256__) ||                        \
     defined(__MK64FX512__) || defined(__MK66FX1M0__)
 
+bool MTPD::receive_bulk(uint32_t timeout) { // T3
+  elapsedMillis msec = 0;
+  while (msec <= timeout) {
+    usb_packet_t *packet = usb_rx(MTP_RX_ENDPOINT);
+    if (packet) {
+      receive_buffer.len = packet->len;
+      receive_buffer.index = 0;
+      receive_buffer.size = sizeof(packet->buf);
+      receive_buffer.data = packet->buf;
+      receive_buffer.usb = packet;
+      return true;
+    }
+  }
+  return false;
+}
+
+void MTPD::free_received_bulk() { // T3
+  if (receive_buffer.usb) {
+    usb_free((usb_packet_t *)receive_buffer.usb);
+  }
+  receive_buffer.len = 0;
+  receive_buffer.data = NULL;
+  receive_buffer.usb = NULL;
+}
+
+void MTPD::allocate_transmit_bulk() { // T3
+  while (1) {
+    usb_packet_t *packet = usb_malloc();
+    if (packet) {
+      transmit_buffer.len = 0;
+      transmit_buffer.index = 0;
+      transmit_buffer.size = sizeof(packet->buf);
+      transmit_buffer.data = packet->buf;
+      transmit_buffer.usb = packet;
+    }
+    mtp_yield();
+  }
+}
+
+int MTPD::transmit_bulk() { // T3
+  int r = transmit_buffer.len;
+  usb_tx(MTP_TX_ENDPOINT, (usb_packet_t *)transmit_buffer.usb);
+  transmit_buffer.len = 0;
+  transmit_buffer.index = 0;
+  transmit_buffer.data = NULL;
+  return r;
+}
+
 //  usb_packet_t *data_buffer_ = NULL;
 
-void MTPD::receive_buffer() { // T3 only
+void MTPD::receive_buffer_wait() { // T3 only
   while (!data_buffer_) {
     data_buffer_ = usb_rx(MTP_RX_ENDPOINT);
     if (!data_buffer_)
@@ -850,6 +905,41 @@ void MTPD::get_buffer() { // T3 only
 
 #elif defined(__IMXRT1062__)
 
+bool MTPD::receive_bulk(uint32_t timeout) { // T4
+  receive_buffer.index = 0;
+  receive_buffer.size = MTP_RX_SIZE;
+  receive_buffer.usb = NULL;
+  receive_buffer.len = usb_mtp_recv(rx_data_buffer, timeout);
+  if (receive_buffer.len > 0) {
+    // FIXME: need way to receive ZLP
+    receive_buffer.data = rx_data_buffer;
+    return true;
+  } else {
+    receive_buffer.data = NULL;
+    return false;
+  }
+}
+
+void MTPD::free_received_bulk() { // T4
+  receive_buffer.len = 0;
+  receive_buffer.data = NULL;
+}
+
+void MTPD::allocate_transmit_bulk() { // T4
+  transmit_buffer.len = 0;
+  transmit_buffer.index = 0;
+  transmit_buffer.size = usb_mtp_txSize();
+  transmit_buffer.data = tx_data_buffer;
+  transmit_buffer.usb = NULL;
+}
+
+int MTPD::transmit_bulk() { // T4
+  int r = usb_mtp_send(transmit_buffer.data, transmit_buffer.len, 50);
+  transmit_buffer.len = 0;
+  transmit_buffer.index = 0;
+  transmit_buffer.data = NULL;
+  return r;
+}
 
 int MTPD::pull_packet(uint8_t *data_buffer) { // T4 only
   while (!usb_mtp_available())
@@ -884,7 +974,7 @@ int MTPD::push_packet(uint8_t *data_buffer, uint32_t len) { // T4 only
 
 void MTPD::read(char *data, uint32_t size) { // T3
   while (size) {
-    receive_buffer();
+    receive_buffer_wait();
     uint32_t to_copy = data_buffer_->len - data_buffer_->index;
     to_copy = min(to_copy, size);
     if (data) {
@@ -1158,7 +1248,7 @@ void MTPD::GetObject(uint32_t object_id) { // T4
   }
 }
 
-uint32_t MTPD::GetPartialObject(uint32_t object_id, uint32_t offset, uint32_t NumBytes) { // T4
+uint32_t MTPD::GetPartialObject(uint32_t object_id, uint32_t offset, uint32_t NumBytes) { // T4 only
   uint32_t size = storage_->GetSize(object_id);
 
   size -= offset;
@@ -1434,7 +1524,7 @@ bool MTPD::SendObject() { // T3
 }
 
 uint32_t MTPD::setObjectPropValue(uint32_t p1, uint32_t p2) { // T3
-  receive_buffer();
+  receive_buffer_wait();
   if (p2 == 0xDC07) {
     char filename[MAX_FILENAME_LEN];
     ReadMTPHeader();

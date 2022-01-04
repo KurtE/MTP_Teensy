@@ -86,14 +86,31 @@ private:
     uint32_t params[5];      // 12
   } __attribute__((__may_alias__));
 
+  typedef struct {
+    uint16_t len;
+    uint16_t index;
+    uint16_t size;
+    uint8_t *data;
+    void *usb;
+  } packet_buffer_t;
+
+  packet_buffer_t receive_buffer = {0, 0, 0, NULL, NULL};
+  packet_buffer_t transmit_buffer = {0, 0, 0, NULL, NULL};
+  packet_buffer_t event_buffer = {0, 0, 0, NULL, NULL};
+  bool receive_bulk(uint32_t timeout);
+  void free_received_bulk();
+  void allocate_transmit_bulk();
+  int transmit_bulk();
+  void allocate_transmit_event();
+  int transmit_event();
+
   bool op_needs_callback_;
 #if defined(__MK20DX128__) || defined(__MK20DX256__) ||                        \
     defined(__MK64FX512__) || defined(__MK66FX1M0__)
-  usb_packet_t *data_buffer_ = NULL;
-  void get_buffer();
-  void receive_buffer();
-  bool receive_buffer_timeout(uint32_t to);
-  static uint32_t sessionID_;
+  usb_packet_t *data_buffer_ = NULL; // TODO: delete me
+  void get_buffer(); // TODO: delete me
+  void receive_buffer_wait(); // TODO: delete me
+  bool receive_buffer_timeout(uint32_t to); // TODO: delete me
 //  inline MTPContainer *contains (usb_packet_t *receive_buffer) { return
 //  (MTPContainer*)(receive_buffer->buf);  }
 // possible events for T3.xx ?
@@ -101,24 +118,25 @@ private:
 #elif defined(__IMXRT1062__)
 #define MTP_RX_SIZE MTP_RX_SIZE_480
 #define MTP_TX_SIZE MTP_TX_SIZE_480
-  int  mtp_rx_size_ = MTP_RX_SIZE;
-  int  mtp_tx_size_ = MTP_TX_SIZE;
+  int  mtp_rx_size_ = MTP_RX_SIZE; // // TODO: delete me
+  int  mtp_tx_size_ = MTP_TX_SIZE; // // TODO: delete me
 
   uint8_t tx_data_buffer[MTP_TX_SIZE] __attribute__((aligned(32)));
 
   static const uint32_t DISK_BUFFER_SIZE = 4 * 1024;
   uint32_t disk_pos = 0;
 
-  int push_packet(uint8_t *data_buffer, uint32_t len);
-  int fetch_packet(uint8_t *data_buffer);
-  int pull_packet(uint8_t *data_buffer);
+  int push_packet(uint8_t *data_buffer, uint32_t len); // TODO: delete me
+  int fetch_packet(uint8_t *data_buffer); // TODO: delete me
+  int pull_packet(uint8_t *data_buffer); // TODO: delete me
 
-  static uint32_t sessionID_;
   static const uint32_t SENDOBJECT_READ_TIMEOUT_MS = 1000;
   uint8_t rx_data_buffer[MTP_RX_SIZE] __attribute__((aligned(32)));
   static uint8_t disk_buffer_[DISK_BUFFER_SIZE] __attribute__((aligned(32)));
 
 #endif
+
+  static uint32_t sessionID_;
   //static time_t
   //getTeensyTime(); // callback function to allow teensy to initialize the clock
 
