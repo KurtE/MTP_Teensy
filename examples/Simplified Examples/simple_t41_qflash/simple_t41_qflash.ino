@@ -2,7 +2,7 @@
 #include <MTP_Teensy.h>
 
 #ifndef ARDUINO_TEENSY41
-#error "This only runs on a Teesny 4.1 with QSPI chips installed on bottom of board"
+#error "This only runs on a Teesny 4.1 with a QSPI Flash chip installed on bottom of board"
 #endif
 
 MTPStorage storage;     // TODO: storage inside MTP instance, not separate class
