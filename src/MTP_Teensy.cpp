@@ -1083,9 +1083,8 @@ void MTPD::write(const char *data, int len) { // T4
     MTPHeader header;                                                          \
     header.len = write_length_ + sizeof(header);                               \
     header.type = 2;                                                           \
-    const struct MTPContainer *c = (struct MTPContainer *)(rx_data_buffer);    \
-    header.op = c->op;                                                         \
-    header.transaction_id = c->transaction_id;                                 \
+    header.op = container.op;                                                  \
+    header.transaction_id = container.transaction_id;                          \
     write_length_ = 0;                                                         \
     write_get_length_ = false;                                                 \
     write((char *)&header, sizeof(header));                                    \
@@ -1107,9 +1106,8 @@ void MTPD::write(const char *data, int len) { // T4
     MTPContainer header;                                                       \
     header.len = write_length_ + sizeof(MTPHeader) + 4;                        \
     header.type = 2;                                                           \
-    const struct MTPContainer *c = (struct MTPContainer *)(rx_data_buffer);    \
-    header.op = c->op;                                                         \
-    header.transaction_id = c->transaction_id;                                 \
+    header.op = container.op;                                                  \
+    header.transaction_id = container.transaction_id;                          \
     header.params[0] = dlen;                                                   \
     write_length_ = 0;                                                         \
     write_get_length_ = false;                                                 \
@@ -1782,32 +1780,29 @@ void MTPD::_interval_timer_handler() { // T4
 
 void MTPD::processIntervalTimer() { // T4
   {
-    if (usb_mtp_available()) {
-      int packet_len = fetch_packet(rx_data_buffer);
-      if (packet_len == 0) {
-        printf("***IT zero length packet ***");
-        printContainer(rx_data_buffer);
-      }
-      if (packet_len > 0) {
-        struct MTPContainer *container = (struct MTPContainer *)(rx_data_buffer);
-        printContainer(container); // to switch on set debug to 1 at beginning of file
+    if (receive_bulk(0)) {
+      if (receive_buffer.len >= 12 && receive_buffer.len <= 32) {
+        struct MTPContainer container;
+        memset(&container, 0, sizeof(container));
+        memcpy(&container, receive_buffer.data, receive_buffer.len);
+        free_received_bulk();
+        printContainer(&container, "timer:"); // to switch on set debug to 1 at beginning of file
 
-        int op = container->op;
-        int p1 = container->params[0];
+        int op = container.op;
+        int p1 = container.params[0];
 #if 0 // so far not processing messages that use these
-            int p2 = CONTAINER->params[1];
-            int p3 = CONTAINER->params[2];
+            int p2 = CONTAINER.params[1];
+            int p3 = CONTAINER.params[2];
 #endif
-        int id = container->transaction_id;
-        int len = container->len;
-        int typ = container->type;
+        int id = container.transaction_id;
+        int len = container.len;
+        int typ = container.type;
         TID = id;
 
         int return_code = MTP_RESPONSE_OK;
 
         if (typ == 2)
-          return_code =
-              MTP_RESPONSE_OPERATION_NOT_SUPPORTED; // we should only get cmds
+          return_code = MTP_RESPONSE_OPERATION_NOT_SUPPORTED; // we should only get cmds
 
         switch (op) {
 
@@ -1827,17 +1822,20 @@ void MTPD::processIntervalTimer() { // T4
         }
         if (return_code) {
           // BUGBUG - assumes that the receive buffer is still the same
-          container->type = 3;
-          container->len = len;
-          container->op = return_code;
-          container->transaction_id = id;
-          container->params[0] = p1;
+          container.type = 3;
+          container.len = len;
+          container.op = return_code;
+          container.transaction_id = id;
+          container.params[0] = p1;
 #if DEBUG > 1
-          printContainer(container); // to switch on set debug to 2 at beginning of file
+          printContainer(&container); // to switch on set debug to 2 at beginning of file
 #endif
-          memcpy(tx_data_buffer, rx_data_buffer, len);
-          push_packet(tx_data_buffer, len); // for acknowledge use rx_data_buffer
+          memcpy(tx_data_buffer, &container, len);
+          push_packet(tx_data_buffer, len); // send response block with return code
         }
+      } else {
+        printf("ERROR: intervaltimer received command with %u bytes\n", receive_buffer.len);
+        free_received_bulk();
       }
     }
   }
@@ -2113,18 +2111,21 @@ void MTPD::loop(void) { // T4
     g_intervaltimer.end();      // try maybe 20 times per second...
     printf("*** end Interval Timer ***\n");
   }
-  if (usb_mtp_available()) {
-    if (fetch_packet(rx_data_buffer) > 0) {
-      struct MTPContainer *container = (struct MTPContainer *)(rx_data_buffer);
-      printContainer(container,"LP:");
+  if (receive_bulk(0)) {
+    if (receive_buffer.len >= 12 && receive_buffer.len <= 32) {
+      struct MTPContainer container;
+      memset(&container, 0, sizeof(container));
+      memcpy(&container, receive_buffer.data, receive_buffer.len);
+      free_received_bulk();
+      printContainer(&container,"loop:");
 
-      int op = container->op;
-      int p1 = container->params[0];
-      int p2 = container->params[1];
-      int p3 = container->params[2];
-      int id = container->transaction_id;
-      int len = container->len;
-      int typ = container->type;
+      int op = container.op;
+      int p1 = container.params[0];
+      int p2 = container.params[1];
+      int p3 = container.params[2];
+      int id = container.transaction_id;
+      int len = container.len;
+      int typ = container.type;
       TID = id;
       int return_code = 0x2001; // OK use as default value
 
@@ -2194,8 +2195,8 @@ void MTPD::loop(void) { // T4
                                        p2,  // parent
                                        p3); // returned object id;
 
-          container->params[1] = p2;
-          container->params[2] = p3;
+          container.params[1] = p2;
+          container.params[2] = p3;
           len = 12 + 3 * 4;
           break;
 
@@ -2283,25 +2284,27 @@ void MTPD::loop(void) { // T4
           printf("mtpd::Loop usb_mtp_status %x != 0x1 reset\n", usb_mtp_status);
           usb_mtp_status = 0x01;
         } else if (return_code) {
-          container->type = 3;
+          container.type = 3;
           if (len > 512) {// BUGBUG::Core usb should let use know packet size...
             len = 512; //
             printf("!!! RX Packet length > 512 Set to 512\n");
           }
-          container->len = len;
-          container->op = return_code;
-          container->transaction_id = id;
-          container->params[0] = p1;
+          container.len = len;
+          container.op = return_code;
+          container.transaction_id = id;
+          container.params[0] = p1;
   #if DEBUG > 1
-          printContainer(container); // to switch on set debug to 2 at beginning of file
+          printContainer(&container); // to switch on set debug to 2 at beginning of file
   #endif
-
-          memcpy(tx_data_buffer, rx_data_buffer, len);
-          push_packet(tx_data_buffer, len); // for acknowledge use rx_data_buffer
+          memcpy(tx_data_buffer, &container, len);
+          push_packet(tx_data_buffer, len); // send response block with return code
         }
       } else {
         printf("!!! unexpected/unknown message type:%d len:%d op:%d\n", typ, len, op);
       }
+    } else {
+      printf("ERROR: loop received command with %u bytes\n", receive_buffer.len);
+      free_received_bulk();
     }
   }
 
