@@ -862,8 +862,8 @@ void MTPD::allocate_transmit_bulk() { // T3
 }
 
 int MTPD::transmit_bulk() { // T3
-  int len = transmit_buffer.len;
   usb_packet_t *packet = (usb_packet_t *)transmit_buffer.usb;
+  int len = transmit_buffer.len;
   packet->len = len;
   usb_tx(MTP_TX_ENDPOINT, packet);
   transmit_buffer.len = 0;
@@ -996,60 +996,36 @@ void MTPD::read(char *data, uint32_t size) {
 
 
 
-#if defined(__MK20DX128__) || defined(__MK20DX256__) ||                        \
-    defined(__MK64FX512__) || defined(__MK66FX1M0__)
-
-void MTPD::write(const char *data, int len) { // T3 only
+void MTPD::write(const char *data, int len) {
+  if (len < 0) return;
   if (write_get_length_) {
     write_length_ += len;
-  } else {
-    int pos = 0;
-    while (pos < len) {
-      get_buffer();
-      int avail = sizeof(data_buffer_->buf) - data_buffer_->len;
-      int to_copy = min(len - pos, avail);
-      memcpy(data_buffer_->buf + data_buffer_->len, data + pos, to_copy);
-      data_buffer_->len += to_copy;
-      pos += to_copy;
-      if (data_buffer_->len == sizeof(data_buffer_->buf)) {
-        usb_tx(MTP_TX_ENDPOINT, data_buffer_);
-        data_buffer_ = NULL;
-      }
+    return;
+  }
+  while (len > 0) {
+    if (transmit_buffer.data == NULL) allocate_transmit_bulk();
+    unsigned int avail = transmit_buffer.size - transmit_buffer.len;
+    unsigned int to_copy = len;
+    if (to_copy > avail) to_copy = avail;
+    memcpy(transmit_buffer.data + transmit_buffer.len, data, to_copy);
+    data += to_copy;
+    len -= to_copy;
+    transmit_buffer.len += to_copy;
+    if (transmit_buffer.len >= transmit_buffer.size) {
+      transmit_bulk();
     }
   }
 }
 
-#elif defined(__IMXRT1062__)
-
-void MTPD::write(const char *data, int len) { // T4
-  if (write_get_length_) {
-    write_length_ += len;
-  } else {
-    static uint8_t *dst = 0;
-    if (!write_length_)
-      dst = tx_data_buffer;
-    write_length_ += len;
-
-    const char *src = data;
-    //
-    int pos = 0; // into data
-    while (pos < len) {
-      int avail = tx_data_buffer + mtp_tx_size_ - dst;
-      int to_copy = min(len - pos, avail);
-      memcpy(dst, src, to_copy);
-      pos += to_copy;
-      src += to_copy;
-      dst += to_copy;
-      if (dst == tx_data_buffer + mtp_tx_size_) {
-        push_packet(tx_data_buffer, mtp_tx_size_);
-        dst = tx_data_buffer;
-      }
-    }
+void MTPD::write_finish() {
+  if (transmit_buffer.data == NULL) {
+    if (write_length_ == 0) return;
+    printf("send a ZLP\n");
+    allocate_transmit_bulk();
   }
+  transmit_bulk();
 }
 
-
-#endif // __IMXRT1062__
 
 
 
@@ -1070,9 +1046,7 @@ void MTPD::write(const char *data, int len) { // T4
     header.transaction_id = container.transaction_id;                          \
     write((char *)&header, sizeof(header));                                    \
     FUN;                                                                       \
-    get_buffer();                                                              \
-    usb_tx(MTP_TX_ENDPOINT, data_buffer_);                                     \
-    data_buffer_ = NULL;                                                       \
+    write_finish();                                                            \
   } while (0)
 
 #elif defined(__IMXRT1062__)
@@ -1092,12 +1066,7 @@ void MTPD::write(const char *data, int len) { // T4
     write_get_length_ = false;                                                 \
     write((char *)&header, sizeof(header));                                    \
     FUN;                                                                       \
-                                                                               \
-    uint32_t rest;                                                             \
-    rest = (header.len % mtp_tx_size_);                                        \
-    if (rest > 0) {                                                            \
-      push_packet(tx_data_buffer, rest);                                       \
-    }                                                                          \
+    write_finish();                                                            \
   } while (0)
 
 #define TRANSMIT1(FUN)                                                         \
@@ -1116,12 +1085,7 @@ void MTPD::write(const char *data, int len) { // T4
     write_get_length_ = false;                                                 \
     write((char *)&header, sizeof(header));                                    \
     FUN;                                                                       \
-                                                                               \
-    uint32_t rest;                                                             \
-    rest = (header.len % mtp_tx_size_);                                        \
-    if (rest > 0) {                                                            \
-      push_packet(tx_data_buffer, rest);                                       \
-    }                                                                          \
+    write_finish();                                                            \
   } while (0)
 
 #endif // __IMXRT1062__
@@ -1133,35 +1097,37 @@ void MTPD::write(const char *data, int len) { // T4
 
 
 
-#if defined(__MK20DX128__) || defined(__MK20DX256__) ||                        \
-    defined(__MK64FX512__) || defined(__MK66FX1M0__)
+#if 1
 
-void MTPD::GetObject(uint32_t object_id) { // T3
+void MTPD::GetObject(uint32_t object_id) {
   uint32_t size = storage_->GetSize(object_id);
   if (write_get_length_) {
     write_length_ += size;
   } else {
+    printf("GetObject, size=%u\n", size);
     uint32_t pos = 0;
     while (pos < size) {
-      get_buffer();
-      uint32_t avail = sizeof(data_buffer_->buf) - data_buffer_->len;
-      uint32_t to_copy = min(size - pos, avail);
+      if (transmit_buffer.data == NULL) allocate_transmit_bulk();
+      uint32_t avail = transmit_buffer.size - transmit_buffer.len;
+      uint32_t to_copy = size - pos;
+      if (to_copy > avail) to_copy = avail;
       // Read directly from storage into usb buffer.
+      printf("GetObject, read=%u, pos=%u\n", to_copy, pos);
       storage_->read(object_id, pos,
-                     (char *)(data_buffer_->buf + data_buffer_->len), to_copy);
+                     (char *)(transmit_buffer.data + transmit_buffer.len), to_copy);
       pos += to_copy;
-      data_buffer_->len += to_copy;
-      if (data_buffer_->len == sizeof(data_buffer_->buf)) {
-        usb_tx(MTP_TX_ENDPOINT, data_buffer_);
-        data_buffer_ = NULL;
+      transmit_buffer.len += to_copy;
+      if (transmit_buffer.len >= transmit_buffer.size) {
+        transmit_bulk();
       }
     }
+    printf("GetObject, done\n");
   }
 }
 
-#elif defined(__IMXRT1062__)
+#else
 
-void MTPD::GetObject(uint32_t object_id) { // T4
+void MTPD::GetObject(uint32_t object_id) { // T4 (broken)
   uint32_t size = storage_->GetSize(object_id);
   int ret;
   printf("\nGetObject(%u) size: %u\n", object_id, size);
@@ -1221,6 +1187,13 @@ void MTPD::GetObject(uint32_t object_id) { // T4
     printf("    >><< Done\n");
   }
 }
+
+#endif
+
+
+
+
+#if defined(__IMXRT1062__)
 
 uint32_t MTPD::GetPartialObject(uint32_t object_id, uint32_t offset, uint32_t NumBytes) { // T4 only
   uint32_t size = storage_->GetSize(object_id);

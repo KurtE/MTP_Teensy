@@ -144,6 +144,7 @@ private:
   bool write_get_length_ = false;
   uint32_t write_length_ = 0;
   void write(const char *data, int len);
+  void write_finish();
 
   void write8(uint8_t x);
   void write16(uint16_t x);
