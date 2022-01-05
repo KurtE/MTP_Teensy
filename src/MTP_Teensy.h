@@ -87,11 +87,11 @@ private:
   } __attribute__((__may_alias__));
 
   typedef struct {
-    uint16_t len;
-    uint16_t index;
-    uint16_t size;
-    uint8_t *data;
-    void *usb;
+    uint16_t len;   // number of data bytes
+    uint16_t index; // position in processing data
+    uint16_t size;  // total size of buffer
+    uint8_t *data;  // pointer to the data
+    void *usb;      // packet info (needed on Teensy 3)
   } packet_buffer_t;
 
   packet_buffer_t receive_buffer = {0, 0, 0, NULL, NULL};

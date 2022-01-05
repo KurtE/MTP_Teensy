@@ -968,54 +968,27 @@ int MTPD::push_packet(uint8_t *data_buffer, uint32_t len) { // T4 only
 
 
 
-
-#if defined(__MK20DX128__) || defined(__MK20DX256__) ||                        \
-    defined(__MK64FX512__) || defined(__MK66FX1M0__)
-
-void MTPD::read(char *data, uint32_t size) { // T3
-  while (size) {
-    receive_buffer_wait();
-    uint32_t to_copy = data_buffer_->len - data_buffer_->index;
-    to_copy = min(to_copy, size);
+void MTPD::read(char *data, uint32_t size) {
+  while (size > 0) {
+    if (receive_buffer.data == NULL) {
+      if (!receive_bulk(100)) {
+        memset(data, 0, size);
+        return;
+      }
+    }
+    uint32_t to_copy = receive_buffer.len - receive_buffer.index;
+    if (to_copy > size) to_copy = size;
     if (data) {
-      memcpy(data, data_buffer_->buf + data_buffer_->index, to_copy);
+      memcpy(data, receive_buffer.data + receive_buffer.index, to_copy);
       data += to_copy;
     }
     size -= to_copy;
-    data_buffer_->index += to_copy;
-    if (data_buffer_->index == data_buffer_->len) {
-      usb_free(data_buffer_);
-      data_buffer_ = NULL;
+    receive_buffer.index += to_copy;
+    if (receive_buffer.index >= receive_buffer.len) {
+      free_received_bulk();
     }
   }
 }
-
-#elif defined(__IMXRT1062__)
-
-void MTPD::read(char *data, uint32_t size) { // T4
-  static int index = 0;
-  if (!size) {
-    index = 0;
-    return;
-  }
-
-  while (size) {
-    uint32_t to_copy = mtp_rx_size_ - index;
-    to_copy = min(to_copy, size);
-    if (data) {
-      memcpy(data, rx_data_buffer + index, to_copy);
-      data += to_copy;
-    }
-    size -= to_copy;
-    index += to_copy;
-    if (index == mtp_rx_size_) {
-      pull_packet(rx_data_buffer);
-      index = 0;
-    }
-  }
-}
-
-#endif // __IMXRT1062__
 
 
 
