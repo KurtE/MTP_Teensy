@@ -104,7 +104,8 @@ private:
   void allocate_transmit_event();
   int transmit_event();
 
-  bool op_needs_callback_;
+  //bool op_needs_callback_; // can this be deleted?
+
 #if defined(__MK20DX128__) || defined(__MK20DX256__) ||                        \
     defined(__MK64FX512__) || defined(__MK66FX1M0__)
   usb_packet_t *data_buffer_ = NULL; // TODO: delete me

@@ -855,18 +855,22 @@ void MTPD::allocate_transmit_bulk() { // T3
       transmit_buffer.size = sizeof(packet->buf);
       transmit_buffer.data = packet->buf;
       transmit_buffer.usb = packet;
+      return;
     }
     mtp_yield();
   }
 }
 
 int MTPD::transmit_bulk() { // T3
-  int r = transmit_buffer.len;
-  usb_tx(MTP_TX_ENDPOINT, (usb_packet_t *)transmit_buffer.usb);
+  int len = transmit_buffer.len;
+  usb_packet_t *packet = (usb_packet_t *)transmit_buffer.usb;
+  packet->len = len;
+  usb_tx(MTP_TX_ENDPOINT, packet);
   transmit_buffer.len = 0;
   transmit_buffer.index = 0;
   transmit_buffer.data = NULL;
-  return r;
+  transmit_buffer.usb = NULL;
+  return len;
 }
 
 //  usb_packet_t *data_buffer_ = NULL;
@@ -1062,9 +1066,8 @@ void MTPD::write(const char *data, int len) { // T4
     MTPHeader header;                                                          \
     header.len = write_length_ + 12;                                           \
     header.type = 2;                                                           \
-    const struct MTPContainer *c = (struct MTPContainer *)(receive_buffer->buf); \
-    header.op = c->op;                                                         \
-    header.transaction_id = c->transaction_id;                                 \
+    header.op = container.op;                                                  \
+    header.transaction_id = container.transaction_id;                          \
     write((char *)&header, sizeof(header));                                    \
     FUN;                                                                       \
     get_buffer();                                                              \
@@ -1711,23 +1714,23 @@ void MTPD::_interval_timer_handler() { // T3
 }
 
 void MTPD::processIntervalTimer() { // T3
-  usb_packet_t *receive_buffer;
-  if ((receive_buffer = usb_rx(MTP_RX_ENDPOINT))) {
+  //usb_packet_t *receive_buffer;
+  //if ((receive_buffer = usb_rx(MTP_RX_ENDPOINT))) {
+  if (receive_bulk(0)) {
+    if (receive_buffer.len >= 12 && receive_buffer.len <= 32) {
+      struct MTPContainer container;
+      memset(&container, 0, sizeof(container));
+      memcpy(&container, receive_buffer.data, receive_buffer.len);
+      free_received_bulk();
+      printContainer(&container, "timer:"); // to switch on set debug to 1 at beginning of file
 
-    struct MTPContainer *container = (struct MTPContainer *)(receive_buffer->buf);
-    printContainer(container);
+      const int op = container.op;
+      const int p1 = container.params[0];
+      const int id = container.transaction_id;
+      const int typ = container.type;
+      TID = id;
 
-    int op = container->op;
-    int p1 = container->params[0];
-    int id = container->transaction_id;
-    int len = container->len;
-    int typ = container->type;
-    TID = id;
-
-    uint32_t return_code = 0;
-    if (receive_buffer->len >= 12) {
-      return_code = 0x2001; // Ok
-      receive_buffer->len = 12;
+      uint32_t return_code = 0x2001; // 0x2001=OK
 
       if (typ == 1) { // command
         switch (op) {
@@ -1747,21 +1750,21 @@ void MTPD::processIntervalTimer() { // T3
       } else {
         return_code = 0x2000; // undefined
       }
-    }
-    if (return_code) {
-      container->type = 3;
-      container->len = len;
-      container->op = return_code;
-      container->transaction_id = id;
-      container->params[0] = p1;
+      if (return_code) {
+        container.type = 3;
+        container.len = 12;
+        container.op = return_code;
 #if DEBUG > 1
-      printContainer(container);
+        printContainer(&container);
 #endif
-
-      usb_tx(MTP_TX_ENDPOINT, receive_buffer);
-      receive_buffer = 0;
+        allocate_transmit_bulk();
+        memcpy(transmit_buffer.data, &container, container.len);
+	transmit_buffer.len = container.len;
+        transmit_bulk();
+      }
     } else {
-      usb_free(receive_buffer);
+      printf("ERROR: intervaltimer received command with %u bytes\n", receive_buffer.len);
+      free_received_bulk();
     }
   }
 }
@@ -1942,27 +1945,31 @@ void MTPD::loop(void) { // T3
     g_intervaltimer.end();      // try maybe 20 times per second...
     printf("*** end Interval Timer ***\n");
   }
-  usb_packet_t *receive_buffer;
-  if ((receive_buffer = usb_rx(MTP_RX_ENDPOINT))) {
-    struct MTPContainer *container = (struct MTPContainer *)(receive_buffer->buf);
-    printContainer(container);
+  //usb_packet_t *receive_buffer;
+  //if ((receive_buffer = usb_rx(MTP_RX_ENDPOINT))) {
+    //struct MTPContainer *container = (struct MTPContainer *)(receive_buffer->buf);
+    //printContainer(container);
 
-    int op = container->op;
-    int p1 = container->params[0];
-    int p2 = container->params[1];
-    int p3 = container->params[2];
-    int id = container->transaction_id;
-    int len = container->len;
-    int typ = container->type;
-    TID = id;
+  if (receive_bulk(0)) {
+    if (receive_buffer.len >= 12 && receive_buffer.len <= 32) {
+      struct MTPContainer container;
+      memset(&container, 0, sizeof(container));
+      memcpy(&container, receive_buffer.data, receive_buffer.len);
+      free_received_bulk();
+      printContainer(&container, "loop:");
 
-    uint32_t return_code = 0;
-    if (receive_buffer->len >= 12) {
-      return_code = 0x2001; // Ok
-      receive_buffer->len = 12;
-      op_needs_callback_ = false;
+      int op = container.op;
+      int p1 = container.params[0];
+      int p2 = container.params[1];
+      int p3 = container.params[2];
+      int id = container.transaction_id;
+      int typ = container.type;
+      TID = id;
+
+      uint32_t return_code = 0x2001; // 0x2001=OK
+      //op_needs_callback_ = false;
       if (typ == 1) { // command
-        switch (op) {
+      switch (op) {
         case 0x1001: // GetDescription
           TRANSMIT(WriteDescriptor());
           break;
@@ -1983,7 +1990,7 @@ void MTPD::loop(void) { // T3
           if (p2) {
             return_code = 0x2014; // spec by format unsupported
           } else {
-            p1 = GetNumObjects(p1, p3);
+            container.params[0] = GetNumObjects(p1, p3);
           }
           break;
         case 0x1007: // GetObjectHandles
@@ -2012,9 +2019,9 @@ void MTPD::loop(void) { // T3
           return_code = SendObjectInfo(p1,  // storage
                                        p2,  // parent
                                        p3); // returned new object ID
-          container->params[1] = p2;
-          container->params[2] = p3;
-          len = receive_buffer->len = 12 + 3 * 4;
+          container.params[1] = p2;
+          container.params[2] = p3;
+          container.len = 12 + 3 * 4;
           break;
         case 0x100D: // SendObject
           SendObject();
@@ -2036,18 +2043,18 @@ void MTPD::loop(void) { // T3
 
         case 0x1019: // MoveObject
           return_code = moveObject(p1, p2, p3);
-          len = receive_buffer->len = 12;
+          container.len = 12;
           break;
 
         case 0x101A: // CopyObject
           return_code = copyObject(p1, p2, p3);
           if (!return_code) {
-            len = receive_buffer->len = 12;
+            container.len = 12;
             return_code = 0x2005;
           } else {
-            p1 = return_code;
+            container.params[0] = return_code;
+            container.len = 16;
             return_code = 0x2001;
-            len = receive_buffer->len = 16;
           }
           break;
 
@@ -2074,29 +2081,29 @@ void MTPD::loop(void) { // T3
       } else {
         return_code = 0x2000; // undefined
       }
-    }
-    if (return_code) {
-      container->type = 3;
-      container->len = len;
-      container->op = return_code;
-      container->transaction_id = id;
-      container->params[0] = p1;
-#if DEBUG > 1
-      printContainer(container);
-#endif
-      usb_tx(MTP_TX_ENDPOINT, receive_buffer);
-      receive_buffer = 0;
-    } else {
-      usb_free(receive_buffer);
-    }
 
+      if (return_code) {
+        container.type = 3;
+        container.op = return_code;
+#if DEBUG > 1
+        printContainer(&container);
+#endif
+        allocate_transmit_bulk();
+        memcpy(transmit_buffer.data, &container, container.len);
+	transmit_buffer.len = container.len;
+        transmit_bulk();
+      }
+    } else {
+      printf("ERROR: loop received command with %u bytes\n", receive_buffer.len);
+      free_received_bulk();
+    }
   }
   // Maybe put event handling inside mtp_yield()?
-  if ((receive_buffer = usb_rx(MTP_EVENT_ENDPOINT)) != NULL) {
-    printf("Event: ");
-    printContainer(receive_buffer);
-    usb_free(receive_buffer);
-  }
+  //if ((receive_buffer = usb_rx(MTP_EVENT_ENDPOINT)) != NULL) {
+    //printf("Event: ");
+    //printContainer(receive_buffer);
+    //usb_free(receive_buffer);
+  //}
   // See if Storage needs to do anything
   storage_->loop();
 }
@@ -2117,7 +2124,7 @@ void MTPD::loop(void) { // T4
       memset(&container, 0, sizeof(container));
       memcpy(&container, receive_buffer.data, receive_buffer.len);
       free_received_bulk();
-      printContainer(&container,"loop:");
+      printContainer(&container, "loop:");
 
       int op = container.op;
       int p1 = container.params[0];
