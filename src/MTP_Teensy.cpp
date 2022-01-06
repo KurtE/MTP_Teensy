@@ -1737,24 +1737,33 @@ void MTPD::loop(void) {
   }
   if (receive_bulk(0)) {
     if (receive_buffer.len >= 12 && receive_buffer.len <= 32) {
+      // This container holds the operation code received from host
+      // Commands which transmit a 12 byte header as the first part
+      // of their data phase will reuse this container, overwriting
+      // the len & type fields, but keeping op and transaction_id.
+      // Then this container is again reused to transmit the final
+      // response code, keeping the original transaction_id, but
+      // the other 3 header fields are based on "return_code".  If
+      // the response requires parameters, they are written into
+      // this container's parameter list.
       struct MTPContainer container;
       memset(&container, 0, sizeof(container));
       memcpy(&container, receive_buffer.data, receive_buffer.len);
       free_received_bulk();
       printContainer(&container, "loop:");
 
-      int op = container.op;
       int p1 = container.params[0];
       int p2 = container.params[1];
       int p3 = container.params[2];
-      int id = container.transaction_id;
-      int len = container.len;
-      int typ = container.type;
-      TID = id;
+      TID = container.transaction_id;
+
+      // The low 16 bits of return_code have the response code
+      // operation field.  The top 4 bits indicate the number
+      // of parameters to transmit with the response code.
       int return_code = 0x2001; // OK use as default value
 
-      if (typ == MTP_CONTAINER_TYPE_COMMAND) {
-        switch (op) {
+      if (container.type == MTP_CONTAINER_TYPE_COMMAND) {
+        switch (container.op) {
         case 0x1001: // GetDeviceInfo
           TRANSMIT(WriteDescriptor());
           break;
@@ -1780,7 +1789,8 @@ void MTPD::loop(void) {
           if (p2) {
             return_code = 0x2014; // spec by format unsupported
           } else {
-            p1 = GetNumObjects(p1, p3);
+            container.params[0] = GetNumObjects(p1, p3);
+            return_code = 0x2001 | (1<<28);
           }
           break;
 
@@ -1814,10 +1824,9 @@ void MTPD::loop(void) {
           return_code = SendObjectInfo(p1,  // storage
                                        p2,  // parent
                                        p3); // returned object id;
-
           container.params[1] = p2;
           container.params[2] = p3;
-          len = 12 + 3 * 4;
+          return_code |= (3 << 28);
           break;
 
         case 0x100D: // SendObject
@@ -1828,7 +1837,6 @@ void MTPD::loop(void) {
           } else {
               printf("SendObject() returned true\n"); Serial.flush();
           }
-          len = 12;
           break;
 
         case 0x100F: // FormatStore
@@ -1849,16 +1857,14 @@ void MTPD::loop(void) {
 
         case 0x1019: // MoveObject
           return_code = moveObject(p1, p2, p3);
-          len = 12;
           break;
 
         case 0x101A: // CopyObject
           return_code = copyObject(p1, p2, p3);
           if (!return_code) {
             return_code = 0x2005;
-            len = 12;
           } else {
-            p1 = return_code;
+            container.params[0] = return_code;
             uint8_t error_code = storage_->getLastError();
             switch (error_code) {
               default:
@@ -1870,8 +1876,7 @@ void MTPD::loop(void) {
                 return_code = MTP_RESPONSE_STORAGE_FULL;
                 break;
             }
-            //return_code = 0x2001;
-            len = 16;
+            return_code |= (1<<28);
           }
           break;
 
@@ -1901,18 +1906,13 @@ void MTPD::loop(void) {
         }
       } else {
         return_code = 0x2005; // we should only get cmds
-        printf("!!! unexpected/unknown message type:%d len:%d op:%d\n", typ, len, op);
+        printContainer(&container, "!!! unexpected/unknown message:");
       }
-
-        /*if (usb_mtp_status != 0x01) {
-          // Guess if USB not correct try to reset and not send response
-          printf("mtpd::Loop usb_mtp_status %x != 0x1 reset\n", usb_mtp_status);
-          usb_mtp_status = 0x01;
-        } else */
-      if (return_code) {
-        container.len = 12 + (return_code >> 28) * 4;
-        container.op = return_code & 0xFFFF;
+      if (return_code && usb_mtp_status == 0x01) {
+        container.len = 12 + (return_code >> 28) * 4; // top 4 bits is number of parameters
         container.type = MTP_CONTAINER_TYPE_RESPONSE;
+        container.op = (return_code & 0xFFFF);        // low 16 bits is op response code
+        // container.transaction_id reused from original received command
         #if DEBUG > 1
         printContainer(&container); // to switch on set debug to 2 at beginning of file
         #endif
