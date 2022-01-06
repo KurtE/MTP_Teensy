@@ -58,17 +58,17 @@ extern volatile uint8_t usb_configuration;
 }
 
 // MTP Responder.
-class MTPD {
+class MTP_class {
 public:
-  explicit MTPD(MTPStorage *storage) : storage_(storage) {}
+  explicit MTP_class() {}
   int begin();
+  uint32_t addFilesystem(FS &disk, const char *diskname) {return storage_.addFilesystem(disk, diskname);}
 
   static inline Stream *PrintStream(void) { return printStream_; }
   static void PrintStream(Stream *stream) { printStream_ = stream; }
-
+  MTPStorage *storage() {return &storage_ ;}
 private:
   friend class MTPStorage;
-  MTPStorage *storage_;
   static Stream *printStream_;
 
   struct MTPHeader {
@@ -194,7 +194,7 @@ private:
   uint32_t setObjectPropValue(uint32_t p1, uint32_t p2);
   uint32_t formatStore(uint32_t storage, uint32_t p2, bool post_process);
   
-  static MTPD *g_pmtpd_interval;
+  static MTP_class *g_pmtpd_interval;
   static void _interval_timer_handler();
   static IntervalTimer g_intervaltimer;
   void processIntervalTimer();
@@ -221,7 +221,7 @@ public:
       uint32_t cb); // you can extend the send object buffer by this buffer
 
  inline uint32_t Store2Storage(uint32_t store) {
-    return ((store + 1) << 16) | storage_->storeMinorIndex(store);
+    return ((store + 1) << 16) | storage_.storeMinorIndex(store);
   }
   static inline uint32_t Storage2Store(uint32_t storage) {
     return (storage >> 16) - 1;
@@ -249,7 +249,10 @@ public:
   uint32_t dtFormatStart_ = 0;
   static const uint32_t MAX_FORMAT_TIME_ = 2750; // give a little time. 
   bool storage_ids_sent_ = false;
+  MTPStorage storage_;
 
 };
+
+extern MTP_class MTP;
 
 #endif

@@ -42,21 +42,20 @@
 #endif
 
 
-struct Record {
-  uint32_t parent;
-  uint32_t child; // size stored here for files
-  uint32_t sibling;
-  uint32_t dtModify;
-  uint32_t dtCreate;
-  uint8_t isdir;
-  uint8_t scanned;
-  uint16_t store; // index int physical storage (0 ... num_storages-1)
-  char name[MAX_FILENAME_LEN];
-};
-
 class MTPStorage final {
 public:
-	MTPStorage() { fsCount = 0; }
+	struct Record {
+	  uint32_t parent;
+	  uint32_t child; // size stored here for files
+	  uint32_t sibling;
+	  uint32_t dtModify;
+	  uint32_t dtCreate;
+	  uint8_t isdir;
+	  uint8_t scanned;
+	  uint16_t store; // index int physical storage (0 ... num_storages-1)
+	  char name[MAX_FILENAME_LEN];
+	};
+	constexpr MTPStorage() {  }
 	uint32_t addFilesystem(FS &disk, const char *diskname);
 	uint32_t addFilesystem(FS &fs, const char *name, void *unused1, uint32_t unused2) {
 		return addFilesystem(fs, name);
@@ -167,17 +166,17 @@ public:
 	void loop() {
 	}
 private:
-	unsigned int fsCount;
-	const char *name[MTPD_MAX_FILESYSTEMS];
-	FS *fs[MTPD_MAX_FILESYSTEMS];
-	uint32_t store_first_child_[MTPD_MAX_FILESYSTEMS];
-	uint8_t store_scanned_[MTPD_MAX_FILESYSTEMS];
-	uint8_t store_storage_minor_index_[MTPD_MAX_FILESYSTEMS];
+	unsigned int fsCount = 0;
+	const char *name[MTPD_MAX_FILESYSTEMS] = {nullptr};
+	FS *fs[MTPD_MAX_FILESYSTEMS] = {nullptr};
+	uint32_t store_first_child_[MTPD_MAX_FILESYSTEMS] = {0};
+	uint8_t store_scanned_[MTPD_MAX_FILESYSTEMS] = {0};
+	uint8_t store_storage_minor_index_[MTPD_MAX_FILESYSTEMS] = {0};
 	uint32_t index_entries_ = 0;
 	bool index_generated = false;
 	bool all_scanned_ = false;
-	uint32_t next_;
-	bool follow_sibling_;
+	uint32_t next_ = 0;
+	bool follow_sibling_ = 0;
 	File index_;
 	File file_;
 	File child_;
