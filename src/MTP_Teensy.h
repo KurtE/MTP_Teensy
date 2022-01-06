@@ -165,8 +165,7 @@ private:
   void GetObjectInfo(uint32_t handle);
   //void GetObject(uint32_t object_id);
   uint32_t GetObject(struct MTPContainer &cmd);
-  uint32_t GetPartialObject(uint32_t object_id, uint32_t offset,
-                            uint32_t NumBytes);
+  uint32_t GetPartialObject(struct MTPContainer &cmd);
 
   void read(char *data, uint32_t size);
 

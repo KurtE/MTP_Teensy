@@ -1076,25 +1076,6 @@ void MTPD::write_finish() {
     write_finish();                                                            \
   } while (0)
 
-#define TRANSMIT1(FUN)                                                         \
-  do {                                                                         \
-    write_length_ = 0;                                                         \
-    write_get_length_ = true;                                                  \
-    uint32_t dlen = FUN;                                                       \
-                                                                               \
-    MTPContainer header;                                                       \
-    header.len = write_length_ + sizeof(MTPHeader) + 4;                        \
-    header.type = 2;                                                           \
-    header.op = container.op;                                                  \
-    header.transaction_id = container.transaction_id;                          \
-    header.params[0] = dlen;                                                   \
-    write_length_ = 0;                                                         \
-    write_get_length_ = false;                                                 \
-    write((char *)&header, sizeof(header));                                    \
-    FUN;                                                                       \
-    write_finish();                                                            \
-  } while (0)
-
 #endif // __IMXRT1062__
 
 
@@ -1108,7 +1089,7 @@ uint32_t MTPD::GetObject(struct MTPContainer &cmd) {
   uint32_t size = storage_->GetSize(object_id);
   //printf("GetObject, size=%u\n", size);
   cmd.len = size + 12;
-  cmd.type = 2;
+  cmd.type = MTP_CONTAINER_TYPE_DATA;
   write((char *)&cmd, 12);
   uint32_t pos = 0;
   while (pos < size) {
@@ -1139,53 +1120,40 @@ uint32_t MTPD::GetObject(struct MTPContainer &cmd) {
 
 
 
-#if defined(__IMXRT1062__)
-
-uint32_t MTPD::GetPartialObject(uint32_t object_id, uint32_t offset, uint32_t NumBytes) { // T4 only
+uint32_t MTPD::GetPartialObject(struct MTPContainer &cmd) {
+  uint32_t object_id = cmd.params[0];
+  uint32_t offset = cmd.params[1];
+  uint32_t NumBytes = cmd.params[2];
   uint32_t size = storage_->GetSize(object_id);
-
   size -= offset;
-  if (NumBytes == 0xffffffff)
-    NumBytes = size;
-  if (NumBytes < size)
+  if (NumBytes < size) {
     size = NumBytes;
-
-  if (write_get_length_) {
-    write_length_ += size;
-  } else {
-    uint32_t pos = offset; // into data
-    uint32_t len = sizeof(MTPHeader);
-
-    disk_pos = DISK_BUFFER_SIZE;
-    while (pos < size) {
-      if (disk_pos == DISK_BUFFER_SIZE) {
-        uint32_t nread = min(size - pos, (uint32_t)DISK_BUFFER_SIZE);
-        storage_->read(object_id, pos, (char *)disk_buffer_, nread);
-        disk_pos = 0;
-      }
-
-      uint32_t to_copy = min(size - pos, mtp_tx_size_ - len);
-      to_copy = min(to_copy, DISK_BUFFER_SIZE - disk_pos);
-
-      memcpy(tx_data_buffer + len, disk_buffer_ + disk_pos, to_copy);
-      disk_pos += to_copy;
-      pos += to_copy;
-      len += to_copy;
-
-      if (len == (uint32_t)mtp_tx_size_) {
-        push_packet(tx_data_buffer, mtp_tx_size_);
-        len = 0;
-      }
+  }
+  cmd.len = size + 12;
+  cmd.type = MTP_CONTAINER_TYPE_DATA;
+  write((char *)&cmd, 12);
+  uint32_t pos = offset; // into data
+  while (pos < size) {
+    if (usb_mtp_status != 0x01) {
+      //printf("GetPartialObject, abort\n");
+      return 0;
     }
-    if (len > 0) {
-      push_packet(tx_data_buffer, mtp_tx_size_);
-      len = 0;
+    if (transmit_buffer.data == NULL) allocate_transmit_bulk();
+    uint32_t avail = transmit_buffer.size - transmit_buffer.len;
+    uint32_t to_copy = size - pos;
+    if (to_copy > avail) to_copy = avail;
+    storage_->read(object_id, pos,
+                   (char *)(transmit_buffer.data + transmit_buffer.len), to_copy);
+    pos += to_copy;
+    transmit_buffer.len += to_copy;
+    if (transmit_buffer.len >= transmit_buffer.size) {
+      transmit_bulk();
     }
   }
-  return size;
+  write_finish();
+  cmd.params[0] = size;
+  return MTP_RESPONSE_OK + (1<<28);
 }
-
-#endif // __IMXRT1062__
 
 
 
@@ -1907,11 +1875,9 @@ void MTPD::loop(void) {
           }
           break;
 
-#if defined(__IMXRT1062__)
         case 0x101B: // GetPartialObject
-          TRANSMIT1(GetPartialObject(p1, p2, p3));
+          return_code = GetPartialObject(container);
           break;
-#endif
 
         case 0x9801: // getObjectPropsSupported
           TRANSMIT(getObjectPropsSupported(p1));
