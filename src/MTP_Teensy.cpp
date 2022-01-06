@@ -1678,166 +1678,6 @@ uint32_t MTPD::setObjectPropValue(uint32_t handle, uint32_t p2) { // T4 only
 #if defined(__MK20DX128__) || defined(__MK20DX256__) ||                        \
     defined(__MK64FX512__) || defined(__MK66FX1M0__)
 
-MTPD *MTPD::g_pmtpd_interval = nullptr;
-IntervalTimer MTPD::g_intervaltimer;
-
-void MTPD::_interval_timer_handler() { // T3
-  if (g_pmtpd_interval)
-    g_pmtpd_interval->processIntervalTimer();
-}
-
-void MTPD::processIntervalTimer() { // T3
-  //usb_packet_t *receive_buffer;
-  //if ((receive_buffer = usb_rx(MTP_RX_ENDPOINT))) {
-  if (receive_bulk(0)) {
-    if (receive_buffer.len >= 12 && receive_buffer.len <= 32) {
-      struct MTPContainer container;
-      memset(&container, 0, sizeof(container));
-      memcpy(&container, receive_buffer.data, receive_buffer.len);
-      free_received_bulk();
-      printContainer(&container, "timer:"); // to switch on set debug to 1 at beginning of file
-
-      const int op = container.op;
-      const int p1 = container.params[0];
-      const int id = container.transaction_id;
-      const int typ = container.type;
-      TID = id;
-
-      uint32_t return_code = 0x2001; // 0x2001=OK
-
-      if (typ == 1) { // command
-        switch (op) {
-        case MTP_OPERATION_GET_DEVICE_INFO: // GetDescription 0x1001
-          TRANSMIT(WriteDescriptor());
-          break;
-        case MTP_OPERATION_OPEN_SESSION: // open session 0x1002
-          openSession(p1);
-          break;
-        case MTP_OPERATION_GET_DEVICE_PROP_DESC: // 1014
-          TRANSMIT(GetDevicePropDesc(p1));
-          break;
-        default:
-          return_code = MTP_RESPONSE_DEVICE_BUSY; // operation not supported
-          break;
-        }
-      } else {
-        return_code = 0x2000; // undefined
-      }
-      if (return_code) {
-        container.type = 3;
-        container.len = 12;
-        container.op = return_code;
-#if DEBUG > 1
-        printContainer(&container);
-#endif
-        allocate_transmit_bulk();
-        memcpy(transmit_buffer.data, &container, container.len);
-	transmit_buffer.len = container.len;
-        transmit_bulk();
-      }
-    } else {
-      printf("ERROR: intervaltimer received command with %u bytes\n", receive_buffer.len);
-      free_received_bulk();
-    }
-  }
-}
-
-
-#elif defined(__IMXRT1062__)
-
-
-MTPD *MTPD::g_pmtpd_interval = nullptr;
-IntervalTimer MTPD::g_intervaltimer;
-
-void MTPD::_interval_timer_handler() { // T4
-  if (g_pmtpd_interval)
-    g_pmtpd_interval->processIntervalTimer();
-}
-
-void MTPD::processIntervalTimer() { // T4
-  {
-    if (receive_bulk(0)) {
-      if (receive_buffer.len >= 12 && receive_buffer.len <= 32) {
-        struct MTPContainer container;
-        memset(&container, 0, sizeof(container));
-        memcpy(&container, receive_buffer.data, receive_buffer.len);
-        free_received_bulk();
-        printContainer(&container, "timer:"); // to switch on set debug to 1 at beginning of file
-
-        int op = container.op;
-        int p1 = container.params[0];
-#if 0 // so far not processing messages that use these
-            int p2 = CONTAINER.params[1];
-            int p3 = CONTAINER.params[2];
-#endif
-        int id = container.transaction_id;
-        int len = container.len;
-        int typ = container.type;
-        TID = id;
-
-        int return_code = MTP_RESPONSE_OK;
-
-        if (typ == 2)
-          return_code = MTP_RESPONSE_OPERATION_NOT_SUPPORTED; // we should only get cmds
-
-        switch (op) {
-
-        case MTP_OPERATION_GET_DEVICE_INFO: // GetDescription 0x1001
-          TRANSMIT(WriteDescriptor());
-          break;
-        case MTP_OPERATION_OPEN_SESSION: // open session 0x1002
-          openSession(p1);
-          break;
-        case MTP_OPERATION_GET_DEVICE_PROP_DESC: // 1014
-          TRANSMIT(GetDevicePropDesc(p1));
-          break;
-
-        default:
-          return_code = MTP_RESPONSE_DEVICE_BUSY; // operation not supported
-          break;
-        }
-        if (return_code) {
-          // BUGBUG - assumes that the receive buffer is still the same
-          container.type = 3;
-          container.len = len;
-          container.op = return_code;
-          container.transaction_id = id;
-          container.params[0] = p1;
-#if DEBUG > 1
-          printContainer(&container); // to switch on set debug to 2 at beginning of file
-#endif
-          memcpy(tx_data_buffer, &container, len);
-          push_packet(tx_data_buffer, len); // send response block with return code
-        }
-      } else {
-        printf("ERROR: intervaltimer received command with %u bytes\n", receive_buffer.len);
-        free_received_bulk();
-      }
-    }
-  }
-  // Check to see if we have a format timeout...
-  if (dtFormatStart_ && ((millis() - dtFormatStart_) > MAX_FORMAT_TIME_)) {
-    // BUGBUG assume the data has not changed since call to format
-    printf(">>> Format timeout <<< try to force sending response\n");
-    struct MTPContainer *container = (struct MTPContainer *)(rx_data_buffer);
-    int len = container->len;
-    container->type = 3;
-    container->op = MTP_RESPONSE_OK;
-    printContainer(container); // to switch on set debug to 2 at beginning of file
-
-    memcpy(tx_data_buffer, rx_data_buffer, len);
-    push_packet(tx_data_buffer, len); // for acknowledge use rx_data_buffer
-    dtFormatStart_ = 0;
-  }
-}
-
-#endif // __IMXRT1062__
-
-
-
-#if defined(__MK20DX128__) || defined(__MK20DX256__) ||                        \
-    defined(__MK64FX512__) || defined(__MK66FX1M0__)
-
 uint32_t MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) { // T3
   printf(" MTPD::formatStore1442 called post:%u\n", post_process);
   uint32_t store = Storage2Store(storage);
@@ -1907,6 +1747,66 @@ uint32_t MTPD::formatStore(uint32_t storage, uint32_t p2, bool post_process) { /
 
 #endif // __IMXRT1062__
 
+
+
+MTPD *MTPD::g_pmtpd_interval = nullptr;
+IntervalTimer MTPD::g_intervaltimer;
+
+void MTPD::_interval_timer_handler() {
+  if (g_pmtpd_interval)
+    g_pmtpd_interval->processIntervalTimer();
+}
+
+void MTPD::processIntervalTimer() { // T3
+  if (receive_bulk(0)) {
+    if (receive_buffer.len >= 12 && receive_buffer.len <= 32) {
+      struct MTPContainer container;
+      memset(&container, 0, sizeof(container));
+      memcpy(&container, receive_buffer.data, receive_buffer.len);
+      free_received_bulk();
+      printContainer(&container, "timer:"); // to switch on set debug to 1 at beginning of file
+
+      const int op = container.op;
+      const int p1 = container.params[0];
+      TID = container.transaction_id;
+
+      uint32_t return_code = 0x2001; // 0x2001=OK
+
+      if (container.type == 1) { // command
+        switch (op) {
+        case MTP_OPERATION_GET_DEVICE_INFO: // GetDescription 0x1001
+          TRANSMIT(WriteDescriptor());
+          break;
+        case MTP_OPERATION_OPEN_SESSION: // open session 0x1002
+          openSession(p1);
+          break;
+        case MTP_OPERATION_GET_DEVICE_PROP_DESC: // 1014
+          TRANSMIT(GetDevicePropDesc(p1));
+          break;
+        default:
+          return_code = MTP_RESPONSE_DEVICE_BUSY; // busy 0x2019
+          break;
+        }
+      } else {
+        // TODO: should this send 0x2005 MTP_RESPONSE_OPERATION_NOT_SUPPORTED ??
+        return_code = MTP_RESPONSE_UNDEFINED; // undefined 0x2000
+      }
+      container.type = 3;
+      container.len = 12;
+      container.op = return_code;
+#if DEBUG > 1
+      printContainer(&container);
+#endif
+      allocate_transmit_bulk();
+      memcpy(transmit_buffer.data, &container, container.len);
+      transmit_buffer.len = container.len;
+      transmit_bulk();
+    } else {
+      printf("ERROR: intervaltimer received command with %u bytes\n", receive_buffer.len);
+      free_received_bulk();
+    }
+  }
+}
 
 
 #if defined(__MK20DX128__) || defined(__MK20DX256__) || \
