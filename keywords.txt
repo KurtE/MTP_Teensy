@@ -1,0 +1,14 @@
+MTP	KEYWORD1
+begin	KEYWORD2
+addFilesystem	KEYWORD2
+loop	KEYWORD2
+storage	KEYWORD2
+Store2Storage	KEYWORD2
+addSendObjectBuffer	KEYWORD2
+send_Event	KEYWORD2
+send_addObjectEvent	KEYWORD2
+send_removeObjectEvent	KEYWORD2
+send_StorageInfoChangedEvent	KEYWORD2
+send_DeviceResetEvent	KEYWORD2
+send_StoreAddedEvent	KEYWORD2
+send_StoreRemovedEvent	KEYWORD2

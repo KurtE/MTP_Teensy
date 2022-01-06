@@ -38,11 +38,15 @@
 #include "usb_names.h"
 extern struct usb_string_descriptor_struct usb_string_serial_number;
 
+// define global mtpd object;
+MTP_class MTP;
+
+
 // Define some of the static members
-Stream *MTPD::printStream_ = &Serial;
+Stream *MTP_class::printStream_ = &Serial;
 
 #if defined(__IMXRT1062__)
-DMAMEM uint8_t MTPD::disk_buffer_[DISK_BUFFER_SIZE] __attribute__((aligned(32)));
+DMAMEM uint8_t MTP_class::disk_buffer_[DISK_BUFFER_SIZE] __attribute__((aligned(32)));
 #endif
 
 #define DEBUG 2
@@ -80,7 +84,7 @@ void printf_debug(const char *format, ...);
 #define MTP_CONTAINER_HEADER_SIZE 12
 
 // Define global(static) members
-uint32_t MTPD::sessionID_ = 0;
+uint32_t MTP_class::sessionID_ = 0;
 
 // MTP Operation Codes
 #define MTP_OPERATION_GET_DEVICE_INFO 0x1001
@@ -296,7 +300,7 @@ const int supported_event_num =
     uint32_t params[5];    // 12
   };
 */
-int MTPD::begin() {
+int MTP_class::begin() {
 
   // lets set up to check for MTP messages and tell
   // other side we are busy...  Maybe should be function:
@@ -314,9 +318,9 @@ int MTPD::begin() {
   return usb_init_events();
 }
 
-//time_t MTPD::getTeensyTime() { return Teensy3Clock.get(); }
+//time_t MTP_class::getTeensyTime() { return Teensy3Clock.get(); }
 
-void MTPD::writestring(const char *str) {
+void MTP_class::writestring(const char *str) {
   if (*str) {
     write8(strlen(str) + 1);
     while (*str) {
@@ -337,7 +341,7 @@ static uint32_t writestringlen(const char *str) {
 
 
 
-uint32_t MTPD::GetDeviceInfo(struct MTPContainer &cmd) {
+uint32_t MTP_class::GetDeviceInfo(struct MTPContainer &cmd) {
   char buf[20];
   dtostrf((float)(TEENSYDUINO / 100.0f), 3, 2, buf);
   strlcat(buf, " / MTP " MTP_VERS, sizeof(buf));
@@ -394,53 +398,53 @@ uint32_t MTPD::GetDeviceInfo(struct MTPContainer &cmd) {
 }
 
 
-void MTPD::WriteStorageIDs() {
+void MTP_class::WriteStorageIDs() {
 
-  uint32_t num = storage_->get_FSCount();
+  uint32_t num = storage_.get_FSCount();
 
   // Quick and dirty, we maybe allow some storages to be removed, lets loop
   // through
   // and see if there are any...
   uint32_t num_valid = 0;
   for (uint32_t ii = 0; ii < num; ii++) {
-    if (storage_->get_FSName(ii))
+    if (storage_.get_FSName(ii))
       num_valid++; // storage id
   }
 
   write32(num_valid); // number of storages (disks)
   for (uint32_t ii = 0; ii < num; ii++) {
-    if (storage_->get_FSName(ii))
+    if (storage_.get_FSName(ii))
       write32(Store2Storage(ii)); // storage id
   }
   storage_ids_sent_ = true;
 }
 
-void MTPD::GetStorageInfo(uint32_t storage) {
+void MTP_class::GetStorageInfo(uint32_t storage) {
   uint32_t store = Storage2Store(storage);
-  write16(storage_->readonly(store) ? 0x0001
+  write16(storage_.readonly(store) ? 0x0001
                                     : 0x0004); // storage type (removable RAM)
-  write16(storage_->has_directories(store)
+  write16(storage_.has_directories(store)
               ? 0x0002
               : 0x0001); // filesystem type (generic hierarchical)
   write16(0x0000);       // access capability (read-write)
 
 //  elapsedMillis em;
-  uint64_t ntotal = storage_->totalSize(store);
+  uint64_t ntotal = storage_.totalSize(store);
 
   write64(ntotal); // max capacity
   // Quick test to see if not getting the used size on large disks helps us get
   // them displayed...
   //    if (ntotal < 3000000000UL) {
-  uint64_t nused = storage_->usedSize(store);
+  uint64_t nused = storage_.usedSize(store);
   write64((ntotal - nused)); // free space (100M)
   //    } else write64(ntotal/2);  // free space - how about glass half empty or
   //    full
   //
 //  printf("GetStorageInfo dt:%u tot:%lu, used: %lu\n", (uint32_t)em, ntotal, nused);
   write32(0xFFFFFFFFUL); // free space (objects)
-  const char *name = storage_->get_FSName(store);
+  const char *name = storage_.get_FSName(store);
   writestring(name); // storage descriptor
-  // const char *volumeID = storage_->get_volumeID(store);
+  // const char *volumeID = storage_.get_volumeID(store);
   static const char _volumeID[] = "";
 
   writestring(_volumeID); // volume identifier
@@ -448,16 +452,16 @@ void MTPD::GetStorageInfo(uint32_t storage) {
   printf("%d %d name:%s\n", storage, store, name);
 }
 
-uint32_t MTPD::GetNumObjects(uint32_t storage, uint32_t parent) {
+uint32_t MTP_class::GetNumObjects(uint32_t storage, uint32_t parent) {
   uint32_t store = Storage2Store(storage);
-  storage_->StartGetObjectHandles(store, parent);
+  storage_.StartGetObjectHandles(store, parent);
   int num = 0;
-  while (storage_->GetNextObjectHandle(store))
+  while (storage_.GetNextObjectHandle(store))
     num++;
   return num;
 }
 
-void MTPD::GetObjectHandles(uint32_t storage, uint32_t parent) {
+void MTP_class::GetObjectHandles(uint32_t storage, uint32_t parent) {
   uint32_t store = Storage2Store(storage);
   if (write_get_length_) {
     write_length_ = GetNumObjects(storage, parent);
@@ -466,17 +470,17 @@ void MTPD::GetObjectHandles(uint32_t storage, uint32_t parent) {
   } else {
     write32(GetNumObjects(storage, parent));
     int handle;
-    storage_->StartGetObjectHandles(store, parent);
-    while ((handle = storage_->GetNextObjectHandle(store)))
+    storage_.StartGetObjectHandles(store, parent);
+    while ((handle = storage_.GetNextObjectHandle(store)))
       write32(handle);
   }
 }
 
-void MTPD::GetObjectInfo(uint32_t handle) {
+void MTP_class::GetObjectInfo(uint32_t handle) {
   char filename[MAX_FILENAME_LEN];
   uint32_t size, parent;
   uint16_t store;
-  storage_->GetObjectInfo(handle, filename, &size, &parent, &store);
+  storage_.GetObjectInfo(handle, filename, &size, &parent, &store);
 
   uint32_t storage = Store2Storage(store);
   write32(storage);                                // storage
@@ -499,7 +503,7 @@ void MTPD::GetObjectInfo(uint32_t handle) {
   uint32_t dt;
   DateTimeFields dtf;
 
-  if (storage_->getCreateTime(handle, dt)) {
+  if (storage_.getCreateTime(handle, dt)) {
     // going to use the buffer name to output
     breakTime(dt, dtf);
     snprintf(filename, MAX_FILENAME_LEN, "%04u%02u%02uT%02u%02u%02u",
@@ -510,7 +514,7 @@ void MTPD::GetObjectInfo(uint32_t handle) {
     writestring(""); // date created
   }
 
-  if (storage_->getModifyTime(handle, dt)) {
+  if (storage_.getModifyTime(handle, dt)) {
     // going to use the buffer name to output
     breakTime(dt, dtf);
     snprintf(filename, MAX_FILENAME_LEN, "%04u%02u%02uT%02u%02u%02u",
@@ -524,7 +528,7 @@ void MTPD::GetObjectInfo(uint32_t handle) {
   writestring(""); // keywords
 }
 
-uint32_t MTPD::ReadMTPHeader() {
+uint32_t MTP_class::ReadMTPHeader() {
   MTPHeader header;
   read(&header, sizeof(MTPHeader));
   // check that the type is data
@@ -534,23 +538,23 @@ uint32_t MTPD::ReadMTPHeader() {
     return 0;
 }
 
-uint8_t MTPD::read8() {
+uint8_t MTP_class::read8() {
   uint8_t ret;
   read(&ret, sizeof(ret));
   return ret;
 }
-uint16_t MTPD::read16() {
+uint16_t MTP_class::read16() {
   uint16_t ret;
   read(&ret, sizeof(ret));
   return ret;
 }
-uint32_t MTPD::read32() {
+uint32_t MTP_class::read32() {
   uint32_t ret;
   read(&ret, sizeof(ret));
   return ret;
 }
 
-int MTPD::readstring(char *buffer, uint16_t buffer_size) {
+int MTP_class::readstring(char *buffer, uint16_t buffer_size) {
   int len = read8();
   char * buffer_end = buffer + buffer_size -1;
   if (!buffer) {
@@ -566,7 +570,7 @@ int MTPD::readstring(char *buffer, uint16_t buffer_size) {
   return len * 2 + 1;
 }
 
-int MTPD::readDateTimeString(uint32_t *pdt) {
+int MTP_class::readDateTimeString(uint32_t *pdt) {
   char dtb[20]; // let it take care of the conversions.
   //                            01234567890123456
   // format of expected String: YYYYMMDDThhmmss.s
@@ -591,7 +595,7 @@ int MTPD::readDateTimeString(uint32_t *pdt) {
   return cb;
 }
 
-void MTPD::GetDevicePropValue(uint32_t prop) {
+void MTP_class::GetDevicePropValue(uint32_t prop) {
   switch (prop) {
   case 0xd402: // friendly name
     // This is the name we'll actually see in the windows explorer.
@@ -601,7 +605,7 @@ void MTPD::GetDevicePropValue(uint32_t prop) {
   }
 }
 
-void MTPD::GetDevicePropDesc(uint32_t prop) {
+void MTP_class::GetDevicePropDesc(uint32_t prop) {
   switch (prop) {
   case 0xd402: // friendly name
     write16(prop);
@@ -613,13 +617,13 @@ void MTPD::GetDevicePropDesc(uint32_t prop) {
   }
 }
 
-void MTPD::getObjectPropsSupported(uint32_t p1) {
+void MTP_class::getObjectPropsSupported(uint32_t p1) {
   write32(propertyListNum);
   for (uint32_t ii = 0; ii < propertyListNum; ii++)
     write16(propertyList[ii]);
 }
 
-void MTPD::getObjectPropDesc(uint32_t p1, uint32_t p2) {
+void MTP_class::getObjectPropDesc(uint32_t p1, uint32_t p2) {
   switch (p1) {
   case MTP_PROPERTY_STORAGE_ID: // 0xDC01:
     write16(0xDC01);
@@ -707,13 +711,13 @@ void MTPD::getObjectPropDesc(uint32_t p1, uint32_t p2) {
   }
 }
 
-void MTPD::getObjectPropValue(uint32_t p1, uint32_t p2) {
+void MTP_class::getObjectPropValue(uint32_t p1, uint32_t p2) {
   char name[MAX_FILENAME_LEN];
   uint32_t dir;
   uint32_t size;
   uint32_t parent;
   uint16_t store;
-  storage_->GetObjectInfo(p1, name, &size, &parent, &store);
+  storage_.GetObjectInfo(p1, name, &size, &parent, &store);
   dir = size == 0xFFFFFFFFUL;
   uint32_t storage = Store2Storage(store);
   switch (p2) {
@@ -738,7 +742,7 @@ void MTPD::getObjectPropValue(uint32_t p1, uint32_t p2) {
     uint32_t dt;
     DateTimeFields dtf;
 
-    if (storage_->getCreateTime(p1, dt)) {
+    if (storage_.getCreateTime(p1, dt)) {
 
       // going to use the buffer name to output
       breakTime(dt, dtf);
@@ -759,7 +763,7 @@ void MTPD::getObjectPropValue(uint32_t p1, uint32_t p2) {
     uint32_t dt;
     DateTimeFields dtf;
 
-    if (storage_->getModifyTime(p1, dt)) {
+    if (storage_.getModifyTime(p1, dt)) {
       // going to use the buffer name to output
       breakTime(dt, dtf);
       snprintf(name, MAX_FILENAME_LEN, "%04u%02u%02uT%02u%02u%02u",
@@ -791,35 +795,35 @@ void MTPD::getObjectPropValue(uint32_t p1, uint32_t p2) {
   }
 }
 
-uint32_t MTPD::deleteObject(uint32_t handle) {
-  if (!storage_->DeleteObject(handle)) {
+uint32_t MTP_class::deleteObject(uint32_t handle) {
+  if (!storage_.DeleteObject(handle)) {
     return 0x2012; // partial deletion
   }
   return 0x2001;
 }
 
-uint32_t MTPD::moveObject(uint32_t handle, uint32_t newStorage,
+uint32_t MTP_class::moveObject(uint32_t handle, uint32_t newStorage,
                           uint32_t newHandle) {
   uint32_t store1 = Storage2Store(newStorage);
   if (newHandle == 0) newHandle = store1;
 
-  if (storage_->move(handle, store1, newHandle))
+  if (storage_.move(handle, store1, newHandle))
     return 0x2001;
   else
     return 0x2005;
 }
 
-uint32_t MTPD::copyObject(uint32_t handle, uint32_t newStorage,
+uint32_t MTP_class::copyObject(uint32_t handle, uint32_t newStorage,
                           uint32_t newHandle) {
   uint32_t store1 = Storage2Store(newStorage);
   if (newHandle == 0) newHandle = store1;
 
-  return storage_->copy(handle, store1, newHandle);
+  return storage_.copy(handle, store1, newHandle);
 }
 
-void MTPD::openSession(uint32_t id) {
+void MTP_class::openSession(uint32_t id) {
   sessionID_ = id;
-  storage_->ResetIndex();
+  storage_.ResetIndex();
 }
 
 
@@ -837,7 +841,7 @@ void MTPD::openSession(uint32_t id) {
 #if defined(__MK20DX128__) || defined(__MK20DX256__) ||                        \
     defined(__MK64FX512__) || defined(__MK66FX1M0__)
 
-bool MTPD::receive_bulk(uint32_t timeout) { // T3
+bool MTP_class::receive_bulk(uint32_t timeout) { // T3
   elapsedMillis msec = 0;
   while (msec <= timeout) {
     usb_packet_t *packet = usb_rx(MTP_RX_ENDPOINT);
@@ -853,7 +857,7 @@ bool MTPD::receive_bulk(uint32_t timeout) { // T3
   return false;
 }
 
-void MTPD::free_received_bulk() { // T3
+void MTP_class::free_received_bulk() { // T3
   if (receive_buffer.usb) {
     usb_free((usb_packet_t *)receive_buffer.usb);
   }
@@ -862,7 +866,7 @@ void MTPD::free_received_bulk() { // T3
   receive_buffer.usb = NULL;
 }
 
-void MTPD::allocate_transmit_bulk() { // T3
+void MTP_class::allocate_transmit_bulk() { // T3
   while (1) {
     usb_packet_t *packet = usb_malloc();
     if (packet) {
@@ -877,7 +881,7 @@ void MTPD::allocate_transmit_bulk() { // T3
   }
 }
 
-int MTPD::transmit_bulk() { // T3
+int MTP_class::transmit_bulk() { // T3
   usb_packet_t *packet = (usb_packet_t *)transmit_buffer.usb;
   int len = transmit_buffer.len;
   packet->len = len;
@@ -891,7 +895,7 @@ int MTPD::transmit_bulk() { // T3
 
 //  usb_packet_t *data_buffer_ = NULL;
 
-void MTPD::receive_buffer_wait() { // T3 only
+void MTP_class::receive_buffer_wait() { // T3 only
   while (!data_buffer_) {
     data_buffer_ = usb_rx(MTP_RX_ENDPOINT);
     if (!data_buffer_)
@@ -899,7 +903,7 @@ void MTPD::receive_buffer_wait() { // T3 only
   }
 }
 
-bool MTPD::receive_buffer_timeout(uint32_t to) { // T3 only
+bool MTP_class::receive_buffer_timeout(uint32_t to) { // T3 only
   elapsedMillis em = 0;
   while (!data_buffer_) {
     data_buffer_ = usb_rx(MTP_RX_ENDPOINT);
@@ -914,7 +918,7 @@ bool MTPD::receive_buffer_timeout(uint32_t to) { // T3 only
   return true;
 }
 
-void MTPD::get_buffer() { // T3 only
+void MTP_class::get_buffer() { // T3 only
   while (!data_buffer_) {
     data_buffer_ = usb_malloc();
     if (!data_buffer_)
@@ -928,7 +932,7 @@ static uint8_t usb_mtp_status = 0x01;
 
 #elif defined(__IMXRT1062__)
 
-bool MTPD::receive_bulk(uint32_t timeout) { // T4
+bool MTP_class::receive_bulk(uint32_t timeout) { // T4
   if (usb_mtp_status != 0x01) return false;
   receive_buffer.index = 0;
   receive_buffer.size = MTP_RX_SIZE;
@@ -944,12 +948,12 @@ bool MTPD::receive_bulk(uint32_t timeout) { // T4
   }
 }
 
-void MTPD::free_received_bulk() { // T4
+void MTP_class::free_received_bulk() { // T4
   receive_buffer.len = 0;
   receive_buffer.data = NULL;
 }
 
-void MTPD::allocate_transmit_bulk() { // T4
+void MTP_class::allocate_transmit_bulk() { // T4
   transmit_buffer.len = 0;
   transmit_buffer.index = 0;
   transmit_buffer.size = usb_mtp_txSize();
@@ -957,7 +961,7 @@ void MTPD::allocate_transmit_bulk() { // T4
   transmit_buffer.usb = NULL;
 }
 
-int MTPD::transmit_bulk() { // T4
+int MTP_class::transmit_bulk() { // T4
   int r = 0;
   if (usb_mtp_status == 0x01) {
     usb_mtp_send(transmit_buffer.data, transmit_buffer.len, 50);
@@ -968,13 +972,13 @@ int MTPD::transmit_bulk() { // T4
   return r;
 }
 
-int MTPD::pull_packet(uint8_t *data_buffer) { // T4 only
+int MTP_class::pull_packet(uint8_t *data_buffer) { // T4 only
   while (!usb_mtp_available())
     ;
   return usb_mtp_recv(data_buffer, 60);
 }
 
-int MTPD::push_packet(uint8_t *data_buffer, uint32_t len) { // T4 only
+int MTP_class::push_packet(uint8_t *data_buffer, uint32_t len) { // T4 only
   int count_sent;
   uint8_t loop_count = 0;
   while ((count_sent = usb_mtp_send(data_buffer, len, 60)) <= 0) {
@@ -991,7 +995,7 @@ int MTPD::push_packet(uint8_t *data_buffer, uint32_t len) { // T4 only
 
 
 
-void MTPD::read(void *ptr, uint32_t size) {
+void MTP_class::read(void *ptr, uint32_t size) {
   char *data = (char *)ptr;
   while (size > 0) {
     if (receive_buffer.data == NULL) {
@@ -1017,7 +1021,7 @@ void MTPD::read(void *ptr, uint32_t size) {
 
 
 
-void MTPD::write(const void *ptr, int len) {
+void MTP_class::write(const void *ptr, int len) {
   if (len < 0) return;
   if (write_get_length_) {
     write_length_ += len;
@@ -1039,7 +1043,7 @@ void MTPD::write(const void *ptr, int len) {
   }
 }
 
-void MTPD::write_finish() {
+void MTP_class::write_finish() {
   if (transmit_buffer.data == NULL) {
     if (write_length_ == 0) return;
     printf("send a ZLP\n");
@@ -1070,9 +1074,9 @@ void MTPD::write_finish() {
 
 
 
-uint32_t MTPD::GetObject(struct MTPContainer &cmd) {
+uint32_t MTP_class::GetObject(struct MTPContainer &cmd) {
   const int object_id = cmd.params[0];
-  uint32_t size = storage_->GetSize(object_id);
+  uint32_t size = storage_.GetSize(object_id);
   //printf("GetObject, size=%u\n", size);
   cmd.len = size + 12;
   cmd.type = MTP_CONTAINER_TYPE_DATA;
@@ -1089,7 +1093,7 @@ uint32_t MTPD::GetObject(struct MTPContainer &cmd) {
     if (to_copy > avail) to_copy = avail;
     //printf("GetObject, read=%u, pos=%u\n", to_copy, pos);
     // Read directly from storage into usb buffer.
-    storage_->read(object_id, pos,
+    storage_.read(object_id, pos,
                    (char *)(transmit_buffer.data + transmit_buffer.len), to_copy);
     pos += to_copy;
     transmit_buffer.len += to_copy;
@@ -1106,11 +1110,11 @@ uint32_t MTPD::GetObject(struct MTPContainer &cmd) {
 
 
 
-uint32_t MTPD::GetPartialObject(struct MTPContainer &cmd) {
+uint32_t MTP_class::GetPartialObject(struct MTPContainer &cmd) {
   uint32_t object_id = cmd.params[0];
   uint32_t offset = cmd.params[1];
   uint32_t NumBytes = cmd.params[2];
-  uint32_t size = storage_->GetSize(object_id);
+  uint32_t size = storage_.GetSize(object_id);
   size -= offset;
   if (NumBytes < size) {
     size = NumBytes;
@@ -1128,7 +1132,7 @@ uint32_t MTPD::GetPartialObject(struct MTPContainer &cmd) {
     uint32_t avail = transmit_buffer.size - transmit_buffer.len;
     uint32_t to_copy = size - pos;
     if (to_copy > avail) to_copy = avail;
-    storage_->read(object_id, pos,
+    storage_.read(object_id, pos,
                    (char *)(transmit_buffer.data + transmit_buffer.len), to_copy);
     pos += to_copy;
     transmit_buffer.len += to_copy;
@@ -1143,7 +1147,7 @@ uint32_t MTPD::GetPartialObject(struct MTPContainer &cmd) {
 
 
 
-uint32_t MTPD::SendObjectInfo(struct MTPContainer &cmd) { // MTP 1.1 spec, page 223
+uint32_t MTP_class::SendObjectInfo(struct MTPContainer &cmd) { // MTP 1.1 spec, page 223
   uint32_t storage = cmd.params[0];
   uint32_t parent = cmd.params[1];
   printf("SendObjectInfo: %u %u: ", storage, parent);
@@ -1175,29 +1179,29 @@ uint32_t MTPD::SendObjectInfo(struct MTPContainer &cmd) { // MTP 1.1 spec, page 
   printf("size:%u\n", file_size); // size
 
   // Lets see if we have enough room to store this file:
-  uint32_t free_space = storage_->totalSize(store) - storage_->usedSize(store);
+  uint32_t free_space = storage_.totalSize(store) - storage_.usedSize(store);
   if (file_size > free_space) {
     printf("Size of object:%u is > free space: %u\n", file_size, free_space);
     return MTP_RESPONSE_STORAGE_FULL;
   }
-  object_id_ = storage_->Create(store, parent, dir, filename);
+  object_id_ = storage_.Create(store, parent, dir, filename);
   if (object_id_ == 0xFFFFFFFFUL) {
     return MTP_RESPONSE_SPECIFICATION_OF_DESTINATION_UNSUPPORTED;
   }
   if (dir) {
     // lets see if we should update the date and time stamps.
     // if it is dirctory, then sendObject will not be called, so do it now.
-    if (!storage_->updateDateTimeStamps(object_id_, dtCreated_, dtModified_)) {
+    if (!storage_.updateDateTimeStamps(object_id_, dtCreated_, dtModified_)) {
       // BUGBUG: failed to update, maybe FS needs little time to settle in
       // before trying this.
       for (uint8_t i = 0; i < 10; i++) {
         printf("!!!(%d) Try delay and call update time stamps again\n", i);
         delay(25);
-        if (storage_->updateDateTimeStamps(object_id_, dtCreated_, dtModified_))
+        if (storage_.updateDateTimeStamps(object_id_, dtCreated_, dtModified_))
           break;
       }
     }
-    storage_->close();
+    storage_.close();
   }
   cmd.params[2] = object_id_;
   return MTP_RESPONSE_OK | (3<<28); // response with 3 params
@@ -1208,9 +1212,9 @@ uint32_t MTPD::SendObjectInfo(struct MTPContainer &cmd) { // MTP 1.1 spec, page 
 #if defined(__MK20DX128__) || defined(__MK20DX256__) ||                        \
     defined(__MK64FX512__) || defined(__MK66FX1M0__)
 
-bool MTPD::SendObject() { // T3
+bool MTP_class::SendObject() { // T3
   uint32_t len = ReadMTPHeader();
-  printf("MTPD::SendObject %u\n", len);
+  printf("MTP_class::SendObject %u\n", len);
 //  uint32_t expected_read_count = 1 + (len-52+63)/64;
 //  uint32_t read_count = 0;
   while (len) {
@@ -1219,7 +1223,7 @@ bool MTPD::SendObject() { // T3
     uint32_t to_copy = data_buffer_->len - data_buffer_->index;
     to_copy = min(to_copy, len);
     //elapsedMicros emw = 0;
-    bool write_status = storage_->write((char *)(data_buffer_->buf + data_buffer_->index),
+    bool write_status = storage_.write((char *)(data_buffer_->buf + data_buffer_->index),
                          to_copy);
     //printf("    %u %u %u %u\n", len, to_copy, (uint32_t)emw, write_status);
 
@@ -1233,8 +1237,8 @@ bool MTPD::SendObject() { // T3
   }
   // lets see if we should update the date and time stamps.
   //printf(" len:%u loop count:%u Expected: %u\n", len, read_count, expected_read_count);
-  storage_->updateDateTimeStamps(object_id_, dtCreated_, dtModified_);
-  storage_->close();
+  storage_.updateDateTimeStamps(object_id_, dtCreated_, dtModified_);
+  storage_.close();
   return true;
 }
 
@@ -1242,12 +1246,12 @@ bool MTPD::SendObject() { // T3
 #elif defined(__IMXRT1062__)
 
 
-bool MTPD::SendObject() { // T4
+bool MTP_class::SendObject() { // T4
   pull_packet(rx_data_buffer);
   read(0, 0);
   // printContainer(rx_data_buffer);
   uint32_t len = ReadMTPHeader();
-  printf("MTPD::SendObject: len:%u\n", len);
+  printf("MTP_class::SendObject: len:%u\n", len);
   disk_pos = 0;
   elapsedMicros em_total = 0;
 
@@ -1279,7 +1283,7 @@ bool MTPD::SendObject() { // T4
   while ((int)len > 0) {
     // check mtp status
     if (usb_mtp_status != 0x1) {
-      printf("\nMTPD::SendObject *** MTP status %x ***\n", usb_mtp_status);
+      printf("\nMTP_class::SendObject *** MTP status %x ***\n", usb_mtp_status);
       break;
     }
     // read in next sector
@@ -1293,8 +1297,8 @@ bool MTPD::SendObject() { // T4
       if (em > read_em_max)
         read_em_max = em;
     } else {
-      if (cb_recv == 0) printf("\nMTPD::SendObject *** USB Read 0 bytes ***\n");
-      else printf("\nMTPD::SendObject *** USB Read Timeout ***\n");
+      if (cb_recv == 0) printf("\nMTP_class::SendObject *** USB Read 0 bytes ***\n");
+      else printf("\nMTP_class::SendObject *** USB Read Timeout ***\n");
       break; //
     }
 
@@ -1311,7 +1315,7 @@ bool MTPD::SendObject() { // T4
     //
     if (disk_pos == DISK_BUFFER_SIZE) {
       elapsedMillis emWrite = 0;
-      if (storage_->write((const char *)disk_buffer_, DISK_BUFFER_SIZE) <
+      if (storage_.write((const char *)disk_buffer_, DISK_BUFFER_SIZE) <
           DISK_BUFFER_SIZE)
         return false;
       uint32_t em = emWrite;
@@ -1346,7 +1350,7 @@ bool MTPD::SendObject() { // T4
   //  printf("len %d diskpos: %u\n", len, disk_pos);
   if (disk_pos) {
     elapsedMillis emWrite = 0;
-    if (storage_->write((const char *)disk_buffer_, disk_pos) < disk_pos)
+    if (storage_.write((const char *)disk_buffer_, disk_pos) < disk_pos)
       return false;
     uint32_t em = emWrite;
     last_n_write_times[c_write_em & 0x1f] = em;
@@ -1366,9 +1370,9 @@ bool MTPD::SendObject() { // T4
   }
 
   // lets see if we should update the date and time stamps.
-  storage_->updateDateTimeStamps(object_id_, dtCreated_, dtModified_);
+  storage_.updateDateTimeStamps(object_id_, dtCreated_, dtModified_);
 
-  storage_->close();
+  storage_.close();
 
   if (c_read_em)
     printf(" # USB Packets: %u total: %u avg ms: %u max: %u\n", c_read_em,
@@ -1392,7 +1396,7 @@ bool MTPD::SendObject() { // T4
   return (len == 0);
 }
 
-void MTPD::check_memcpy(uint8_t *pdest, const uint8_t *psrc, size_t size, const uint8_t *pb, size_t pb_size) { // T4
+void MTP_class::check_memcpy(uint8_t *pdest, const uint8_t *psrc, size_t size, const uint8_t *pb, size_t pb_size) { // T4
   static uint32_t call_count = 0;
   call_count++;
   if (((uint32_t)pdest < (uint32_t)pb) || (((uint32_t)pdest + size) > ((uint32_t)pb + pb_size)) ) {
@@ -1409,14 +1413,14 @@ void MTPD::check_memcpy(uint8_t *pdest, const uint8_t *psrc, size_t size, const 
 #if defined(__MK20DX128__) || defined(__MK20DX256__) ||                        \
     defined(__MK64FX512__) || defined(__MK66FX1M0__)
 
-uint32_t MTPD::setObjectPropValue(uint32_t p1, uint32_t p2) { // T3
+uint32_t MTP_class::setObjectPropValue(uint32_t p1, uint32_t p2) { // T3
   receive_buffer_wait();
   if (p2 == 0xDC07) {
     char filename[MAX_FILENAME_LEN];
     ReadMTPHeader();
     readstring(filename, sizeof(filename));
 
-    storage_->rename(p1, filename);
+    storage_.rename(p1, filename);
 
     return 0x2001;
   } else
@@ -1425,7 +1429,7 @@ uint32_t MTPD::setObjectPropValue(uint32_t p1, uint32_t p2) { // T3
 
 #elif defined(__IMXRT1062__)
 
-uint32_t MTPD::setObjectPropValue(uint32_t handle, uint32_t p2) { // T4 only
+uint32_t MTP_class::setObjectPropValue(uint32_t handle, uint32_t p2) { // T4 only
   pull_packet(rx_data_buffer);
   read(0, 0);
   // printContainer(rx_data_buffer);
@@ -1434,7 +1438,7 @@ uint32_t MTPD::setObjectPropValue(uint32_t handle, uint32_t p2) { // T4 only
     char filename[MAX_FILENAME_LEN];
     ReadMTPHeader();
     readstring(filename, sizeof(filename));
-    if (storage_->rename(handle, filename))
+    if (storage_.rename(handle, filename))
       return 0x2001;
     else
       return 0x2005;
@@ -1447,7 +1451,7 @@ uint32_t MTPD::setObjectPropValue(uint32_t handle, uint32_t p2) { // T4 only
 
 
 
-uint32_t MTPD::formatStore(struct MTPContainer &cmd) {
+uint32_t MTP_class::formatStore(struct MTPContainer &cmd) {
   printf("formatStore begin\n");
   const uint32_t store = Storage2Store(cmd.params[0]);
   const uint32_t format = cmd.params[1];
@@ -1455,11 +1459,11 @@ uint32_t MTPD::formatStore(struct MTPContainer &cmd) {
   dtFormatStart_ = millis();  // remember when format started
   g_intervaltimer.begin(&_interval_timer_handler, 50000); // 20 Hz
   elapsedMillis msec = 0;
-  uint8_t success = storage_->formatStore(store, format);
+  uint8_t success = storage_.formatStore(store, format);
   if (g_pmtpd_interval) g_intervaltimer.end();
   printf("formatStore success=%u, format took %u ms\n", success, (uint32_t)msec);
   if (success) {
-    storage_->ResetIndex(); // maybe should add a less of sledge hammer here.
+    storage_.ResetIndex(); // maybe should add a less of sledge hammer here.
     // send_DeviceResetEvent();
     return MTP_RESPONSE_OK;
   } else {
@@ -1469,15 +1473,15 @@ uint32_t MTPD::formatStore(struct MTPContainer &cmd) {
 
 
 
-MTPD *MTPD::g_pmtpd_interval = nullptr;
-IntervalTimer MTPD::g_intervaltimer;
+MTP_class *MTP_class::g_pmtpd_interval = nullptr;
+IntervalTimer MTP_class::g_intervaltimer;
 
-void MTPD::_interval_timer_handler() {
+void MTP_class::_interval_timer_handler() {
   if (g_pmtpd_interval)
     g_pmtpd_interval->processIntervalTimer();
 }
 
-void MTPD::processIntervalTimer() { // T3
+void MTP_class::processIntervalTimer() { // T3
   if (receive_bulk(0)) {
     if (receive_buffer.len >= 12 && receive_buffer.len <= 32) {
       struct MTPContainer container;
@@ -1530,7 +1534,7 @@ void MTPD::processIntervalTimer() { // T3
 
 
 
-void MTPD::loop(void) {
+void MTP_class::loop(void) {
   if (g_pmtpd_interval) {
     g_pmtpd_interval = nullptr; // clear out timer.
     g_intervaltimer.end();      // try maybe 20 times per second...
@@ -1574,7 +1578,7 @@ void MTPD::loop(void) {
           break;
 
         case 0x1003: // CloseSession
-          printf("MTPD::CloseSession\n");
+          printf("MTP_class::CloseSession\n");
           sessionID_ = 0; //
           break;
 
@@ -1615,7 +1619,7 @@ void MTPD::loop(void) {
           if (p2) {
             return_code = 0x2014; // spec by format unsupported
           } else {
-            if (!storage_->DeleteObject(p1)) {
+            if (!storage_.DeleteObject(p1)) {
               return_code = 0x2012; // partial deletion
             }
           }
@@ -1661,7 +1665,7 @@ void MTPD::loop(void) {
             return_code = 0x2005;
           } else {
             container.params[0] = return_code;
-            uint8_t error_code = storage_->getLastError();
+            uint8_t error_code = storage_.getLastError();
             switch (error_code) {
               default:
                 return_code = 0x2001;
@@ -1723,12 +1727,12 @@ void MTPD::loop(void) {
 
   // check here to mske sure the USB status is reset
   if (usb_mtp_status != 0x01) {
-    printf("mtpd::Loop usb_mtp_status %x != 0x1 reset\n", usb_mtp_status);
+    printf("MTP_class::Loop usb_mtp_status %x != 0x1 reset\n", usb_mtp_status);
     usb_mtp_status = 0x01;
   }
 
   // See if Storage needs to do anything
-  storage_->loop();
+  storage_.loop();
 }
 
 
@@ -1872,8 +1876,8 @@ int usb_mtp_sendEvent(const void *buffer, uint32_t len, uint32_t timeout) { // T
 
 const uint32_t EVENT_TIMEOUT = 60;
 
-int MTPD::send_Event(uint16_t eventCode) {
-  printf("*MTPD::send_Event(%x)\n", eventCode);
+int MTP_class::send_Event(uint16_t eventCode) {
+  printf("*MTP_class::send_Event(%x)\n", eventCode);
   MTPContainer event;
   event.len = 12;
   event.op = eventCode;
@@ -1884,8 +1888,8 @@ int MTPD::send_Event(uint16_t eventCode) {
   event.params[2] = 0;
   return usb_mtp_sendEvent((const void *)&event, event.len, EVENT_TIMEOUT);
 }
-int MTPD::send_Event(uint16_t eventCode, uint32_t p1) {
-  printf("*MTPD::send_Event(%x) %x\n", eventCode, p1);
+int MTP_class::send_Event(uint16_t eventCode, uint32_t p1) {
+  printf("*MTP_class::send_Event(%x) %x\n", eventCode, p1);
   MTPContainer event;
   event.len = 16;
   event.op = eventCode;
@@ -1896,8 +1900,8 @@ int MTPD::send_Event(uint16_t eventCode, uint32_t p1) {
   event.params[2] = 0;
   return usb_mtp_sendEvent((const void *)&event, event.len, EVENT_TIMEOUT);
 }
-int MTPD::send_Event(uint16_t eventCode, uint32_t p1, uint32_t p2) {
-  printf("*MTPD::send_Event(%x) %x %x\n", eventCode, p1, p2);
+int MTP_class::send_Event(uint16_t eventCode, uint32_t p1, uint32_t p2) {
+  printf("*MTP_class::send_Event(%x) %x %x\n", eventCode, p1, p2);
   MTPContainer event;
   event.len = 20;
   event.op = eventCode;
@@ -1908,7 +1912,7 @@ int MTPD::send_Event(uint16_t eventCode, uint32_t p1, uint32_t p2) {
   event.params[2] = 0;
   return usb_mtp_sendEvent((const void *)&event, event.len, EVENT_TIMEOUT);
 }
-int MTPD::send_Event(uint16_t eventCode, uint32_t p1, uint32_t p2,
+int MTP_class::send_Event(uint16_t eventCode, uint32_t p1, uint32_t p2,
                      uint32_t p3) {
   MTPContainer event;
   event.len = 24;
@@ -1921,38 +1925,38 @@ int MTPD::send_Event(uint16_t eventCode, uint32_t p1, uint32_t p2,
   return usb_mtp_sendEvent((const void *)&event, event.len, EVENT_TIMEOUT);
 }
 
-int MTPD::send_DeviceResetEvent(void) {
+int MTP_class::send_DeviceResetEvent(void) {
   storage_ids_sent_ = false;  // clear it for now
   return send_Event(MTP_EVENT_DEVICE_RESET);
 }
 // following WIP
-int MTPD::send_StorageInfoChangedEvent(uint32_t p1) {
+int MTP_class::send_StorageInfoChangedEvent(uint32_t p1) {
   return send_Event(MTP_EVENT_STORAGE_INFO_CHANGED, Store2Storage(p1));
 }
 
 // following not tested
-int MTPD::send_addObjectEvent(uint32_t p1) {
+int MTP_class::send_addObjectEvent(uint32_t p1) {
   return send_Event(MTP_EVENT_OBJECT_ADDED, p1);
 }
-int MTPD::send_removeObjectEvent(uint32_t p1) {
+int MTP_class::send_removeObjectEvent(uint32_t p1) {
   return send_Event(MTP_EVENT_OBJECT_REMOVED, p1);
 }
 
-int MTPD::send_StoreAddedEvent(uint32_t store) {
+int MTP_class::send_StoreAddedEvent(uint32_t store) {
   if (!storage_ids_sent_) return 0; // Don't need to send.
 
   return send_Event(MTP_EVENT_STORE_ADDED, Store2Storage(store));
 }
 
-int MTPD::send_StoreRemovedEvent(uint32_t store) {
+int MTP_class::send_StoreRemovedEvent(uint32_t store) {
   if (!storage_ids_sent_) return 0; // Don't need to send.
   return send_Event(MTP_EVENT_STORE_REMOVED, Store2Storage(store));
 }
 
-bool MTPD::send_addObjectEvent(uint32_t store, const char *pathname) {
+bool MTP_class::send_addObjectEvent(uint32_t store, const char *pathname) {
   bool node_added = false;
   uint32_t handle =
-      storage_->MapFileNameToIndex(store, pathname, true, &node_added);
+      storage_.MapFileNameToIndex(store, pathname, true, &node_added);
   printf("notifyFileCreated: %x:%x maps to handle: %x\n", store, pathname,
          handle);
   if (handle != 0xFFFFFFFFUL) {
@@ -1962,9 +1966,9 @@ bool MTPD::send_addObjectEvent(uint32_t store, const char *pathname) {
   return false;
 }
 
-bool MTPD::send_removeObjectEvent(uint32_t store, const char *pathname) {
+bool MTP_class::send_removeObjectEvent(uint32_t store, const char *pathname) {
   uint32_t handle =
-      storage_->MapFileNameToIndex(store, pathname, false, nullptr);
+      storage_.MapFileNameToIndex(store, pathname, false, nullptr);
   printf("notifyFileRemoved: %x:%x maps to handle: %x\n", store, pathname,
          handle);
   if (handle != 0xFFFFFFFFUL) {
@@ -1979,7 +1983,7 @@ bool MTPD::send_removeObjectEvent(uint32_t store, const char *pathname) {
 
 
 
-void MTPD::printContainer(const void *container, const char *msg) {
+void MTP_class::printContainer(const void *container, const char *msg) {
   const struct MTPContainer *c = (const struct MTPContainer *)container;
 #ifndef MTP_VERBOSE_PRINT_CONTAINER
   printf("%x %d %d %d: ", c->op, c->len, c->type, c->transaction_id);

@@ -5,8 +5,6 @@
 #error "This only runs on a Teesny 4.1 with a QSPI Flash chip installed on bottom of board"
 #endif
 
-MTPStorage storage;     // TODO: storage inside MTP instance, not separate class
-MTPD    MTP(&storage);  // TODO: MTP instance created by default
 
 LittleFS_QSPI qspi;
 void setup()
@@ -25,7 +23,7 @@ void setup()
   
   // try to add QSPI Flash
   if (qspi.begin()) {
-    storage.addFilesystem(qspi, qspi.displayName());
+    MTP.addFilesystem(qspi, qspi.displayName());
   } else {
     Serial.println("No QSPI Flash found");
   }
@@ -42,14 +40,14 @@ void loop()
     switch (command) {
       case '1':
         // first dump list of storages:
-        fsCount = storage.getFSCount();
+        fsCount = MTP.storage()->getFSCount();
         Serial.printf("\nDump Storage list(%u)\n", fsCount);
         for (uint32_t ii = 0; ii < fsCount; ii++) {
           Serial.printf("store:%u storage:%x name:%s fs:%x\n", ii, MTP.Store2Storage(ii),
-                           storage.getStoreName(ii), (uint32_t)storage.getStoreFS(ii));
+                           MTP.storage()->getStoreName(ii), (uint32_t)MTP.storage()->getStoreFS(ii));
         }
         Serial.println("\nDump Index List");
-        storage.dumpIndexList();
+        MTP.storage()->dumpIndexList();
         break;
       case'r':
         Serial.println("Reset");
