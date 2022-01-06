@@ -906,10 +906,14 @@ void MTPD::get_buffer() { // T3 only
   }
 }
 
+// TODO: core library not yet implementing cancel on Teensy 3.x
+static uint8_t usb_mtp_status = 0x01;
+
 
 #elif defined(__IMXRT1062__)
 
 bool MTPD::receive_bulk(uint32_t timeout) { // T4
+  if (usb_mtp_status != 0x01) return false;
   receive_buffer.index = 0;
   receive_buffer.size = MTP_RX_SIZE;
   receive_buffer.usb = NULL;
@@ -938,7 +942,10 @@ void MTPD::allocate_transmit_bulk() { // T4
 }
 
 int MTPD::transmit_bulk() { // T4
-  int r = usb_mtp_send(transmit_buffer.data, transmit_buffer.len, 50);
+  int r = 0;
+  if (usb_mtp_status == 0x01) {
+    usb_mtp_send(transmit_buffer.data, transmit_buffer.len, 50);
+  }
   transmit_buffer.len = 0;
   transmit_buffer.index = 0;
   transmit_buffer.data = NULL;
@@ -1096,99 +1103,38 @@ void MTPD::write_finish() {
 
 
 
-
-#if 1
-
-void MTPD::GetObject(uint32_t object_id) {
+uint32_t MTPD::GetObject(struct MTPContainer &cmd) {
+  const int object_id = cmd.params[0];
   uint32_t size = storage_->GetSize(object_id);
-  if (write_get_length_) {
-    write_length_ += size;
-  } else {
-    printf("GetObject, size=%u\n", size);
-    uint32_t pos = 0;
-    while (pos < size) {
-      if (transmit_buffer.data == NULL) allocate_transmit_bulk();
-      uint32_t avail = transmit_buffer.size - transmit_buffer.len;
-      uint32_t to_copy = size - pos;
-      if (to_copy > avail) to_copy = avail;
-      // Read directly from storage into usb buffer.
-      printf("GetObject, read=%u, pos=%u\n", to_copy, pos);
-      storage_->read(object_id, pos,
-                     (char *)(transmit_buffer.data + transmit_buffer.len), to_copy);
-      pos += to_copy;
-      transmit_buffer.len += to_copy;
-      if (transmit_buffer.len >= transmit_buffer.size) {
-        transmit_bulk();
-      }
+  //printf("GetObject, size=%u\n", size);
+  cmd.len = size + 12;
+  cmd.type = 2;
+  write((char *)&cmd, 12);
+  uint32_t pos = 0;
+  while (pos < size) {
+    if (usb_mtp_status != 0x01) {
+      //printf("GetObject, abort\n");
+      return 0;
     }
-    printf("GetObject, done\n");
+    if (transmit_buffer.data == NULL) allocate_transmit_bulk();
+    uint32_t avail = transmit_buffer.size - transmit_buffer.len;
+    uint32_t to_copy = size - pos;
+    if (to_copy > avail) to_copy = avail;
+    //printf("GetObject, read=%u, pos=%u\n", to_copy, pos);
+    // Read directly from storage into usb buffer.
+    storage_->read(object_id, pos,
+                   (char *)(transmit_buffer.data + transmit_buffer.len), to_copy);
+    pos += to_copy;
+    transmit_buffer.len += to_copy;
+    if (transmit_buffer.len >= transmit_buffer.size) {
+      transmit_bulk();
+    }
   }
+  write_finish();
+  //printf("GetObject, done\n");
+  return MTP_RESPONSE_OK;
 }
 
-#else
-
-void MTPD::GetObject(uint32_t object_id) { // T4 (broken)
-  uint32_t size = storage_->GetSize(object_id);
-  int ret;
-  printf("\nGetObject(%u) size: %u\n", object_id, size);
-  if (write_get_length_) {
-    write_length_ += size;
-  } else {
-    uint32_t pos = 0; // into data
-    uint32_t len = sizeof(MTPHeader);
-
-    // hack to use the storage error...
-    storage_->setLastError(0); // no error.
-    disk_pos = DISK_BUFFER_SIZE;
-    while (pos < size) {
-      if (usb_mtp_status != 0x1) {
-        printf("\nMTPD::GetObject *** MTP status %x ***\n", usb_mtp_status);
-        break;
-      }
-      if (disk_pos == DISK_BUFFER_SIZE) {
-        uint32_t nread = min(size - pos, (uint32_t)DISK_BUFFER_SIZE);
-        storage_->read(object_id, pos, (char *)disk_buffer_, nread);
-        printf("  >>r p:%u l:%u\n", pos, nread);
-        disk_pos = 0;
-      }
-
-      uint32_t to_copy = min(size - pos, mtp_tx_size_ - len);
-      to_copy = min(to_copy, DISK_BUFFER_SIZE - disk_pos);
-
-      memcpy(tx_data_buffer + len, disk_buffer_ + disk_pos, to_copy);
-      disk_pos += to_copy;
-      pos += to_copy;
-      len += to_copy;
-
-      if (len == (uint32_t)mtp_tx_size_) {
-        ret = push_packet(tx_data_buffer, mtp_tx_size_);
-        printf("    >>w dp:%u p:%u len:%u ret:%d\n", disk_pos, pos, len, ret);
-        if (ret <= 0) {
-          printf("    >> write failed - abort\n");
-          storage_->setLastError(MTPStorage::WRITE_ERROR); // no error.
-          break;
-        }
-
-        len = 0;
-      }
-    }
-    printf("    >>>>w len:%u\n", len);
-    if ((pos == size) && (len > 0)) {
-      // experiment zero out remaining part...
-      memset(tx_data_buffer + len, 0, mtp_tx_size_ - len);
-      //push_packet(tx_data_buffer, mtp_tx_size_);
-      ret = push_packet(tx_data_buffer, len);
-      if (ret <= 0) {
-          printf("    >> write failed - abort\n");
-          storage_->setLastError(MTPStorage::WRITE_ERROR); // no error.
-      }
-      len = 0;
-    }
-    printf("    >><< Done\n");
-  }
-}
-
-#endif
 
 
 
@@ -1470,19 +1416,6 @@ bool MTPD::SendObject() { // T3
   return true;
 }
 
-uint32_t MTPD::setObjectPropValue(uint32_t p1, uint32_t p2) { // T3
-  receive_buffer_wait();
-  if (p2 == 0xDC07) {
-    char filename[MAX_FILENAME_LEN];
-    ReadMTPHeader();
-    readstring(filename, sizeof(filename));
-
-    storage_->rename(p1, filename);
-
-    return 0x2001;
-  } else
-    return 0x2005;
-}
 
 #elif defined(__IMXRT1062__)
 
@@ -1650,7 +1583,25 @@ void MTPD::check_memcpy(uint8_t *pdest, const uint8_t *psrc, size_t size, const 
 
 
 
-#if defined(__IMXRT1062__)
+
+#if defined(__MK20DX128__) || defined(__MK20DX256__) ||                        \
+    defined(__MK64FX512__) || defined(__MK66FX1M0__)
+
+uint32_t MTPD::setObjectPropValue(uint32_t p1, uint32_t p2) { // T3
+  receive_buffer_wait();
+  if (p2 == 0xDC07) {
+    char filename[MAX_FILENAME_LEN];
+    ReadMTPHeader();
+    readstring(filename, sizeof(filename));
+
+    storage_->rename(p1, filename);
+
+    return 0x2001;
+  } else
+    return 0x2005;
+}
+
+#elif defined(__IMXRT1062__)
 
 uint32_t MTPD::setObjectPropValue(uint32_t handle, uint32_t p2) { // T4 only
   pull_packet(rx_data_buffer);
@@ -1818,11 +1769,6 @@ void MTPD::loop(void) { // T3
     g_intervaltimer.end();      // try maybe 20 times per second...
     printf("*** end Interval Timer ***\n");
   }
-  //usb_packet_t *receive_buffer;
-  //if ((receive_buffer = usb_rx(MTP_RX_ENDPOINT))) {
-    //struct MTPContainer *container = (struct MTPContainer *)(receive_buffer->buf);
-    //printContainer(container);
-
   if (receive_bulk(0)) {
     if (receive_buffer.len >= 12 && receive_buffer.len <= 32) {
       struct MTPContainer container;
@@ -1877,7 +1823,7 @@ void MTPD::loop(void) { // T3
           TRANSMIT(GetObjectInfo(p1));
           break;
         case 0x1009: // GetObject
-          TRANSMIT(GetObject(p1));
+          return_code = GetObject(container);
           break;
         case 0x100B: // DeleteObject
           if (p2) {
@@ -1956,15 +1902,18 @@ void MTPD::loop(void) { // T3
       }
 
       if (return_code) {
+        container.len = 12;
         container.type = 3;
         container.op = return_code;
 #if DEBUG > 1
         printContainer(&container);
 #endif
-        allocate_transmit_bulk();
-        memcpy(transmit_buffer.data, &container, container.len);
-	transmit_buffer.len = container.len;
-        transmit_bulk();
+        write((char *)&container, 12);
+        write_finish();
+        //allocate_transmit_bulk();
+        //memcpy(transmit_buffer.data, &container, container.len);
+	//transmit_buffer.len = container.len;
+        //transmit_bulk();
       }
     } else {
       printf("ERROR: loop received command with %u bytes\n", receive_buffer.len);
@@ -2056,8 +2005,7 @@ void MTPD::loop(void) { // T4
           break;
 
         case 0x1009: // GetObject
-          TRANSMIT(GetObject(p1));
-          if (storage_->getLastError() != 0) return_code = MTP_RESPONSE_INCOMPLETE_TRANSFER;
+          return_code = GetObject(container);
           break;
 
         case 0x100B: // DeleteObject
@@ -2159,25 +2107,20 @@ void MTPD::loop(void) { // T4
           return_code = 0x2005; // operation not supported
           break;
         }
-        if (usb_mtp_status != 0x01) {
+        /*if (usb_mtp_status != 0x01) {
           // Guess if USB not correct try to reset and not send response
           printf("mtpd::Loop usb_mtp_status %x != 0x1 reset\n", usb_mtp_status);
           usb_mtp_status = 0x01;
-        } else if (return_code) {
+        } else */
+        if (return_code) {
+          container.len = 12;
           container.type = 3;
-          if (len > 512) {// BUGBUG::Core usb should let use know packet size...
-            len = 512; //
-            printf("!!! RX Packet length > 512 Set to 512\n");
-          }
-          container.len = len;
           container.op = return_code;
-          container.transaction_id = id;
-          container.params[0] = p1;
   #if DEBUG > 1
           printContainer(&container); // to switch on set debug to 2 at beginning of file
   #endif
-          memcpy(tx_data_buffer, &container, len);
-          push_packet(tx_data_buffer, len); // send response block with return code
+          write((char *)&container, 12);
+          write_finish();
         }
       } else {
         printf("!!! unexpected/unknown message type:%d len:%d op:%d\n", typ, len, op);

@@ -163,7 +163,8 @@ private:
   void GetObjectHandles(uint32_t storage, uint32_t parent);
 
   void GetObjectInfo(uint32_t handle);
-  void GetObject(uint32_t object_id);
+  //void GetObject(uint32_t object_id);
+  uint32_t GetObject(struct MTPContainer &cmd);
   uint32_t GetPartialObject(uint32_t object_id, uint32_t offset,
                             uint32_t NumBytes);
 
