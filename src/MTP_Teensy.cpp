@@ -1760,181 +1760,8 @@ void MTPD::processIntervalTimer() { // T3
 }
 
 
-#if defined(__MK20DX128__) || defined(__MK20DX256__) || \
-    defined(__MK64FX512__) || defined(__MK66FX1M0__)
 
-void MTPD::loop(void) { // T3
-  if (g_pmtpd_interval) {
-    g_pmtpd_interval = nullptr; // clear out timer.
-    g_intervaltimer.end();      // try maybe 20 times per second...
-    printf("*** end Interval Timer ***\n");
-  }
-  if (receive_bulk(0)) {
-    if (receive_buffer.len >= 12 && receive_buffer.len <= 32) {
-      struct MTPContainer container;
-      memset(&container, 0, sizeof(container));
-      memcpy(&container, receive_buffer.data, receive_buffer.len);
-      free_received_bulk();
-      printContainer(&container, "loop:");
-
-      int op = container.op;
-      int p1 = container.params[0];
-      int p2 = container.params[1];
-      int p3 = container.params[2];
-      int id = container.transaction_id;
-      int typ = container.type;
-      TID = id;
-
-      uint32_t return_code = 0x2001; // 0x2001=OK
-      //op_needs_callback_ = false;
-      if (typ == 1) { // command
-      switch (op) {
-        case 0x1001: // GetDescription
-          TRANSMIT(WriteDescriptor());
-          break;
-        case 0x1002: // OpenSession
-          openSession(p1);
-          break;
-        case 0x1003: // CloseSession
-          printf("MTPD::CloseSession\n");
-          sessionID_ = 0; //
-          break;
-        case 0x1004: // GetStorageIDs
-          TRANSMIT(WriteStorageIDs());
-          break;
-        case 0x1005: // GetStorageInfo
-          TRANSMIT(GetStorageInfo(p1));
-          break;
-        case 0x1006: // GetNumObjects
-          if (p2) {
-            return_code = 0x2014; // spec by format unsupported
-          } else {
-            container.params[0] = GetNumObjects(p1, p3);
-          }
-          break;
-        case 0x1007: // GetObjectHandles
-          if (p2) {
-            return_code = 0x2014; // spec by format unsupported
-          } else {
-            TRANSMIT(GetObjectHandles(p1, p3));
-          }
-          break;
-        case 0x1008: // GetObjectInfo
-          TRANSMIT(GetObjectInfo(p1));
-          break;
-        case 0x1009: // GetObject
-          return_code = GetObject(container);
-          break;
-        case 0x100B: // DeleteObject
-          if (p2) {
-            return_code = 0x2014; // spec by format unsupported
-          } else {
-            if (!storage_->DeleteObject(p1)) {
-              return_code = 0x2012; // partial deletion
-            }
-          }
-          break;
-        case 0x100C:                        // SendObjectInfo
-          return_code = SendObjectInfo(p1,  // storage
-                                       p2,  // parent
-                                       p3); // returned new object ID
-          container.params[1] = p2;
-          container.params[2] = p3;
-          container.len = 12 + 3 * 4;
-          break;
-        case 0x100D: // SendObject
-          SendObject();
-          break;
-        case 0x100F: // FormatStore
-          return_code = formatStore(p1, p2, false);
-          break;
-
-        case 0x1014: // GetDevicePropDesc
-          TRANSMIT(GetDevicePropDesc(p1));
-          break;
-        case 0x1015: // GetDevicePropvalue
-          TRANSMIT(GetDevicePropValue(p1));
-          break;
-
-        case 0x1010: // Reset
-          return_code = 0x2005;
-          break;
-
-        case 0x1019: // MoveObject
-          return_code = moveObject(p1, p2, p3);
-          container.len = 12;
-          break;
-
-        case 0x101A: // CopyObject
-          return_code = copyObject(p1, p2, p3);
-          if (!return_code) {
-            container.len = 12;
-            return_code = 0x2005;
-          } else {
-            container.params[0] = return_code;
-            container.len = 16;
-            return_code = 0x2001;
-          }
-          break;
-
-        case 0x9801: // getObjectPropsSupported
-          TRANSMIT(getObjectPropsSupported(p1));
-          break;
-
-        case 0x9802: // getObjectPropDesc
-          TRANSMIT(getObjectPropDesc(p1, p2));
-          break;
-
-        case 0x9803: // getObjectPropertyValue
-          TRANSMIT(getObjectPropValue(p1, p2));
-          break;
-
-        case 0x9804: // setObjectPropertyValue
-          return_code = setObjectPropValue(p1, p2);
-          break;
-
-        default:
-          return_code = 0x2005; // operation not supported
-          break;
-        }
-      } else {
-        return_code = 0x2000; // undefined
-      }
-
-      if (return_code) {
-        container.len = 12;
-        container.type = 3;
-        container.op = return_code;
-#if DEBUG > 1
-        printContainer(&container);
-#endif
-        write((char *)&container, 12);
-        write_finish();
-        //allocate_transmit_bulk();
-        //memcpy(transmit_buffer.data, &container, container.len);
-	//transmit_buffer.len = container.len;
-        //transmit_bulk();
-      }
-    } else {
-      printf("ERROR: loop received command with %u bytes\n", receive_buffer.len);
-      free_received_bulk();
-    }
-  }
-  // Maybe put event handling inside mtp_yield()?
-  //if ((receive_buffer = usb_rx(MTP_EVENT_ENDPOINT)) != NULL) {
-    //printf("Event: ");
-    //printContainer(receive_buffer);
-    //usb_free(receive_buffer);
-  //}
-  // See if Storage needs to do anything
-  storage_->loop();
-}
-
-
-#elif defined(__IMXRT1062__)
-
-
-void MTPD::loop(void) { // T4
+void MTPD::loop(void) {
   if (g_pmtpd_interval) {
     g_pmtpd_interval = nullptr; // clear out timer.
     g_intervaltimer.end();      // try maybe 20 times per second...
@@ -1958,16 +1785,13 @@ void MTPD::loop(void) { // T4
       TID = id;
       int return_code = 0x2001; // OK use as default value
 
-      if ((typ == MTP_CONTAINER_TYPE_COMMAND) || (typ == MTP_CONTAINER_TYPE_DATA)) {
-        if (typ == MTP_CONTAINER_TYPE_DATA)
-          return_code = 0x2005; // we should only get cmds
-
+      if (typ == MTP_CONTAINER_TYPE_COMMAND) {
         switch (op) {
-        case 0x1001:
+        case 0x1001: // GetDeviceInfo
           TRANSMIT(WriteDescriptor());
           break;
 
-        case 0x1002: // open session
+        case 0x1002: // OpenSession
           openSession(p1);
           break;
 
@@ -2083,9 +1907,11 @@ void MTPD::loop(void) { // T4
           }
           break;
 
+#if defined(__IMXRT1062__)
         case 0x101B: // GetPartialObject
           TRANSMIT1(GetPartialObject(p1, p2, p3));
           break;
+#endif
 
         case 0x9801: // getObjectPropsSupported
           TRANSMIT(getObjectPropsSupported(p1));
@@ -2107,23 +1933,25 @@ void MTPD::loop(void) { // T4
           return_code = 0x2005; // operation not supported
           break;
         }
+      } else {
+        return_code = 0x2005; // we should only get cmds
+        printf("!!! unexpected/unknown message type:%d len:%d op:%d\n", typ, len, op);
+      }
+
         /*if (usb_mtp_status != 0x01) {
           // Guess if USB not correct try to reset and not send response
           printf("mtpd::Loop usb_mtp_status %x != 0x1 reset\n", usb_mtp_status);
           usb_mtp_status = 0x01;
         } else */
-        if (return_code) {
-          container.len = 12;
-          container.type = 3;
-          container.op = return_code;
-  #if DEBUG > 1
-          printContainer(&container); // to switch on set debug to 2 at beginning of file
-  #endif
-          write((char *)&container, 12);
-          write_finish();
-        }
-      } else {
-        printf("!!! unexpected/unknown message type:%d len:%d op:%d\n", typ, len, op);
+      if (return_code) {
+        container.len = 12 + (return_code >> 28) * 4;
+        container.op = return_code & 0xFFFF;
+        container.type = MTP_CONTAINER_TYPE_RESPONSE;
+        #if DEBUG > 1
+        printContainer(&container); // to switch on set debug to 2 at beginning of file
+        #endif
+        write((char *)&container, container.len);
+        write_finish();
       }
     } else {
       printf("ERROR: loop received command with %u bytes\n", receive_buffer.len);
@@ -2141,7 +1969,7 @@ void MTPD::loop(void) { // T4
   storage_->loop();
 }
 
-#endif // __IMXRT1062__
+
 
 
 
