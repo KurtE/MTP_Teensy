@@ -128,7 +128,6 @@ private:
   uint32_t disk_pos = 0;
 
   int push_packet(uint8_t *data_buffer, uint32_t len); // TODO: delete me
-  int fetch_packet(uint8_t *data_buffer); // TODO: delete me
   int pull_packet(uint8_t *data_buffer); // TODO: delete me
 
   static const uint32_t SENDOBJECT_READ_TIMEOUT_MS = 1000;

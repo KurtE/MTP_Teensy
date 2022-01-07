@@ -974,10 +974,6 @@ int MTPD::pull_packet(uint8_t *data_buffer) { // T4 only
   return usb_mtp_recv(data_buffer, 60);
 }
 
-int MTPD::fetch_packet(uint8_t *data_buffer) { // T4 only
-  return usb_mtp_recv(data_buffer, 60);
-}
-
 int MTPD::push_packet(uint8_t *data_buffer, uint32_t len) { // T4 only
   int count_sent;
   uint8_t loop_count = 0;
@@ -1054,11 +1050,6 @@ void MTPD::write_finish() {
 
 
 
-
-
-#if defined(__MK20DX128__) || defined(__MK20DX256__) ||                        \
-    defined(__MK64FX512__) || defined(__MK66FX1M0__)
-
 #define TRANSMIT(FUN)                                                          \
   do {                                                                         \
     write_length_ = 0;                                                         \
@@ -1070,34 +1061,10 @@ void MTPD::write_finish() {
     header.type = 2;                                                           \
     header.op = container.op;                                                  \
     header.transaction_id = container.transaction_id;                          \
-    write(&header, sizeof(header));                                            \
+    write(&header, 12);                                                        \
     FUN;                                                                       \
     write_finish();                                                            \
   } while (0)
-
-#elif defined(__IMXRT1062__)
-
-#define TRANSMIT(FUN)                                                          \
-  do {                                                                         \
-    write_length_ = 0;                                                         \
-    write_get_length_ = true;                                                  \
-    FUN;                                                                       \
-                                                                               \
-    MTPHeader header;                                                          \
-    header.len = write_length_ + sizeof(header);                               \
-    header.type = 2;                                                           \
-    header.op = container.op;                                                  \
-    header.transaction_id = container.transaction_id;                          \
-    write_length_ = 0;                                                         \
-    write_get_length_ = false;                                                 \
-    write(&header, sizeof(header));                                            \
-    FUN;                                                                       \
-    write_finish();                                                            \
-  } while (0)
-
-#endif // __IMXRT1062__
-
-
 
 
 
