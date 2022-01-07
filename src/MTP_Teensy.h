@@ -153,6 +153,7 @@ private:
 
   void writestring(const char *str);
 
+  uint32_t GetDeviceInfo(struct MTPContainer &cmd);
   void WriteDescriptor();
   void WriteStorageIDs();
 

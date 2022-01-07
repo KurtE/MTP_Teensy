@@ -334,7 +334,38 @@ void MTPD::writestring(const char *str) {
   }
 }
 
-void MTPD::WriteDescriptor() {
+
+static uint32_t writestringlen(const char *str) {
+  if (!str) return 1;
+  return strlen(str)*2 + 2 + 1;
+}
+
+
+
+uint32_t MTPD::GetDeviceInfo(struct MTPContainer &cmd) {
+  char buf[20];
+  dtostrf((float)(TEENSYDUINO / 100.0f), 3, 2, buf);
+  strlcat(buf, " / MTP " MTP_VERS, sizeof(buf));
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
+  char sernum[10];
+  for (size_t i = 0; i < 10; i++)
+    sernum[i] = usb_string_serial_number.wString[i];
+#pragma GCC diagnostic pop
+  // DeviceInfo Dataset, MTP 1.1 spec, page 40
+  uint32_t size = 2 + 4 + 2 + writestringlen("microsoft.com: 1.0;") + 2
+                  + 4 + sizeof(supported_op)
+                  + 4 + sizeof(supported_events)
+                  + 4 + 2 + 4 + 4 + 2*2
+                  + writestringlen(MTP_MANUF)
+                  + writestringlen(MTP_MODEL)
+                  + writestringlen(buf)
+                  + writestringlen(sernum);
+  printf("GetDeviceInfo size=%u\n", size);
+  cmd.len = size + 12;
+  cmd.type = MTP_CONTAINER_TYPE_DATA;
+  write((char *)&cmd, 12);
+
   write16(100); // MTP version
   write32(6);   // MTP extension
                 //    write32(0xFFFFFFFFUL);    // MTP extension
@@ -344,13 +375,11 @@ void MTPD::WriteDescriptor() {
 
   // Supported operations (array of uint16)
   write32(supported_op_num);
-  for (int ii = 0; ii < supported_op_num; ii++)
-    write16(supported_op[ii]);
+  write((char *)supported_op, sizeof(supported_op));
 
   // Events (array of uint16)
   write32(supported_event_num);
-  for (int ii = 0; ii < supported_event_num; ii++)
-    write16(supported_events[ii]);
+  write((char *)supported_events, sizeof(supported_events));
 
   write32(1);      // Device properties (array of uint16)
   write16(0xd402); // Device friendly name
@@ -363,20 +392,12 @@ void MTPD::WriteDescriptor() {
 
   writestring(MTP_MANUF); // Manufacturer
   writestring(MTP_MODEL); // Model
-  // writestring(MTP_VERS);      // version
-  // writestring(MTP_SERNR);     // serial
-
-  char buf[20];
-  dtostrf((float)(TEENSYDUINO / 100.0f), 3, 2, buf);
-  strlcat(buf, " / MTP " MTP_VERS, sizeof(buf));
-  writestring(buf);
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Warray-bounds"
-  for (size_t i = 0; i < 10; i++)
-    buf[i] = usb_string_serial_number.wString[i];
-#pragma GCC diagnostic pop
-  writestring(buf);
+  writestring(buf);       // version
+  writestring(sernum);    // serial number
+  write_finish();
+  return MTP_RESPONSE_OK;
 }
+
 
 void MTPD::WriteStorageIDs() {
 
@@ -1694,7 +1715,7 @@ void MTPD::processIntervalTimer() { // T3
       if (container.type == 1) { // command
         switch (op) {
         case MTP_OPERATION_GET_DEVICE_INFO: // GetDescription 0x1001
-          TRANSMIT(WriteDescriptor());
+          return_code = GetDeviceInfo(container);
           break;
         case MTP_OPERATION_OPEN_SESSION: // open session 0x1002
           openSession(p1);
@@ -1765,7 +1786,7 @@ void MTPD::loop(void) {
       if (container.type == MTP_CONTAINER_TYPE_COMMAND) {
         switch (container.op) {
         case 0x1001: // GetDeviceInfo
-          TRANSMIT(WriteDescriptor());
+          return_code = GetDeviceInfo(container);
           break;
 
         case 0x1002: // OpenSession
