@@ -1143,79 +1143,36 @@ uint32_t MTPD::GetPartialObject(struct MTPContainer &cmd) {
 
 
 
-
-
-
-#if defined(__MK20DX128__) || defined(__MK20DX256__) ||                        \
-    defined(__MK64FX512__) || defined(__MK66FX1M0__)
-
-uint32_t MTPD::SendObjectInfo(uint32_t storage, uint32_t parent, int &object_id) { // T3
-  uint32_t len = ReadMTPHeader();
-  char filename[MAX_FILENAME_LEN];
-  dtCreated_ = 0;
-  dtModified_ = 0;
-
-  printf("SendObjectInfo: %u %u : ", storage, parent);
+uint32_t MTPD::SendObjectInfo(struct MTPContainer &cmd) { // MTP 1.1 spec, page 223
+  uint32_t storage = cmd.params[0];
+  uint32_t parent = cmd.params[1];
+  printf("SendObjectInfo: %u %u: ", storage, parent);
   uint32_t store = Storage2Store(storage);
+  ReadMTPHeader();
+  // receive ObjectInfo Dataset, MTP 1.1 spec, page 50
+  char filename[MAX_FILENAME_LEN];
+  uint16_t oformat;
+  uint32_t file_size;
+// TODO: read to return bool whether successful
+  read(NULL, 4);                          // StorageID (unused)
+  oformat = read16();                     // ObjectFormatCode
+  read(NULL, 2);                          // Protection Status (unused)
+  file_size = read32();                   // Object Compressed Size
+  read(NULL, 40);                         // Image info (unused)
+  readstring(filename, sizeof(filename)); // Filename
+  readDateTimeString(&dtCreated_);        // Date Created
+  readDateTimeString(&dtModified_);       // Date Modified
+  readstring(NULL, 1024);                 // Keywords
+// TODO: read complete function (handle ZLP)
 
-  printf("%x ", read32());
-  len -= 4; // storage
-  uint16_t oformat = read16();
-  len -= 2; // format
-  printf("%x ", oformat);
-  bool dir = oformat == 0x3001;
+  bool dir = (oformat == 0x3001);
+
+  printf("%s ", dir ? "dir " : "file ");
+  printf("\"%s\" ", filename);
   printf("%x ", read16());
-  len -= 2; // protection
-  uint32_t file_size = read32();
-  len -= 4;                 // size
-  printf("%x ", file_size); // size
-  printf("%x ", read16());
-  len -= 2; // thumb format
-  printf("%x ", read32());
-  len -= 4; // thumb size
-  printf("%x ", read32());
-  len -= 4; // thumb width
-  printf("%x ", read32());
-  len -= 4; // thumb height
-  printf("%x ", read32());
-  len -= 4; // pix width
-  printf("%x ", read32());
-  len -= 4; // pix height
-  printf("%x ", read32());
-  len -= 4; // bit depth
-  printf("%x ", read32());
-  len -= 4; // parent
-  printf("%x ", read16());
-  len -= 2; // association type
-  printf("%x ", read32());
-  len -= 4; // association description
-  printf("%x ", read32());
-  len -= 4; // sequence number
-
-  readstring(filename, sizeof(filename));
-  len -= (2 * (strlen(filename) + 1) + 1);
-  printf(": %s\n", filename);
-
-  // Next is DateCreated followed by DateModified
-  if (len) {
-    len -= readDateTimeString(&dtCreated_);
-    printf("Created: %x\n", dtCreated_);
-  }
-  if (len) {
-    len -= readDateTimeString(&dtModified_);
-    printf("Modified: %x\n", dtModified_);
-  }
-
-
-  // ignore rest of ObjectInfo
-  while (len >= 4) {
-    read32();
-    len -= 4;
-  }
-  while (len) {
-    read8();
-    len--;
-  }
+  printf("Created:%x ", dtCreated_);
+  printf("Modified:%x ", dtModified_);
+  printf("size:%u\n", file_size); // size
 
   // Lets see if we have enough room to store this file:
   uint32_t free_space = storage_->totalSize(store) - storage_->usedSize(store);
@@ -1223,96 +1180,10 @@ uint32_t MTPD::SendObjectInfo(uint32_t storage, uint32_t parent, int &object_id)
     printf("Size of object:%u is > free space: %u\n", file_size, free_space);
     return MTP_RESPONSE_STORAGE_FULL;
   }
-
-  object_id_ = object_id = storage_->Create(store, parent, dir, filename);
-  if ((uint32_t)object_id == 0xFFFFFFFFUL)
+  object_id_ = storage_->Create(store, parent, dir, filename);
+  if (object_id_ == 0xFFFFFFFFUL) {
     return MTP_RESPONSE_SPECIFICATION_OF_DESTINATION_UNSUPPORTED;
-
-  return MTP_RESPONSE_OK;
-}
-
-#elif defined(__IMXRT1062__)
-
-uint32_t MTPD::SendObjectInfo(uint32_t storage, uint32_t parent, int &object_id) { // T4
-  pull_packet(rx_data_buffer);
-  read(0, 0); // resync read
-  printContainer(rx_data_buffer);
-  printf("SendObjectInfo: %u %u %x: ", storage, parent, (uint32_t)rx_data_buffer);
-  uint32_t store = Storage2Store(storage);
-
-  int len = ReadMTPHeader();
-  char filename[MAX_FILENAME_LEN];
-  dtCreated_ = 0;
-  dtModified_ = 0;
-
-  printf("Len:%d ST:%x ", len, read32());
-  len -= 4; // storage
-  uint16_t oformat = read16();
-  len -= 2; // format
-  printf("F:%x ", oformat);
-  bool dir = oformat == 0x3001;
-  printf("%x ", read16());
-  len -= 2; // protection
-  uint32_t file_size = read32();
-  len -= 4;                 // size
-  printf("SZ:%u ", file_size); // size
-  printf("%x ", read16());
-  len -= 2; // thumb format
-  printf("%x ", read32());
-  len -= 4; // thumb size
-  printf("%x ", read32());
-  len -= 4; // thumb width
-  printf("%x ", read32());
-  len -= 4; // thumb height
-  printf("%x ", read32());
-  len -= 4; // pix width
-  printf("%x ", read32());
-  len -= 4; // pix height
-  printf("%x ", read32());
-  len -= 4; // bit depth
-  printf("%x ", read32());
-  len -= 4; // parent
-  printf("%x ", read16());
-  len -= 2; // association type
-  printf("%x ", read32());
-  len -= 4; // association description
-  printf("%x ", read32());
-  len -= 4; // sequence number
-
-  len -= readstring(filename, sizeof(filename));
-  printf(": %s\n", filename);
-
-  // Next is DateCreated followed by DateModified
-  if (len) {
-    len -= readDateTimeString(&dtCreated_);
-    printf("Created: %x\n", dtCreated_);
   }
-  if (len) {
-    len -= readDateTimeString(&dtModified_);
-    printf("Modified: %x\n", dtModified_);
-  }
-
-  // ignore rest of ObjectInfo
-  while (len >= 4) {
-    read32();
-    len -= 4;
-  }
-  while (len) {
-    read8();
-    len--;
-  }
-
-  // Lets see if we have enough room to store this file:
-  uint32_t free_space = storage_->totalSize(store) - storage_->usedSize(store);
-  if (file_size > free_space) {
-    printf("Size of object:%u is > free space: %u\n", file_size, free_space);
-    return MTP_RESPONSE_STORAGE_FULL;
-  }
-
-  object_id_ = object_id = storage_->Create(store, parent, dir, filename);
-  if ((uint32_t)object_id == 0xFFFFFFFFUL)
-    return MTP_RESPONSE_SPECIFICATION_OF_DESTINATION_UNSUPPORTED;
-
   if (dir) {
     // lets see if we should update the date and time stamps.
     // if it is dirctory, then sendObject will not be called, so do it now.
@@ -1328,12 +1199,9 @@ uint32_t MTPD::SendObjectInfo(uint32_t storage, uint32_t parent, int &object_id)
     }
     storage_->close();
   }
-
-  return MTP_RESPONSE_OK;
+  cmd.params[2] = object_id_;
+  return MTP_RESPONSE_OK | (3<<28); // response with 3 params
 }
-
-#endif // __IMXRT1062__
-
 
 
 
@@ -1753,13 +1621,8 @@ void MTPD::loop(void) {
           }
           break;
 
-        case 0x100C:                        // SendObjectInfo
-          return_code = SendObjectInfo(p1,  // storage
-                                       p2,  // parent
-                                       p3); // returned object id;
-          container.params[1] = p2;
-          container.params[2] = p3;
-          return_code |= (3 << 28);
+        case 0x100C: // SendObjectInfo
+	  return_code = SendObjectInfo(container);
           break;
 
         case 0x100D: // SendObject

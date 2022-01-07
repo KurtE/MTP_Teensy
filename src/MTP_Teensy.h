@@ -104,17 +104,12 @@ private:
   void allocate_transmit_event();
   int transmit_event();
 
-  //bool op_needs_callback_; // can this be deleted?
-
 #if defined(__MK20DX128__) || defined(__MK20DX256__) ||                        \
     defined(__MK64FX512__) || defined(__MK66FX1M0__)
   usb_packet_t *data_buffer_ = NULL; // TODO: delete me
   void get_buffer(); // TODO: delete me
   void receive_buffer_wait(); // TODO: delete me
   bool receive_buffer_timeout(uint32_t to); // TODO: delete me
-//  inline MTPContainer *contains (usb_packet_t *receive_buffer) { return
-//  (MTPContainer*)(receive_buffer->buf);  }
-// possible events for T3.xx ?
 
 #elif defined(__IMXRT1062__)
 #define MTP_RX_SIZE MTP_RX_SIZE_480
@@ -163,7 +158,6 @@ private:
   void GetObjectHandles(uint32_t storage, uint32_t parent);
 
   void GetObjectInfo(uint32_t handle);
-  //void GetObject(uint32_t object_id);
   uint32_t GetObject(struct MTPContainer &cmd);
   uint32_t GetPartialObject(struct MTPContainer &cmd);
 
@@ -177,9 +171,7 @@ private:
   int readstring(char *buffer, uint16_t buffer_size);
   int readDateTimeString(uint32_t *pdt);
 
-  //  void read_until_short_packet() ;
-
-  uint32_t SendObjectInfo(uint32_t storage, uint32_t parent, int &object_id);
+  uint32_t SendObjectInfo(struct MTPContainer &cmd);
   void check_memcpy(uint8_t *pdest, const uint8_t *psrc, size_t size, const uint8_t *pb, size_t pb_size);
   bool SendObject();
   bool SendObjectWithYield();
@@ -243,7 +235,7 @@ public:
   void printContainer(const void *container, const char *msg = nullptr);
 #endif
   // Support for SendObject, holding parameters from SendObjectInfo.
-  int object_id_;
+  uint32_t object_id_;
   uint32_t dtCreated_;
   uint32_t dtModified_;
   uint32_t dtFormatStart_ = 0;
