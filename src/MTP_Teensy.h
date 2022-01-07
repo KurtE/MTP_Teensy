@@ -60,7 +60,7 @@ extern volatile uint8_t usb_configuration;
 // MTP Responder.
 class MTP_class {
 public:
-  explicit MTP_class() {}
+  explicit constexpr MTP_class() {}
   int begin();
   uint32_t addFilesystem(FS &disk, const char *diskname) {return storage_.addFilesystem(disk, diskname);}
 
@@ -117,7 +117,7 @@ private:
   int  mtp_rx_size_ = MTP_RX_SIZE; // // TODO: delete me
   int  mtp_tx_size_ = MTP_TX_SIZE; // // TODO: delete me
 
-  uint8_t tx_data_buffer[MTP_TX_SIZE] __attribute__((aligned(32)));
+  uint8_t tx_data_buffer[MTP_TX_SIZE] __attribute__((aligned(32))) = {0};
 
   static const uint32_t DISK_BUFFER_SIZE = 4 * 1024;
   uint32_t disk_pos = 0;
@@ -126,7 +126,7 @@ private:
   int pull_packet(uint8_t *data_buffer); // TODO: delete me
 
   static const uint32_t SENDOBJECT_READ_TIMEOUT_MS = 1000;
-  uint8_t rx_data_buffer[MTP_RX_SIZE] __attribute__((aligned(32)));
+  uint8_t rx_data_buffer[MTP_RX_SIZE] __attribute__((aligned(32))) = {0};
   static uint8_t disk_buffer_[DISK_BUFFER_SIZE] __attribute__((aligned(32)));
 
 #endif
@@ -196,7 +196,7 @@ private:
   uint32_t moveObject(uint32_t p1, uint32_t p2, uint32_t p3);
   void openSession(uint32_t id);
 
-  uint32_t TID;
+  uint32_t TID = 0;
 #if USE_EVENTS == 1
   int send_Event(uint16_t eventCode, uint32_t p1);
   int send_Event(uint16_t eventCode, uint32_t p1, uint32_t p2);
@@ -235,9 +235,9 @@ public:
   void printContainer(const void *container, const char *msg = nullptr);
 #endif
   // Support for SendObject, holding parameters from SendObjectInfo.
-  uint32_t object_id_;
-  uint32_t dtCreated_;
-  uint32_t dtModified_;
+  uint32_t object_id_ = 0;
+  uint32_t dtCreated_ = 0;
+  uint32_t dtModified_ = 0;
   uint32_t dtFormatStart_ = 0;
   static const uint32_t MAX_FORMAT_TIME_ = 2750; // give a little time. 
   bool storage_ids_sent_ = false;
