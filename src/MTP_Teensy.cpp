@@ -316,11 +316,6 @@ int MTPD::begin() {
 
 //time_t MTPD::getTeensyTime() { return Teensy3Clock.get(); }
 
-void MTPD::write8(uint8_t x) { write((char *)&x, sizeof(x)); }
-void MTPD::write16(uint16_t x) { write((char *)&x, sizeof(x)); }
-void MTPD::write32(uint32_t x) { write((char *)&x, sizeof(x)); }
-void MTPD::write64(uint64_t x) { write((char *)&x, sizeof(x)); }
-
 void MTPD::writestring(const char *str) {
   if (*str) {
     write8(strlen(str) + 1);
@@ -364,7 +359,7 @@ uint32_t MTPD::GetDeviceInfo(struct MTPContainer &cmd) {
   printf("GetDeviceInfo size=%u\n", size);
   cmd.len = size + 12;
   cmd.type = MTP_CONTAINER_TYPE_DATA;
-  write((char *)&cmd, 12);
+  write(&cmd, 12);
 
   write16(100); // MTP version
   write32(6);   // MTP extension
@@ -375,11 +370,11 @@ uint32_t MTPD::GetDeviceInfo(struct MTPContainer &cmd) {
 
   // Supported operations (array of uint16)
   write32(supported_op_num);
-  write((char *)supported_op, sizeof(supported_op));
+  write(supported_op, sizeof(supported_op));
 
   // Events (array of uint16)
   write32(supported_event_num);
-  write((char *)supported_events, sizeof(supported_events));
+  write(supported_events, sizeof(supported_events));
 
   write32(1);      // Device properties (array of uint16)
   write16(0xd402); // Device friendly name
@@ -531,7 +526,7 @@ void MTPD::GetObjectInfo(uint32_t handle) {
 
 uint32_t MTPD::ReadMTPHeader() {
   MTPHeader header;
-  read((char *)&header, sizeof(MTPHeader));
+  read(&header, sizeof(MTPHeader));
   // check that the type is data
   if (header.type == 2)
     return header.len - 12;
@@ -541,17 +536,17 @@ uint32_t MTPD::ReadMTPHeader() {
 
 uint8_t MTPD::read8() {
   uint8_t ret;
-  read((char *)&ret, sizeof(ret));
+  read(&ret, sizeof(ret));
   return ret;
 }
 uint16_t MTPD::read16() {
   uint16_t ret;
-  read((char *)&ret, sizeof(ret));
+  read(&ret, sizeof(ret));
   return ret;
 }
 uint32_t MTPD::read32() {
   uint32_t ret;
-  read((char *)&ret, sizeof(ret));
+  read(&ret, sizeof(ret));
   return ret;
 }
 
@@ -1000,7 +995,8 @@ int MTPD::push_packet(uint8_t *data_buffer, uint32_t len) { // T4 only
 
 
 
-void MTPD::read(char *data, uint32_t size) {
+void MTPD::read(void *ptr, uint32_t size) {
+  char *data = (char *)ptr;
   while (size > 0) {
     if (receive_buffer.data == NULL) {
       if (!receive_bulk(100)) {
@@ -1008,6 +1004,7 @@ void MTPD::read(char *data, uint32_t size) {
         return;
       }
     }
+    // TODO: what happens if read spans multiple packets?  Do any cases exist?
     uint32_t to_copy = receive_buffer.len - receive_buffer.index;
     if (to_copy > size) to_copy = size;
     if (data) {
@@ -1024,12 +1021,13 @@ void MTPD::read(char *data, uint32_t size) {
 
 
 
-void MTPD::write(const char *data, int len) {
+void MTPD::write(const void *ptr, int len) {
   if (len < 0) return;
   if (write_get_length_) {
     write_length_ += len;
     return;
   }
+  const char *data = (const char *)ptr;
   while (len > 0) {
     if (transmit_buffer.data == NULL) allocate_transmit_bulk();
     unsigned int avail = transmit_buffer.size - transmit_buffer.len;
@@ -1072,7 +1070,7 @@ void MTPD::write_finish() {
     header.type = 2;                                                           \
     header.op = container.op;                                                  \
     header.transaction_id = container.transaction_id;                          \
-    write((char *)&header, sizeof(header));                                    \
+    write(&header, sizeof(header));                                            \
     FUN;                                                                       \
     write_finish();                                                            \
   } while (0)
@@ -1092,7 +1090,7 @@ void MTPD::write_finish() {
     header.transaction_id = container.transaction_id;                          \
     write_length_ = 0;                                                         \
     write_get_length_ = false;                                                 \
-    write((char *)&header, sizeof(header));                                    \
+    write(&header, sizeof(header));                                            \
     FUN;                                                                       \
     write_finish();                                                            \
   } while (0)
@@ -1111,7 +1109,7 @@ uint32_t MTPD::GetObject(struct MTPContainer &cmd) {
   //printf("GetObject, size=%u\n", size);
   cmd.len = size + 12;
   cmd.type = MTP_CONTAINER_TYPE_DATA;
-  write((char *)&cmd, 12);
+  write(&cmd, 12);
   uint32_t pos = 0;
   while (pos < size) {
     if (usb_mtp_status != 0x01) {
@@ -1152,7 +1150,7 @@ uint32_t MTPD::GetPartialObject(struct MTPContainer &cmd) {
   }
   cmd.len = size + 12;
   cmd.type = MTP_CONTAINER_TYPE_DATA;
-  write((char *)&cmd, 12);
+  write(&cmd, 12);
   uint32_t pos = offset; // into data
   while (pos < size) {
     if (usb_mtp_status != 0x01) {
@@ -1937,7 +1935,7 @@ void MTPD::loop(void) {
         #if DEBUG > 1
         printContainer(&container); // to switch on set debug to 2 at beginning of file
         #endif
-        write((char *)&container, container.len);
+        write(&container, container.len);
         write_finish();
       }
     } else {

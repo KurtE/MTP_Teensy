@@ -143,13 +143,13 @@ private:
 
   bool write_get_length_ = false;
   uint32_t write_length_ = 0;
-  void write(const char *data, int len);
+  void write(const void *ptr, int len);
   void write_finish();
 
-  void write8(uint8_t x);
-  void write16(uint16_t x);
-  void write32(uint32_t x);
-  void write64(uint64_t x);
+  void write8(uint8_t x)   { write(&x, sizeof(x)); }
+  void write16(uint16_t x) { write(&x, sizeof(x)); }
+  void write32(uint32_t x) { write(&x, sizeof(x)); }
+  void write64(uint64_t x) { write(&x, sizeof(x)); }
 
   void writestring(const char *str);
 
@@ -168,7 +168,7 @@ private:
   uint32_t GetObject(struct MTPContainer &cmd);
   uint32_t GetPartialObject(struct MTPContainer &cmd);
 
-  void read(char *data, uint32_t size);
+  void read(void *ptr, uint32_t size);
 
   uint32_t ReadMTPHeader();
 
