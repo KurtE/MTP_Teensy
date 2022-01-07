@@ -122,7 +122,7 @@ public:
 	bool moveDir(uint32_t store0, char *oldfilename, uint32_t store1, char *newfilename);
 	//void loop();
 	bool formatStore(uint32_t store, uint32_t p2) {
-    return fs[store]->format((int)p2, '*')? 1 : 0;
+		return fs[store]->format((int)p2, '*')? 1 : 0;
 	}
 	bool readonly(uint32_t storage) {
 		return false;
