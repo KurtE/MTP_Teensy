@@ -128,7 +128,7 @@ void setup()
   // MTP.addFilesystem(sNand, "sNand");
 
   // sets the storage for the index file
-  MTP.storage()->setIndexStore(0);
+  MTP.useFileSystemIndexToStoreIndexFile(0);
   Serial.println("\nSetup done");
 
 }

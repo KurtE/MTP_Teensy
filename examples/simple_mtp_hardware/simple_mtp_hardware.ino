@@ -88,19 +88,19 @@ void loop() {
       break;
     case '1': {
       // first dump list of storages:
-      uint32_t fsCount = MTP.storage()->getFSCount();
+      uint32_t fsCount = MTP.getFilesystemCount();
       Serial.printf("\nDump Storage list(%u)\n", fsCount);
       for (uint32_t ii = 0; ii < fsCount; ii++) {
         Serial.printf("store:%u storage:%x name:%s fs:%x\n", ii,
-                      MTP.Store2Storage(ii), MTP.storage()->getStoreName(ii),
-                      (uint32_t)MTP.storage()->getStoreFS(ii));
+                      MTP.Store2Storage(ii), MTP.getFilesystemNameByIndex(ii),
+                      (uint32_t)MTP.getFilesystemByIndex(ii));
       }
       Serial.println("\nDump Index List");
       MTP.storage()->dumpIndexList();
     } break;
     case '2':
       Serial.printf("Drive # %d Selected\n", drive_index);
-      myfs = MTP.storage()->getStoreFS(drive_index);
+      myfs = MTP.getFilesystemByIndex(drive_index);
       break;
     case 'r':
       Serial.println("Send Device Reset Event");
