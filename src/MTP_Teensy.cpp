@@ -352,34 +352,22 @@ uint32_t MTP_class::GetDeviceInfo(struct MTPContainer &cmd) {
                   + writestringlen(buf)
                   + writestringlen(sernum);
   printf("GetDeviceInfo size=%u\n", size);
-  cmd.len = size + 12;
-  cmd.type = MTP_CONTAINER_TYPE_DATA;
-  write(&cmd, 12);
-
-  write16(100); // MTP version
-  write32(6);   // MTP extension
-                //    write32(0xFFFFFFFFUL);    // MTP extension
-  write16(100); // MTP version
+  writeDataPhaseHeader(cmd, size);
+  write16(100);           // MTP version
+  write32(6);             // MTP extension
+  write16(100);           // MTP version
   writestring("microsoft.com: 1.0;");
-  write16(1); // functional mode
-
-  // Supported operations (array of uint16)
-  write32(supported_op_num);
+  write16(1);             // functional mode
+  write32(supported_op_num); // Supported operations (array of uint16)
   write(supported_op, sizeof(supported_op));
-
-  // Events (array of uint16)
-  write32(supported_event_num);
+  write32(supported_event_num); // Events (array of uint16)
   write(supported_events, sizeof(supported_events));
-
-  write32(1);      // Device properties (array of uint16)
-  write16(0xd402); // Device friendly name
-
-  write32(0); // Capture formats (array of uint16)
-
-  write32(2);      // Playback formats (array of uint16)
-  write16(0x3000); // Undefined format
-  write16(0x3001); // Folders (associations)
-
+  write32(1);             // Device properties (array of uint16)
+  write16(0xd402);        // Device friendly name
+  write32(0);             // Capture formats (array of uint16)
+  write32(2);             // Playback formats (array of uint16)
+  write16(0x3000);        // Undefined format
+  write16(0x3001);        // Folders (associations)
   writestring(MTP_MANUF); // Manufacturer
   writestring(MTP_MODEL); // Model
   writestring(buf);       // version
@@ -607,9 +595,7 @@ uint32_t MTP_class::GetDevicePropDesc(struct MTPContainer &cmd) {
   const uint32_t property = cmd.params[0];
   switch (property) {
   case 0xd402: // friendly name
-    cmd.len = 12 + 5 + writestringlen(MTP_NAME)*2 + 1;
-    cmd.type = MTP_CONTAINER_TYPE_DATA;
-    write(&cmd, 12);
+    writeDataPhaseHeader(cmd, 5 + writestringlen(MTP_NAME)*2 + 1);
     // DevicePropDesc Dataset, MTP 1.1 spec, page 42
     write16(property);     // Device Property Code
     write16(0xFFFF);       // Datatype, string type
@@ -620,9 +606,7 @@ uint32_t MTP_class::GetDevicePropDesc(struct MTPContainer &cmd) {
     write_finish();
     return MTP_RESPONSE_OK;
   }
-  cmd.len = 12;
-  cmd.type = MTP_CONTAINER_TYPE_DATA;
-  write(&cmd, 12);
+  writeDataPhaseHeader(cmd, 0);
   return MTP_RESPONSE_DEVICE_PROP_NOT_SUPPORTED;
 }
 
@@ -1006,6 +990,19 @@ void MTP_class::write(const void *ptr, int len) {
   }
 }
 
+void MTP_class::writeDataPhaseHeader(struct MTPContainer &container, uint32_t data_size)
+{
+  container.len = data_size + 12;
+  container.type = MTP_CONTAINER_TYPE_DATA;
+  // container.op reused from received command container
+  // container.transaction_id reused from received command container
+  write(&container, 12);
+  // TODO: when we later implement split header + data USB optimization
+  //       described in MTP 1.1 spec pages 281-282, we will need to
+  //       call transmit_bulk() here to transmit a partial packet
+}
+
+
 void MTP_class::write_finish() {
   if (transmit_buffer.data == NULL) {
     if (write_length_ == 0) return;
@@ -1041,9 +1038,7 @@ uint32_t MTP_class::GetObject(struct MTPContainer &cmd) {
   const int object_id = cmd.params[0];
   uint32_t size = storage_.GetSize(object_id);
   //printf("GetObject, size=%u\n", size);
-  cmd.len = size + 12;
-  cmd.type = MTP_CONTAINER_TYPE_DATA;
-  write(&cmd, 12);
+  writeDataPhaseHeader(cmd, size);
   uint32_t pos = 0;
   while (pos < size) {
     if (usb_mtp_status != 0x01) {
@@ -1082,9 +1077,7 @@ uint32_t MTP_class::GetPartialObject(struct MTPContainer &cmd) {
   if (NumBytes < size) {
     size = NumBytes;
   }
-  cmd.len = size + 12;
-  cmd.type = MTP_CONTAINER_TYPE_DATA;
-  write(&cmd, 12);
+  writeDataPhaseHeader(cmd, size);
   uint32_t pos = offset; // into data
   while (pos < size) {
     if (usb_mtp_status != 0x01) {

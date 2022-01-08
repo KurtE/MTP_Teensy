@@ -92,7 +92,7 @@ private:
     uint16_t op;             // 6
     uint32_t transaction_id; // 8
     uint32_t params[5];      // 12
-  } __attribute__((__may_alias__));
+  };
 
   typedef struct {
     uint16_t len;   // number of data bytes
@@ -117,11 +117,7 @@ private:
 #define MTP_TX_SIZE MTP_TX_SIZE_480
 
   uint8_t tx_data_buffer[MTP_TX_SIZE] __attribute__((aligned(32))) = {0};
-
-  static const uint32_t DISK_BUFFER_SIZE = 4 * 1024;
-  uint32_t disk_pos = 0;
-
-  static const uint32_t SENDOBJECT_READ_TIMEOUT_MS = 1000;
+  static const uint32_t DISK_BUFFER_SIZE = 4 * 1024; // used by MTP_Storage
   uint8_t rx_data_buffer[MTP_RX_SIZE] __attribute__((aligned(32))) = {0};
   static uint8_t disk_buffer_[DISK_BUFFER_SIZE] __attribute__((aligned(32)));
 
@@ -140,6 +136,7 @@ private:
   void write64(uint64_t x) { write(&x, sizeof(x)); }
 
   void writestring(const char *str);
+  void writeDataPhaseHeader(struct MTPContainer &container, uint32_t data_size);
 
   uint32_t GetDeviceInfo(struct MTPContainer &cmd);
   void WriteDescriptor();
