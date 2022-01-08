@@ -540,7 +540,7 @@ bool MTP_class::readstring(char *buffer, uint32_t buffer_size) {
   uint8_t len;
   if (!read8(&len)) return false;
   if (len == 0) {
-    *buffer = 0; // empty string
+    if (buffer) *buffer = 0; // empty string
     return true;
   }
   unsigned int buffer_index = 0;
@@ -1731,6 +1731,13 @@ void MTP_class::loop(void) {
     } else {
       printf("ERROR: loop received command with %u bytes\n", receive_buffer.len);
       free_received_bulk();
+      // TODO: what is the proper way to handle this error?
+      // Still Image Class spec 1.0 says on page 20:
+      //   "If the number of bytes transferred in the Command phase is less than
+      //    that specified in the first four bytes of the Command Block then the
+      //    device has received an invalid command and should STALL the Bulk-Pipe
+      //    (refer to Clause 7.2)."
+      // What are we supposed to do is too much data arrives?  Or other invalid cmds?
     }
   }
 
