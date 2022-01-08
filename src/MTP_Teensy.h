@@ -62,7 +62,15 @@ class MTP_class {
 public:
   explicit constexpr MTP_class() {}
   int begin();
-  uint32_t addFilesystem(FS &disk, const char *diskname) {return storage_.addFilesystem(disk, diskname);}
+  void loop(void);
+
+  // methods to add and query storage information.
+  inline uint32_t addFilesystem(FS &disk, const char *diskname) { return storage_.addFilesystem(disk, diskname); }
+  inline uint32_t getFilesystemCount(void) { return storage_.getFSCount(); }
+  inline FS* getFilesystemByIndex(uint32_t store) { return storage_.getStoreFS(store); }
+  inline const char *getFilesystemNameByIndex(uint32_t store) { return storage_.getStoreName(store); }
+  inline bool useFileSystemIndexToStoreIndexFile(uint32_t store = 0) { return storage_.setIndexStore(store); }
+  inline uint32_t getFilesystemIndexFromName(const char *fsname) { return storage_.getStoreID(fsname); }
 
   static inline Stream *PrintStream(void) { return printStream_; }
   static void PrintStream(Stream *stream) { printStream_ = stream; }
@@ -186,7 +194,6 @@ private:
 #endif
 
 public:
-  void loop(void);
   void test(void);
   operator bool() { return usb_configuration && (sessionID_ != 0); }
 
