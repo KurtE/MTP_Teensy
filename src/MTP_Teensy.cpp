@@ -602,14 +602,21 @@ bool MTP_class::readDateTimeString(uint32_t *pdt) {
   return true;
 }
 
-void MTP_class::GetDevicePropValue(uint32_t prop) {
-  switch (prop) {
+// GetDevicePropValue, MTP 1.1 spec, page 234
+uint32_t MTP_class::GetDevicePropValue(struct MTPContainer &cmd) {
+  const uint32_t property = cmd.params[0];
+  switch (property) {
   case 0xd402: // friendly name
+    writeDataPhaseHeader(cmd, writestringlen(MTP_NAME));
     // This is the name we'll actually see in the windows explorer.
     // Should probably be configurable.
     writestring(MTP_NAME);
+    write_finish();
+    return MTP_RESPONSE_OK;
     break;
   }
+  writeDataPhaseHeader(cmd, 0);
+  return MTP_RESPONSE_DEVICE_PROP_NOT_SUPPORTED;
 }
 
 // GetDevicePropDesc, MTP 1.1 spec, page 233
@@ -1445,7 +1452,7 @@ void MTP_class::loop(void) {
           break;
 
         case 0x1015: // GetDevicePropvalue
-          TRANSMIT(GetDevicePropValue(p1));
+          return_code = GetDevicePropValue(container);
           break;
 
         case 0x1010: // Reset
