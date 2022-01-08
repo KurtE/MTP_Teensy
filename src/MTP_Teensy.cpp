@@ -639,15 +639,58 @@ uint32_t MTP_class::GetDevicePropDesc(struct MTPContainer &cmd) {
   return MTP_RESPONSE_DEVICE_PROP_NOT_SUPPORTED;
 }
 
-
-void MTP_class::getObjectPropsSupported(uint32_t p1) {
+// GetObjectPropsSupported, MTP 1.1 spec, page 243
+uint32_t MTP_class::GetObjectPropsSupported(struct MTPContainer &cmd) {
+  //uint32_t format = cmd.params[0]; // TODO: does this matter?
+  writeDataPhaseHeader(cmd, 4 + sizeof(propertyList));
   write32(propertyListNum);
-  for (uint32_t ii = 0; ii < propertyListNum; ii++)
-    write16(propertyList[ii]);
+  write(propertyList, sizeof(propertyList));
+  write_finish();
+  return MTP_RESPONSE_OK;
 }
 
-void MTP_class::getObjectPropDesc(uint32_t p1, uint32_t p2) {
-  switch (p1) {
+// GetObjectPropDesc, MTP 1.1 spec, page 244
+uint32_t MTP_class::GetObjectPropDesc(struct MTPContainer &cmd) {
+  uint32_t property = cmd.params[0];
+  //uint32_t format = cmd.params[1]; // TODO: does this matter?
+  uint32_t size;
+  switch (property) {
+  case MTP_PROPERTY_STORAGE_ID: // 0xDC01:
+    size = 2 + 2 + 1 + 4 + 4 + 1;
+    break;
+  case MTP_PROPERTY_OBJECT_FORMAT: // 0xDC02:
+    size = 2 + 2 + 1 + 2 + 4 + 1;
+    break;
+  case MTP_PROPERTY_PROTECTION_STATUS: // 0xDC03:
+    size = 2 + 2 + 1 + 2 + 4 + 1;
+    break;
+  case MTP_PROPERTY_OBJECT_SIZE: // 0xDC04:
+    size = 2 + 2 + 1 + 8 + 4 + 1;
+    break;
+  case MTP_PROPERTY_OBJECT_FILE_NAME: // 0xDC07:
+    size = 2 + 2 + 1 + 1 + 4 + 1;
+    break;
+  case MTP_PROPERTY_DATE_CREATED: // 0xDC08:
+    size = 2 + 2 + 1 + 1 + 4 + 1;
+    break;
+  case MTP_PROPERTY_DATE_MODIFIED: // 0xDC09:
+    size = 2 + 2 + 1 + 1 + 4 + 1;
+    break;
+  case MTP_PROPERTY_PARENT_OBJECT: // 0xDC0B:
+    size = 2 + 2 + 1 + 4 + 4 + 1;
+    break;
+  case MTP_PROPERTY_PERSISTENT_UID: // 0xDC41:
+    size = 2 + 2 + 1 + 8 + 8 + 4 + 1;
+    break;
+  case MTP_PROPERTY_NAME: // 0xDC44:
+    size = 2 + 2 + 1 + 1 + 4 + 1;
+    break;
+  default:
+    size = 0;
+    break;
+  }
+  writeDataPhaseHeader(cmd, size);
+  switch (property) {
   case MTP_PROPERTY_STORAGE_ID: // 0xDC01:
     write16(0xDC01);
     write16(0x006);
@@ -732,6 +775,12 @@ void MTP_class::getObjectPropDesc(uint32_t p1, uint32_t p2) {
   default:
     break;
   }
+  if (size == 0) {
+    write_finish(); // TODO: remove this when change to split header/data
+    return MTP_RESPONSE_INVALID_OBJECT_PROP_CODE;
+  }
+  write_finish();
+  return MTP_RESPONSE_OK;
 }
 
 void MTP_class::getObjectPropValue(uint32_t p1, uint32_t p2) {
@@ -1488,12 +1537,12 @@ void MTP_class::loop(void) {
           return_code = GetPartialObject(container);
           break;
 
-        case 0x9801: // getObjectPropsSupported
-          TRANSMIT(getObjectPropsSupported(p1));
+        case 0x9801: // GetObjectPropsSupported
+          return_code = GetObjectPropsSupported(container);
           break;
 
-        case 0x9802: // getObjectPropDesc
-          TRANSMIT(getObjectPropDesc(p1, p2));
+        case 0x9802: // GetObjectPropDesc
+          return_code = GetObjectPropDesc(container);
           break;
 
         case 0x9803: // getObjectPropertyValue

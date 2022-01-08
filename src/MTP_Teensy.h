@@ -165,9 +165,9 @@ private:
 
   uint32_t GetDevicePropValue(struct MTPContainer &cmd);
   uint32_t GetDevicePropDesc(struct MTPContainer &cmd);
-  void getObjectPropsSupported(uint32_t p1);
+  uint32_t GetObjectPropsSupported(struct MTPContainer &cmd);
 
-  void getObjectPropDesc(uint32_t p1, uint32_t p2);
+  uint32_t GetObjectPropDesc(struct MTPContainer &cmd);
   void getObjectPropValue(uint32_t p1, uint32_t p2);
 
   uint32_t setObjectPropValue(struct MTPContainer &cmd);
