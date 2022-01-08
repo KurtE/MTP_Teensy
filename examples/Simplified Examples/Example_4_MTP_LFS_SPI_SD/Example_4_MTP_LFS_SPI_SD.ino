@@ -9,10 +9,6 @@
 #include <MTP_Teensy.h>
 
 
-// Add in MTPD objects
-MTPStorage storage;
-MTPD mtpd(&storage);
-
 #define SD_ChipSelect BUILTIN_SDCARD  // Teensy 3.6, 4.1 and some Micromod carrier boards
 //#define SD_ChipSelect  10;
 
@@ -36,7 +32,7 @@ void setup() {
   // host that we are busy, until we have finished setting
   // up...
   Serial.begin(2000000);
-  mtpd.begin();
+  MTP.begin();
 
   // Open serial communications and wait for port to open:
   while (!Serial && millis() < 5000) {
@@ -55,14 +51,14 @@ void setup() {
   // Now lets try our list of LittleFS SPI?
   for (uint8_t i = 0; i < (sizeof(lfs_spi_list) / sizeof(lfs_spi_list[0])); i++) {
     if (lfs_spi_list[i].begin()) {
-      storage.addFilesystem(*lfs_spi_list[i].fs(), lfs_spi_list[i].displayName());
+      MTP.addFilesystem(*lfs_spi_list[i].fs(), lfs_spi_list[i].displayName());
     } else {
       Serial.printf("Storage not added for pin %d\n", i);
     }
   }
 
   if (sd.begin(SD_ChipSelect)) {
-    storage.addFilesystem(sd, "SDCard");
+    MTP.addFilesystem(sd, "SDCard");
   } else {
     Serial.println("No SD card available");
   }
@@ -72,5 +68,5 @@ void setup() {
 
 
 void loop() {
-  mtpd.loop();
+  MTP.loop();
 }

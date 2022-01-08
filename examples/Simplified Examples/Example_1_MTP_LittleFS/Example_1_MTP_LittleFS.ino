@@ -14,12 +14,12 @@
         MTPD mtpd(&storage);
   3. Telling the sketch to start MTP in setup before doing anything else with MTP 
      storage objects with
-        mtpd.begin();
+        MTP.begin();
   4. After starting an instance of LittleFS for the device as shown in detail in
-     the LittleFS examples using storage.addFilesystem method to tell MTP to associate
+     the LittleFS examples using MTP.addFilesystem method to tell MTP to associate
      a file system with the LittleFS drive:
-        storage.addFilesystem(LittleFS Object, Name you assign to drive)
-  5. Adding metp.loop() as part of the sketch loop
+        MTP.addFilesystem(LittleFS Object, Name you assign to drive)
+  5. Adding MTP.loop() as part of the sketch loop
   
   This example code is in the public domain.
 */
@@ -27,10 +27,6 @@
 #include <MTP_Teensy.h>
 #include <LittleFS.h>
 
-
-// Add in MTPD objects
-MTPStorage storage;
-MTPD mtpd(&storage);
 
 // Select Memory Storage for LittleFS
 /* RAM and Program Disk requires user to specify amount of memory 
@@ -85,38 +81,38 @@ void setup()
   Serial.println("\n" __FILE__ " " __DATE__ " " __TIME__);  
 
   //This is mandatory to begin the mtpd session.
-  mtpd.begin();
+  MTP.begin();
 
 #if defined(__IMXRT1062__)
   //***** RAM Disk   ****/
   // If you are using a Teensy 4.1 with PSRAM you can set up a single ram disk:
   // ramdisk.begin(2000000);  //Setups a 1MB ram disk in PSRAM
-  // storage.addFilesystem(ramdisk, "ramDisk");
+  // MTP.addFilesystem(ramdisk, "ramDisk");
   
   //*****  Program disk   ****/
   // similar to Ramdisk:
    progdisk.begin(1024*256);   // minimum program disk size is 256k.
-   storage.addFilesystem(progdisk, "progdisk");
+   MTP.addFilesystem(progdisk, "progdisk");
 #else
  // if you are using a T3.x a RAM disk can only be set up a disk using
  // BUFFER in RAM1, can also be used for Teensy 4.x and TMM
  char buf[ 120 * 1024 ]; // BUFFER in RAM1
    ramdisk.begin(buf, sizeof(buf));
-   storage.addFilesystem(ramdisk, "ramdisk");
+   MTP.addFilesystem(ramdisk, "ramdisk");
 #endif
   
   /*****  SPI Flash  ****/
   // note the initialization pattern
    sFlash.begin(csFlash, SPI);
-   storage.addFilesystem(sFlash, "sflash");
+   MTP.addFilesystem(sFlash, "sflash");
    
   /***** SPI NAND ****/
   // sNand.begin(csNand, SPI);
-  // storage.addFilesystem(sNand, "sNand");
+  // MTP.addFilesystem(sNand, "sNand");
   
   /***** SPI FRAM ****/
   // sFram.begin(csFram, SPI);
-  // storage.addFilesystem(sFram, "sFram");
+  // MTP.addFilesystem(sFram, "sFram");
   
   // QSPI follows the same pattern of starting the device with the appropriate begin 
   // just as you would for a LittleFS device without MTP.  
@@ -125,18 +121,18 @@ void setup()
   
   /***** QSPI Flash ****/
   // qFlash.begin();
-  // storage.addFilesystem(qFlash, "sNand");
+  // MTP.addFilesystem(qFlash, "sNand");
   
   /***** QSPI Nand ****/
   // sNand.begin();
-  // storage.addFilesystem(sNand, "sNand");
+  // MTP.addFilesystem(sNand, "sNand");
 
   // sets the storage for the index file
-  storage.setIndexStore(0);
+  MTP.storage()->setIndexStore(0);
   Serial.println("\nSetup done");
 
 }
 
 void loop() {
-  mtpd.loop();  //This is mandatory to be placed in the loop code.
+  MTP.loop();  //This is mandatory to be placed in the loop code.
 }
