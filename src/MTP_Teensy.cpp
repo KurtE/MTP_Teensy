@@ -602,17 +602,30 @@ void MTP_class::GetDevicePropValue(uint32_t prop) {
   }
 }
 
-void MTP_class::GetDevicePropDesc(uint32_t prop) {
-  switch (prop) {
+// GetDevicePropDesc, MTP 1.1 spec, page 233
+uint32_t MTP_class::GetDevicePropDesc(struct MTPContainer &cmd) {
+  const uint32_t property = cmd.params[0];
+  switch (property) {
   case 0xd402: // friendly name
-    write16(prop);
-    write16(0xFFFF); // string type
-    write8(0);       // read-only
-    GetDevicePropValue(prop);
-    GetDevicePropValue(prop);
-    write8(0); // no form
+    cmd.len = 12 + 5 + writestringlen(MTP_NAME)*2 + 1;
+    cmd.type = MTP_CONTAINER_TYPE_DATA;
+    write(&cmd, 12);
+    // DevicePropDesc Dataset, MTP 1.1 spec, page 42
+    write16(property);     // Device Property Code
+    write16(0xFFFF);       // Datatype, string type
+    write8(0);             // read-only
+    writestring(MTP_NAME); // Factory Default Value
+    writestring(MTP_NAME); // Current Value
+    write8(0);             // no form
+    write_finish();
+    return MTP_RESPONSE_OK;
   }
+  cmd.len = 12;
+  cmd.type = MTP_CONTAINER_TYPE_DATA;
+  write(&cmd, 12);
+  return MTP_RESPONSE_DEVICE_PROP_NOT_SUPPORTED;
 }
+
 
 void MTP_class::getObjectPropsSupported(uint32_t p1) {
   write32(propertyListNum);
@@ -818,9 +831,11 @@ uint32_t MTP_class::copyObject(uint32_t handle, uint32_t newStorage,
   return storage_.copy(handle, store1, newHandle);
 }
 
-void MTP_class::openSession(uint32_t id) {
-  sessionID_ = id;
+// OpenSession, MTP 1.1 spec, page 211
+uint32_t MTP_class::OpenSession(struct MTPContainer &cmd) {
+  sessionID_ = cmd.params[0];
   storage_.ResetIndex();
+  return MTP_RESPONSE_OK;
 }
 
 
@@ -1276,22 +1291,18 @@ void MTP_class::processIntervalTimer() { // T3
       free_received_bulk();
       printContainer(&container, "timer:"); // to switch on set debug to 1 at beginning of file
 
-      const int op = container.op;
-      const int p1 = container.params[0];
       TID = container.transaction_id;
-
       uint32_t return_code = 0x2001; // 0x2001=OK
-
       if (container.type == 1) { // command
-        switch (op) {
+        switch (container.op) {
         case MTP_OPERATION_GET_DEVICE_INFO: // GetDescription 0x1001
           return_code = GetDeviceInfo(container);
           break;
         case MTP_OPERATION_OPEN_SESSION: // open session 0x1002
-          openSession(p1);
+          return_code = OpenSession(container);
           break;
         case MTP_OPERATION_GET_DEVICE_PROP_DESC: // 1014
-          TRANSMIT(GetDevicePropDesc(p1));
+          return_code = GetDevicePropDesc(container);
           break;
         default:
           return_code = MTP_RESPONSE_DEVICE_BUSY; // busy 0x2019
@@ -1360,7 +1371,7 @@ void MTP_class::loop(void) {
           break;
 
         case 0x1002: // OpenSession
-          openSession(p1);
+          return_code = OpenSession(container);
           break;
 
         case 0x1003: // CloseSession
@@ -1424,7 +1435,7 @@ void MTP_class::loop(void) {
           break;
 
         case 0x1014: // GetDevicePropDesc
-          TRANSMIT(GetDevicePropDesc(p1));
+          return_code = GetDevicePropDesc(container);
           break;
 
         case 0x1015: // GetDevicePropvalue

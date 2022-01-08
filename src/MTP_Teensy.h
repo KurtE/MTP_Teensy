@@ -167,7 +167,7 @@ private:
   uint32_t SendObject(struct MTPContainer &cmd);
 
   void GetDevicePropValue(uint32_t prop);
-  void GetDevicePropDesc(uint32_t prop);
+  uint32_t GetDevicePropDesc(struct MTPContainer &cmd);
   void getObjectPropsSupported(uint32_t p1);
 
   void getObjectPropDesc(uint32_t p1, uint32_t p2);
@@ -184,7 +184,7 @@ private:
   uint32_t deleteObject(uint32_t p1);
   uint32_t copyObject(uint32_t p1, uint32_t p2, uint32_t p3/*, int &object_id*/);
   uint32_t moveObject(uint32_t p1, uint32_t p2, uint32_t p3);
-  void openSession(uint32_t id);
+  uint32_t OpenSession(struct MTPContainer &cmd);
 
   uint32_t TID = 0;
 #if USE_EVENTS == 1
