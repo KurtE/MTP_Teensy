@@ -158,7 +158,7 @@ void setup() {
     DBGSerial.printf("Ram Drive of size: %u initialized\n", LFSRAM_SIZE);
     uint32_t istore = MTP.addFilesystem(lfsram, "RAM");
     if (istore != 0xFFFFFFFFUL) {
-      MTP.useFileSystemIndexToStoreIndexFile(istore);
+      MTP.storage()->setIndexStore(istore);
       DBGSerial.printf("Set Storage Index drive to %u\n", istore);
     }
   }
@@ -225,12 +225,12 @@ void loop() {
     switch (command) {
     case '1': {
       // first dump list of storages:
-      uint32_t fsCount = MTP.getFilesystemCount();
+      uint32_t fsCount = MTP.storage()->getFSCount();
       DBGSerial.printf("\nDump Storage list(%u)\n", fsCount);
       for (uint32_t ii = 0; ii < fsCount; ii++) {
         DBGSerial.printf("store:%u storage:%x name:%s fs:%x\n", ii,
-                         MTP.Store2Storage(ii), MTP.getFilesystemNameByIndex(ii),
-                         (uint32_t)MTP.getFilesystemByIndex(ii));
+                         MTP.Store2Storage(ii), MTP.storage()->getStoreName(ii),
+                         (uint32_t)MTP.storage()->getStoreFS(ii));
       }
       DBGSerial.println("\nDump Index List");
       MTP.storage()->dumpIndexList();
@@ -240,11 +240,11 @@ void loop() {
       while (ch == ' ') {
         ch = DBGSerial.read();
       }
-      if (storage_index < MTP.getFilesystemCount()) {
+      if (storage_index < MTP.storage()->getFSCount()) {
         DBGSerial.printf("Storage Index %u Name: %s Selected\n", storage_index,
-                         MTP.getFilesystemNameByIndex(storage_index));
+                         MTP.storage()->getStoreName(storage_index));
         myfs_index = storage_index;
-        myfs = MTP.getFilesystemByIndex(storage_index);
+        myfs = MTP.storage()->getStoreFS(storage_index);
         current_store = storage_index;
       } else {
         DBGSerial.printf("Storage Index %u out of range\n", storage_index);

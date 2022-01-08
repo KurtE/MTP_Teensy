@@ -5,7 +5,7 @@ loop	KEYWORD2
 getFilesystemCount	KEYWORD2
 getFilesystemByIndex	KEYWORD2
 getFilesystemNameByIndex	KEYWORD2
-useFileSystemIndexToStoreIndexFile	KEYWORD2
+useFileSystemIndexFileStoreKEYWORD2
 Store2Storage	KEYWORD2
 addSendObjectBuffer	KEYWORD2
 send_Event	KEYWORD2

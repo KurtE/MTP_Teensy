@@ -69,7 +69,7 @@ public:
   inline uint32_t getFilesystemCount(void) { return storage_.getFSCount(); }
   inline FS* getFilesystemByIndex(uint32_t store) { return storage_.getStoreFS(store); }
   inline const char *getFilesystemNameByIndex(uint32_t store) { return storage_.getStoreName(store); }
-  inline bool useFileSystemIndexToStoreIndexFile(uint32_t store = 0) { return storage_.setIndexStore(store); }
+  inline bool useFileSystemIndexFileStore(uint32_t store = 0) { return storage_.setIndexStore(store); }
   inline uint32_t getFilesystemIndexFromName(const char *fsname) { return storage_.getStoreID(fsname); }
 
   static inline Stream *PrintStream(void) { return printStream_; }
