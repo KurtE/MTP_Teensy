@@ -161,15 +161,13 @@ private:
   uint32_t GetObject(struct MTPContainer &cmd);
   uint32_t GetPartialObject(struct MTPContainer &cmd);
 
-  void read(void *ptr, uint32_t size);
-
-  uint32_t ReadMTPHeader();
-
-  uint8_t read8();
-  uint16_t read16();
-  uint32_t read32();
-  int readstring(char *buffer, uint16_t buffer_size);
-  int readDateTimeString(uint32_t *pdt);
+  bool read(void *ptr, uint32_t size);
+  bool read8(uint8_t *n) { return read(n, 1); }
+  bool read16(uint16_t *n) { return read(n, 2); }
+  bool read32(uint32_t *n) { return read(n, 4); }
+  bool readMTPHeader(struct MTPHeader *header=nullptr);
+  bool readstring(char *buffer, uint32_t buffer_size);
+  bool readDateTimeString(uint32_t *pdt);
 
   uint32_t SendObjectInfo(struct MTPContainer &cmd);
   void check_memcpy(uint8_t *pdest, const uint8_t *psrc, size_t size, const uint8_t *pb, size_t pb_size);

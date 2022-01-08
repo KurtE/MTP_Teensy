@@ -528,71 +528,76 @@ void MTP_class::GetObjectInfo(uint32_t handle) {
   writestring(""); // keywords
 }
 
-uint32_t MTP_class::ReadMTPHeader() {
-  MTPHeader header;
-  read(&header, sizeof(MTPHeader));
-  // check that the type is data
-  if (header.type == 2)
-    return header.len - 12;
-  else
-    return 0;
-}
-
-uint8_t MTP_class::read8() {
-  uint8_t ret;
-  read(&ret, sizeof(ret));
-  return ret;
-}
-uint16_t MTP_class::read16() {
-  uint16_t ret;
-  read(&ret, sizeof(ret));
-  return ret;
-}
-uint32_t MTP_class::read32() {
-  uint32_t ret;
-  read(&ret, sizeof(ret));
+bool MTP_class::readMTPHeader(struct MTPHeader *header) {
+  bool ret = read(header, sizeof(struct MTPHeader));
+  // TODO: when we later implement split header + data USB optimization
+  //       described in MTP 1.1 spec pages 281-282, we should check that
+  //       receive_buffer.data is NULL.  Return false if unexpected data.
   return ret;
 }
 
-int MTP_class::readstring(char *buffer, uint16_t buffer_size) {
-  int len = read8();
-  char * buffer_end = buffer + buffer_size -1;
-  if (!buffer) {
-    read(NULL, len * 2);
-  } else {
-    for (int i = 0; i < len; i++) {
-      int16_t c2 = read16();
-      // try not to overwrite memory...
-      if (buffer <= buffer_end) *(buffer++) = c2;
-    }
-    if (buffer > buffer_end) *buffer_end = 0; // make sure null terminated.
+bool MTP_class::readstring(char *buffer, uint32_t buffer_size) {
+  uint8_t len;
+  if (!read8(&len)) return false;
+  if (len == 0) {
+    *buffer = 0; // empty string
+    return true;
   }
-  return len * 2 + 1;
+  unsigned int buffer_index = 0;
+  for (unsigned int string_index = 0; string_index < len; string_index++) {
+    uint16_t c;
+    if (!read16(&c)) return false;
+    if (string_index == (unsigned)(len-1) && c != 0) return false; // last char16 must be zero
+    if (buffer) {
+      // encode Unicode16 -> UTF8
+      if (c < 0x80 && buffer_index < buffer_size-2) {
+        buffer[buffer_index++] = c & 0x7F;
+      } else if (c < 0x800 && buffer_index < buffer_size-3) {
+        buffer[buffer_index++] = 0xC0 | ((c >> 6) & 0x1F);
+        buffer[buffer_index++] = 0x80 | (c & 0x3F);
+      } else if (buffer_index < buffer_size-4) {
+        buffer[buffer_index++] = 0xE0 | ((c >> 12) & 0x0F);
+        buffer[buffer_index++] = 0x80 | ((c >> 6) & 0x3F);
+        buffer[buffer_index++] = 0x80 | (c & 0x3F);
+      } else {
+        while (buffer_index < buffer_size) buffer[buffer_index++] = 0;
+        buffer = nullptr;
+      }
+    }
+  }
+  if (buffer) buffer[buffer_index] = 0; // redundant?? (last char16 must be zero)
+  return true;
 }
 
-int MTP_class::readDateTimeString(uint32_t *pdt) {
+bool MTP_class::readDateTimeString(uint32_t *pdt) {
   char dtb[20]; // let it take care of the conversions.
+  if (!readstring(dtb, sizeof(dtb))) return false;
+  printf("  DateTime string: %s\n", dtb);
   //                            01234567890123456
   // format of expected String: YYYYMMDDThhmmss.s
-  int cb = readstring(dtb, sizeof(dtb));
-  if (cb > 1) {
-    DateTimeFields dtf;
-    printf("Read DateTime string: %s\n", dtb);
-    // Quick and dirty!
-    uint16_t year = ((dtb[0] - '0') * 1000) + ((dtb[1] - '0') * 100) +
-                    ((dtb[2] - '0') * 10) + (dtb[3] - '0');
-    dtf.year = year - 1900;                               // range 70-206
-    dtf.mon = ((dtb[4] - '0') * 10) + (dtb[5] - '0') - 1; // zero based not 1
-    dtf.mday = ((dtb[6] - '0') * 10) + (dtb[7] - '0');
-    dtf.wday = 0; // hopefully not needed...
-    dtf.hour = ((dtb[9] - '0') * 10) + (dtb[10] - '0');
-    dtf.min = ((dtb[11] - '0') * 10) + (dtb[12] - '0');
-    dtf.sec = ((dtb[13] - '0') * 10) + (dtb[14] - '0');
-    *pdt = makeTime(dtf);
-    printf(">> date/Time: %x %u/%u/%u %u:%u:%u\n", *pdt, dtf.mon + 1, dtf.mday,
-           year, dtf.hour, dtf.min, dtf.sec);
+  if (strlen(dtb) < 15) return false;
+  for (int i=0; i < 15; i++) {
+    if (i == 8) {
+      if (dtb[i] != 'T') return false;
+    } else {
+      if (dtb[i] < '0' || dtb[i] > '9') return false;
+    }
   }
-  return cb;
+  DateTimeFields dtf;
+  // Quick and dirty!
+  uint16_t year = ((dtb[0] - '0') * 1000) + ((dtb[1] - '0') * 100) +
+                  ((dtb[2] - '0') * 10) + (dtb[3] - '0');
+  dtf.year = year - 1900;                               // range 70-206
+  dtf.mon = ((dtb[4] - '0') * 10) + (dtb[5] - '0') - 1; // zero based not 1
+  dtf.mday = ((dtb[6] - '0') * 10) + (dtb[7] - '0');
+  dtf.wday = 0; // hopefully not needed...
+  dtf.hour = ((dtb[9] - '0') * 10) + (dtb[10] - '0');
+  dtf.min = ((dtb[11] - '0') * 10) + (dtb[12] - '0');
+  dtf.sec = ((dtb[13] - '0') * 10) + (dtb[14] - '0');
+  *pdt = makeTime(dtf);
+  //printf(">> date/Time: %x %u/%u/%u %u:%u:%u\n", *pdt, dtf.mon + 1, dtf.mday,
+         //year, dtf.hour, dtf.min, dtf.sec);
+  return true;
 }
 
 void MTP_class::GetDevicePropValue(uint32_t prop) {
@@ -995,13 +1000,13 @@ int MTP_class::push_packet(uint8_t *data_buffer, uint32_t len) { // T4 only
 
 
 
-void MTP_class::read(void *ptr, uint32_t size) {
+bool MTP_class::read(void *ptr, uint32_t size) {
   char *data = (char *)ptr;
   while (size > 0) {
     if (receive_buffer.data == NULL) {
       if (!receive_bulk(100)) {
-        memset(data, 0, size);
-        return;
+        if (data) memset(data, 0, size);
+        return false;
       }
     }
     // TODO: what happens if read spans multiple packets?  Do any cases exist?
@@ -1017,6 +1022,7 @@ void MTP_class::read(void *ptr, uint32_t size) {
       free_received_bulk();
     }
   }
+  return true;
 }
 
 
@@ -1152,16 +1158,16 @@ uint32_t MTP_class::SendObjectInfo(struct MTPContainer &cmd) { // MTP 1.1 spec, 
   uint32_t parent = cmd.params[1];
   printf("SendObjectInfo: %u %u: ", storage, parent);
   uint32_t store = Storage2Store(storage);
-  ReadMTPHeader();
+  readMTPHeader();
   // receive ObjectInfo Dataset, MTP 1.1 spec, page 50
   char filename[MAX_FILENAME_LEN];
   uint16_t oformat;
   uint32_t file_size;
-// TODO: read to return bool whether successful
+// TODO: check return bool whether successful
   read(NULL, 4);                          // StorageID (unused)
-  oformat = read16();                     // ObjectFormatCode
+  read16(&oformat);                       // ObjectFormatCode
   read(NULL, 2);                          // Protection Status (unused)
-  file_size = read32();                   // Object Compressed Size
+  read32(&file_size);                     // Object Compressed Size
   read(NULL, 40);                         // Image info (unused)
   readstring(filename, sizeof(filename)); // Filename
   readDateTimeString(&dtCreated_);        // Date Created
@@ -1173,7 +1179,7 @@ uint32_t MTP_class::SendObjectInfo(struct MTPContainer &cmd) { // MTP 1.1 spec, 
 
   printf("%s ", dir ? "dir " : "file ");
   printf("\"%s\" ", filename);
-  printf("%x ", read16());
+  printf("%x ", oformat);
   printf("Created:%x ", dtCreated_);
   printf("Modified:%x ", dtModified_);
   printf("size:%u\n", file_size); // size
@@ -1208,12 +1214,13 @@ uint32_t MTP_class::SendObjectInfo(struct MTPContainer &cmd) { // MTP 1.1 spec, 
 }
 
 
-
 #if defined(__MK20DX128__) || defined(__MK20DX256__) ||                        \
     defined(__MK64FX512__) || defined(__MK66FX1M0__)
 
 bool MTP_class::SendObject() { // T3
-  uint32_t len = ReadMTPHeader();
+  uint32_t len = 0;
+  MTPHeader header;
+  if (readMTPHeader(&header) && header.type == 2) len = header.len - 12;
   printf("MTP_class::SendObject %u\n", len);
 //  uint32_t expected_read_count = 1 + (len-52+63)/64;
 //  uint32_t read_count = 0;
@@ -1250,7 +1257,9 @@ bool MTP_class::SendObject() { // T4
   pull_packet(rx_data_buffer);
   read(0, 0);
   // printContainer(rx_data_buffer);
-  uint32_t len = ReadMTPHeader();
+  uint32_t len = 0;
+  MTPHeader header;
+  if (readMTPHeader(&header) && header.type == 2) len = header.len - 12;
   printf("MTP_class::SendObject: len:%u\n", len);
   disk_pos = 0;
   elapsedMicros em_total = 0;
@@ -1417,7 +1426,7 @@ uint32_t MTP_class::setObjectPropValue(uint32_t p1, uint32_t p2) { // T3
   receive_buffer_wait();
   if (p2 == 0xDC07) {
     char filename[MAX_FILENAME_LEN];
-    ReadMTPHeader();
+    readMTPHeader();
     readstring(filename, sizeof(filename));
 
     storage_.rename(p1, filename);
@@ -1436,7 +1445,7 @@ uint32_t MTP_class::setObjectPropValue(uint32_t handle, uint32_t p2) { // T4 onl
 
   if (p2 == 0xDC07) {
     char filename[MAX_FILENAME_LEN];
-    ReadMTPHeader();
+    readMTPHeader();
     readstring(filename, sizeof(filename));
     if (storage_.rename(handle, filename))
       return 0x2001;
