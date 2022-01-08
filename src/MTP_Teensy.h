@@ -165,14 +165,12 @@ private:
   bool read8(uint8_t *n) { return read(n, 1); }
   bool read16(uint16_t *n) { return read(n, 2); }
   bool read32(uint32_t *n) { return read(n, 4); }
-  bool readMTPHeader(struct MTPHeader *header=nullptr);
+  bool readDataPhaseHeader(struct MTPHeader *header=nullptr);
   bool readstring(char *buffer, uint32_t buffer_size);
   bool readDateTimeString(uint32_t *pdt);
 
   uint32_t SendObjectInfo(struct MTPContainer &cmd);
-  void check_memcpy(uint8_t *pdest, const uint8_t *psrc, size_t size, const uint8_t *pb, size_t pb_size);
-  bool SendObject();
-  bool SendObjectWithYield();
+  uint32_t SendObject(struct MTPContainer &cmd);
 
   void GetDevicePropValue(uint32_t prop);
   void GetDevicePropDesc(uint32_t prop);
