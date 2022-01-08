@@ -308,17 +308,8 @@ int MTP_class::begin() {
   printf("\n\n*** Start Interval Timer ***\n");
   g_intervaltimer.begin(&_interval_timer_handler,
                         50000); // try maybe 20 times per second...
-
-#if defined(__IMXRT1062__)
-  // get our actual transfer sizes
-  mtp_rx_size_ = usb_mtp_rxSize();
-  mtp_tx_size_ = usb_mtp_txSize();
-#endif
-
   return usb_init_events();
 }
-
-//time_t MTP_class::getTeensyTime() { return Teensy3Clock.get(); }
 
 void MTP_class::writestring(const char *str) {
   if (*str) {
@@ -899,39 +890,6 @@ int MTP_class::transmit_bulk() { // T3
   return len;
 }
 
-//  usb_packet_t *data_buffer_ = NULL;
-
-void MTP_class::receive_buffer_wait() { // T3 only
-  while (!data_buffer_) {
-    data_buffer_ = usb_rx(MTP_RX_ENDPOINT);
-    if (!data_buffer_)
-      mtp_yield();
-  }
-}
-
-bool MTP_class::receive_buffer_timeout(uint32_t to) { // T3 only
-  elapsedMillis em = 0;
-  while (!data_buffer_) {
-    data_buffer_ = usb_rx(MTP_RX_ENDPOINT);
-    if (!data_buffer_) {
-      mtp_yield();
-      if (em > to) {
-        printf("receive_buffer_timeout Timeout");
-        return false;
-      }
-    }
-  }
-  return true;
-}
-
-void MTP_class::get_buffer() { // T3 only
-  while (!data_buffer_) {
-    data_buffer_ = usb_malloc();
-    if (!data_buffer_)
-      mtp_yield();
-  }
-}
-
 // TODO: core library not yet implementing cancel on Teensy 3.x
 static uint8_t usb_mtp_status = 0x01;
 
@@ -977,23 +935,6 @@ int MTP_class::transmit_bulk() { // T4
   transmit_buffer.data = NULL;
   return r;
 }
-
-int MTP_class::pull_packet(uint8_t *data_buffer) { // T4 only
-  while (!usb_mtp_available())
-    ;
-  return usb_mtp_recv(data_buffer, 60);
-}
-
-int MTP_class::push_packet(uint8_t *data_buffer, uint32_t len) { // T4 only
-  int count_sent;
-  uint8_t loop_count = 0;
-  while ((count_sent = usb_mtp_send(data_buffer, len, 60)) <= 0) {
-    printf("push_packet: l:%u ret:%d loop:%u\n", len, count_sent, loop_count++);
-    if (loop_count == 5) return 0;
-  }
-  return 1;
-}
-
 
 #endif // __IMXRT1062__
 
