@@ -40,11 +40,11 @@ void loop()
     switch (command) {
       case '1':
         // first dump list of storages:
-        fsCount = MTP.getFilesystemCount();
+        fsCount = MTP.storage()->getFSCount();
         Serial.printf("\nDump Storage list(%u)\n", fsCount);
         for (uint32_t ii = 0; ii < fsCount; ii++) {
           Serial.printf("store:%u storage:%x name:%s fs:%x\n", ii, MTP.Store2Storage(ii),
-                           MTP.getFilesystemNameByIndex(ii), (uint32_t)MTP.getFilesystemByIndex(ii));
+                           MTP.getFilesystemNameByIndex(ii), (uint32_t)getFilesystemByIndex(ii));
         }
         Serial.println("\nDump Index List");
         MTP.storage()->dumpIndexList();
