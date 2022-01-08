@@ -179,7 +179,7 @@ private:
   void getObjectPropDesc(uint32_t p1, uint32_t p2);
   void getObjectPropValue(uint32_t p1, uint32_t p2);
 
-  uint32_t setObjectPropValue(uint32_t p1, uint32_t p2);
+  uint32_t setObjectPropValue(struct MTPContainer &cmd);
   uint32_t formatStore(struct MTPContainer &cmd);
   
   static MTP_class *g_pmtpd_interval;

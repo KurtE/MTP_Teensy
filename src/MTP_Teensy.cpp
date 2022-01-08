@@ -1272,46 +1272,28 @@ uint32_t MTP_class::SendObject(struct MTPContainer &cmd)
 }
 
 
+//  SetObjectPropValue, MTP 1.1 spec, page 246
+uint32_t MTP_class::setObjectPropValue(struct MTPContainer &cmd) {
+  uint32_t object_id = cmd.params[0];
+  uint32_t property_code = cmd.params[1];
 
-#if defined(__MK20DX128__) || defined(__MK20DX256__) ||                        \
-    defined(__MK64FX512__) || defined(__MK66FX1M0__)
+  struct MTPHeader header;
+  if (!readDataPhaseHeader(&header)) return MTP_RESPONSE_INVALID_DATASET;
 
-uint32_t MTP_class::setObjectPropValue(uint32_t p1, uint32_t p2) { // T3
-  receive_buffer_wait();
-  if (p2 == 0xDC07) {
+  if (property_code == 0xDC07) {
     char filename[MAX_FILENAME_LEN];
-    readDataPhaseHeader();
-    readstring(filename, sizeof(filename));
-
-    storage_.rename(p1, filename);
-
-    return 0x2001;
-  } else
-    return 0x2005;
+    if (readstring(filename, sizeof(filename))
+     && (true)) {   // TODO: read complete function (handle ZLP)
+      printf("setObjectPropValue, rename id=%x to \"%s\"\n", object_id, filename);
+      storage_.rename(object_id, filename);
+      return MTP_RESPONSE_OK;
+    } else {
+      return MTP_RESPONSE_OPERATION_NOT_SUPPORTED;
+    }
+  }
+  read(NULL, header.len - sizeof(header)); // discard ObjectProp Value
+  return MTP_RESPONSE_OPERATION_NOT_SUPPORTED;
 }
-
-#elif defined(__IMXRT1062__)
-
-uint32_t MTP_class::setObjectPropValue(uint32_t handle, uint32_t p2) { // T4 only
-  pull_packet(rx_data_buffer);
-  read(0, 0);
-  // printContainer(rx_data_buffer);
-
-  if (p2 == 0xDC07) {
-    char filename[MAX_FILENAME_LEN];
-    readDataPhaseHeader();
-    readstring(filename, sizeof(filename));
-    if (storage_.rename(handle, filename))
-      return 0x2001;
-    else
-      return 0x2005;
-  } else
-    return 0x2005;
-}
-
-
-#endif // __IMXRT1062__
-
 
 
 uint32_t MTP_class::formatStore(struct MTPContainer &cmd) {
@@ -1554,7 +1536,7 @@ void MTP_class::loop(void) {
           break;
 
         case 0x9804: // setObjectPropertyValue
-          return_code = setObjectPropValue(p1, p2);
+          return_code = setObjectPropValue(container);
           break;
 
         default:
