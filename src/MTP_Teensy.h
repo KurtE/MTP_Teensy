@@ -140,15 +140,14 @@ private:
 
   uint32_t GetDeviceInfo(struct MTPContainer &cmd);
   void WriteDescriptor();
-  void WriteStorageIDs();
-
-  void GetStorageInfo(uint32_t storage);
+  uint32_t GetStorageIDs(struct MTPContainer &cmd);
+  uint32_t GetStorageInfo(struct MTPContainer &cmd);
 
   uint32_t GetNumObjects(uint32_t storage, uint32_t parent);
 
   void GetObjectHandles(uint32_t storage, uint32_t parent);
 
-  void GetObjectInfo(uint32_t handle);
+  uint32_t GetObjectInfo(struct MTPContainer &cmd);
   uint32_t GetObject(struct MTPContainer &cmd);
   uint32_t GetPartialObject(struct MTPContainer &cmd);
 

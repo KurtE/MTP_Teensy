@@ -315,7 +315,7 @@ void MTP_class::writestring(const char *str) {
   if (*str) {
     write8(strlen(str) + 1);
     while (*str) {
-      write16(*str);
+      write16(*str);  // TODO: decode UTF8 -> Unicode16
       ++str;
     }
     write16(0);
@@ -327,7 +327,7 @@ void MTP_class::writestring(const char *str) {
 
 static uint32_t writestringlen(const char *str) {
   if (!str) return 1;
-  return strlen(str)*2 + 2 + 1;
+  return strlen(str)*2 + 2 + 1; // TODO: size after UTF8 -> Unicode16
 }
 
 
@@ -376,30 +376,38 @@ uint32_t MTP_class::GetDeviceInfo(struct MTPContainer &cmd) {
   return MTP_RESPONSE_OK;
 }
 
-
-void MTP_class::WriteStorageIDs() {
-
+// GetStorageIDs, MTP 1.1 spec, page 213
+uint32_t MTP_class::GetStorageIDs(struct MTPContainer &cmd) {
   uint32_t num = storage_.get_FSCount();
-
   // Quick and dirty, we maybe allow some storages to be removed, lets loop
-  // through
-  // and see if there are any...
+  // through and see if there are any...
   uint32_t num_valid = 0;
   for (uint32_t ii = 0; ii < num; ii++) {
     if (storage_.get_FSName(ii))
       num_valid++; // storage id
   }
-
+  writeDataPhaseHeader(cmd, 4 + num_valid * 4);
   write32(num_valid); // number of storages (disks)
   for (uint32_t ii = 0; ii < num; ii++) {
     if (storage_.get_FSName(ii))
       write32(Store2Storage(ii)); // storage id
   }
+  write_finish();
   storage_ids_sent_ = true;
+  return MTP_RESPONSE_OK;
 }
 
-void MTP_class::GetStorageInfo(uint32_t storage) {
+// GetStorageInfo, MTP 1.1 spec, page 214
+uint32_t MTP_class::GetStorageInfo(struct MTPContainer &cmd) {
+  uint32_t storage = cmd.params[0];
   uint32_t store = Storage2Store(storage);
+  const char *name = storage_.get_FSName(store);
+  // const char *volumeID = storage_.get_volumeID(store);
+  static const char _volumeID[] = "";
+
+  uint32_t size = 2 + 2 + 2 + 8 + 8 + 4 + writestringlen(name) + writestringlen(_volumeID);
+  writeDataPhaseHeader(cmd, size);
+
   write16(storage_.readonly(store) ? 0x0001
                                     : 0x0004); // storage type (removable RAM)
   write16(storage_.has_directories(store)
@@ -409,26 +417,16 @@ void MTP_class::GetStorageInfo(uint32_t storage) {
 
 //  elapsedMillis em;
   uint64_t ntotal = storage_.totalSize(store);
-
   write64(ntotal); // max capacity
-  // Quick test to see if not getting the used size on large disks helps us get
-  // them displayed...
-  //    if (ntotal < 3000000000UL) {
   uint64_t nused = storage_.usedSize(store);
   write64((ntotal - nused)); // free space (100M)
-  //    } else write64(ntotal/2);  // free space - how about glass half empty or
-  //    full
-  //
-//  printf("GetStorageInfo dt:%u tot:%lu, used: %lu\n", (uint32_t)em, ntotal, nused);
+  //  printf("GetStorageInfo dt:%u tot:%lu, used: %lu\n", (uint32_t)em, ntotal, nused);
   write32(0xFFFFFFFFUL); // free space (objects)
-  const char *name = storage_.get_FSName(store);
   writestring(name); // storage descriptor
-  // const char *volumeID = storage_.get_volumeID(store);
-  static const char _volumeID[] = "";
-
   writestring(_volumeID); // volume identifier
-
+  write_finish();
   printf("%d %d name:%s\n", storage, store, name);
+  return MTP_RESPONSE_OK;
 }
 
 uint32_t MTP_class::GetNumObjects(uint32_t storage, uint32_t parent) {
@@ -455,11 +453,35 @@ void MTP_class::GetObjectHandles(uint32_t storage, uint32_t parent) {
   }
 }
 
-void MTP_class::GetObjectInfo(uint32_t handle) {
-  char filename[MAX_FILENAME_LEN];
-  uint32_t size, parent;
+uint32_t MTP_class::GetObjectInfo(struct MTPContainer &cmd) {
+  uint32_t handle = cmd.params[0];
+  uint32_t size, parent, dt;
+  char filename[MAX_FILENAME_LEN], ctimebuf[16], mtimebuf[16];
+  DateTimeFields dtf;
   uint16_t store;
   storage_.GetObjectInfo(handle, filename, &size, &parent, &store);
+
+  if (storage_.getCreateTime(handle, dt)) {
+    breakTime(dt, dtf);
+    snprintf(ctimebuf, sizeof(ctimebuf), "%04u%02u%02uT%02u%02u%02u",
+             dtf.year + 1900, dtf.mon + 1, dtf.mday, dtf.hour, dtf.min,
+             dtf.sec);
+  } else {
+    ctimebuf[0] = 0;
+  }
+  if (storage_.getModifyTime(handle, dt)) {
+    breakTime(dt, dtf);
+    snprintf(mtimebuf, sizeof(mtimebuf), "%04u%02u%02uT%02u%02u%02u",
+             dtf.year + 1900, dtf.mon + 1, dtf.mday, dtf.hour, dtf.min,
+             dtf.sec);
+  } else {
+    mtimebuf[0] = 0;
+  }
+
+  writeDataPhaseHeader(cmd,
+    4 + 2 + 2 + 4 + 2 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 2 + 4 + 4
+    + writestringlen(filename) + writestringlen(ctimebuf)
+    + writestringlen(mtimebuf) + writestringlen(""));
 
   uint32_t storage = Store2Storage(store);
   write32(storage);                                // storage
@@ -477,34 +499,12 @@ void MTP_class::GetObjectInfo(uint32_t handle) {
   write16(size == 0xFFFFFFFFUL ? 1 : 0);           // association type
   write32(0);                                      // association description
   write32(0);                                      // sequence number
-  writestring(filename);
-
-  uint32_t dt;
-  DateTimeFields dtf;
-
-  if (storage_.getCreateTime(handle, dt)) {
-    // going to use the buffer name to output
-    breakTime(dt, dtf);
-    snprintf(filename, MAX_FILENAME_LEN, "%04u%02u%02uT%02u%02u%02u",
-             dtf.year + 1900, dtf.mon + 1, dtf.mday, dtf.hour, dtf.min,
-             dtf.sec);
-    writestring(filename);
-  } else {
-    writestring(""); // date created
-  }
-
-  if (storage_.getModifyTime(handle, dt)) {
-    // going to use the buffer name to output
-    breakTime(dt, dtf);
-    snprintf(filename, MAX_FILENAME_LEN, "%04u%02u%02uT%02u%02u%02u",
-             dtf.year + 1900, dtf.mon + 1, dtf.mday, dtf.hour, dtf.min,
-             dtf.sec);
-    writestring(filename);
-  } else {
-    writestring(""); // date modified
-  }
-
-  writestring(""); // keywords
+  writestring(filename);                           // filename
+  writestring(ctimebuf);                           // date created
+  writestring(mtimebuf);                           // date modified
+  writestring("");                                 // keywords
+  write_finish();
+  return MTP_RESPONSE_OK;
 }
 
 bool MTP_class::readDataPhaseHeader(struct MTPHeader *header) {
@@ -1373,11 +1373,11 @@ void MTP_class::loop(void) {
           break;
 
         case 0x1004: // GetStorageIDs
-          TRANSMIT(WriteStorageIDs());
+          return_code = GetStorageIDs(container);
           break;
 
         case 0x1005: // GetStorageInfo
-          TRANSMIT(GetStorageInfo(p1));
+          return_code = GetStorageInfo(container);
           break;
 
         case 0x1006: // GetNumObjects
@@ -1398,7 +1398,7 @@ void MTP_class::loop(void) {
           break;
 
         case 0x1008: // GetObjectInfo
-          TRANSMIT(GetObjectInfo(p1));
+          return_code = GetObjectInfo(container);
           break;
 
         case 0x1009: // GetObject
