@@ -143,8 +143,9 @@ private:
   uint32_t GetStorageIDs(struct MTPContainer &cmd);
   uint32_t GetStorageInfo(struct MTPContainer &cmd);
 
-  uint32_t GetNumObjects(uint32_t storage, uint32_t parent);
+  uint32_t GetNumObjects(struct MTPContainer &cmd);
 
+  uint32_t GetObjectHandles(struct MTPContainer &cmd);
   void GetObjectHandles(uint32_t storage, uint32_t parent);
 
   uint32_t GetObjectInfo(struct MTPContainer &cmd);

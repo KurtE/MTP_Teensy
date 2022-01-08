@@ -415,7 +415,6 @@ uint32_t MTP_class::GetStorageInfo(struct MTPContainer &cmd) {
               : 0x0001); // filesystem type (generic hierarchical)
   write16(0x0000);       // access capability (read-write)
 
-//  elapsedMillis em;
   uint64_t ntotal = storage_.totalSize(store);
   write64(ntotal); // max capacity
   uint64_t nused = storage_.usedSize(store);
@@ -429,28 +428,51 @@ uint32_t MTP_class::GetStorageInfo(struct MTPContainer &cmd) {
   return MTP_RESPONSE_OK;
 }
 
-uint32_t MTP_class::GetNumObjects(uint32_t storage, uint32_t parent) {
+// GetNumObjects, MTP 1.1 spec, page 215
+uint32_t MTP_class::GetNumObjects(struct MTPContainer &cmd) {
+  uint32_t storage = cmd.params[0];
+  uint32_t format = cmd.params[1];
+  uint32_t parent = cmd.params[2];
+  if (format) {
+    return MTP_RESPONSE_SPECIFICATION_BY_FORMAT_UNSUPPORTED;
+  }
   uint32_t store = Storage2Store(storage);
   storage_.StartGetObjectHandles(store, parent);
   int num = 0;
-  while (storage_.GetNextObjectHandle(store))
+  while (storage_.GetNextObjectHandle(store)) {
     num++;
-  return num;
+  }
+  cmd.params[0] = num;
+  return MTP_RESPONSE_OK | (1<<28);
 }
 
-void MTP_class::GetObjectHandles(uint32_t storage, uint32_t parent) {
+// GetObjectHandles, MTP 1.1 spec, page 217
+uint32_t MTP_class::GetObjectHandles(struct MTPContainer &cmd) {
+  uint32_t storage = cmd.params[0];
+  uint32_t format = cmd.params[1];
+  uint32_t parent = cmd.params[2];
+  if (format) {
+    writeDataPhaseHeader(cmd, 4);
+    write32(0); // empty ObjectHandle array
+    write_finish();
+    return MTP_RESPONSE_SPECIFICATION_BY_FORMAT_UNSUPPORTED;
+  }
   uint32_t store = Storage2Store(storage);
-  if (write_get_length_) {
-    write_length_ = GetNumObjects(storage, parent);
-    write_length_++;
-    write_length_ *= 4;
-  } else {
-    write32(GetNumObjects(storage, parent));
-    int handle;
-    storage_.StartGetObjectHandles(store, parent);
-    while ((handle = storage_.GetNextObjectHandle(store)))
+  uint32_t num_handles = 0;
+  storage_.StartGetObjectHandles(store, parent);
+  while (storage_.GetNextObjectHandle(store)) {
+    num_handles++;
+  }
+  writeDataPhaseHeader(cmd, 4 + num_handles*4);
+  // ObjectHandle array, page 23 (ObjectHandle), page 20 (array)
+  write32(num_handles);
+  uint32_t handle;
+  storage_.StartGetObjectHandles(store, parent);
+  while ((handle = storage_.GetNextObjectHandle(store)) != 0) {
       write32(handle);
   }
+  write_finish();
+  return MTP_RESPONSE_OK;
 }
 
 uint32_t MTP_class::GetObjectInfo(struct MTPContainer &cmd) {
@@ -1381,20 +1403,11 @@ void MTP_class::loop(void) {
           break;
 
         case 0x1006: // GetNumObjects
-          if (p2) {
-            return_code = 0x2014; // spec by format unsupported
-          } else {
-            container.params[0] = GetNumObjects(p1, p3);
-            return_code = 0x2001 | (1<<28);
-          }
+          return_code = GetNumObjects(container);
           break;
 
         case 0x1007: // GetObjectHandles
-          if (p2) {
-            return_code = 0x2014; // spec by format unsupported
-          } else {
-            TRANSMIT(GetObjectHandles(p1, p3));
-          }
+          return_code = GetObjectHandles(container);
           break;
 
         case 0x1008: // GetObjectInfo
