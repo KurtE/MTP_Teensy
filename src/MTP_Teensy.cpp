@@ -572,7 +572,7 @@ bool MTP_class::readstring(char *buffer, uint32_t buffer_size) {
 bool MTP_class::readDateTimeString(uint32_t *pdt) {
   char dtb[20]; // let it take care of the conversions.
   if (!readstring(dtb, sizeof(dtb))) return false;
-  printf("  DateTime string: %s\n", dtb);
+  //printf("  DateTime string: %s\n", dtb);
   //                            01234567890123456
   // format of expected String: YYYYMMDDThhmmss.s
   if (strlen(dtb) < 15) return false;
@@ -1152,44 +1152,51 @@ uint32_t MTP_class::GetPartialObject(struct MTPContainer &cmd) {
 }
 
 
-
+// SendObjectInfo, MTP 1.1 spec, page 223
 uint32_t MTP_class::SendObjectInfo(struct MTPContainer &cmd) { // MTP 1.1 spec, page 223
   uint32_t storage = cmd.params[0];
   uint32_t parent = cmd.params[1];
-  printf("SendObjectInfo: %u %u: ", storage, parent);
+  printf("SendObjectInfo: %x %x ", storage, parent);
   uint32_t store = Storage2Store(storage);
-  readMTPHeader();
+  struct MTPHeader header;
+  if (!readMTPHeader(&header)) return MTP_RESPONSE_INVALID_DATASET;
+  printf("Dataset len=%u\n", header.len);
   // receive ObjectInfo Dataset, MTP 1.1 spec, page 50
   char filename[MAX_FILENAME_LEN];
   uint16_t oformat;
   uint32_t file_size;
-// TODO: check return bool whether successful
-  read(NULL, 4);                          // StorageID (unused)
-  read16(&oformat);                       // ObjectFormatCode
-  read(NULL, 2);                          // Protection Status (unused)
-  read32(&file_size);                     // Object Compressed Size
-  read(NULL, 40);                         // Image info (unused)
-  readstring(filename, sizeof(filename)); // Filename
-  readDateTimeString(&dtCreated_);        // Date Created
-  readDateTimeString(&dtModified_);       // Date Modified
-  readstring(NULL, 1024);                 // Keywords
-// TODO: read complete function (handle ZLP)
-
-  bool dir = (oformat == 0x3001);
-
-  printf("%s ", dir ? "dir " : "file ");
-  printf("\"%s\" ", filename);
-  printf("%x ", oformat);
-  printf("Created:%x ", dtCreated_);
-  printf("Modified:%x ", dtModified_);
-  printf("size:%u\n", file_size); // size
-
+  if (read(NULL, 4)                          // StorageID (unused)
+   && read16(&oformat)                       // ObjectFormatCode
+   && read(NULL, 2)                          // Protection Status (unused)
+   && read32(&file_size)                     // Object Compressed Size
+   && read(NULL, 40)                         // Image info (unused)
+   && readstring(filename, sizeof(filename)) // Filename
+   && readDateTimeString(&dtCreated_)        // Date Created
+   && readDateTimeString(&dtModified_)       // Date Modified
+   && readstring(NULL, 0)                    // Keywords
+   && (true)) {                              // TODO: read complete function (handle ZLP)
+    printf("%s ", (oformat == 0x3001) ? "Dir" : "File");
+    printf("\"%s\" ", filename);
+    printf("size:%u ", file_size);
+    printf("Created:%x ", dtCreated_);
+    printf("Modified:%x\n", dtModified_);
+    if (receive_buffer.data == NULL) {
+      printf(" read consumed all data (TODO: how to check ZLP)\n");
+      // TODO: need to check for ZLP here....
+    } else {
+      printf(" ERROR, receive buffer has %u bytes unused!\n",
+        receive_buffer.len - receive_buffer.index);
+    }
+  } else {
+    return MTP_RESPONSE_INVALID_DATASET;
+  }
   // Lets see if we have enough room to store this file:
   uint32_t free_space = storage_.totalSize(store) - storage_.usedSize(store);
   if (file_size > free_space) {
     printf("Size of object:%u is > free space: %u\n", file_size, free_space);
     return MTP_RESPONSE_STORAGE_FULL;
   }
+  const bool dir = (oformat == 0x3001);
   object_id_ = storage_.Create(store, parent, dir, filename);
   if (object_id_ == 0xFFFFFFFFUL) {
     return MTP_RESPONSE_SPECIFICATION_OF_DESTINATION_UNSUPPORTED;
