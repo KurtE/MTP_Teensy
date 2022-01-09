@@ -690,6 +690,10 @@ uint32_t MTP_class::GetObjectPropDesc(struct MTPContainer &cmd) {
     break;
   }
   writeDataPhaseHeader(cmd, size);
+  if (size == 0) {
+    write_finish(); // TODO: remove this when change to split header/data
+    return MTP_RESPONSE_INVALID_OBJECT_PROP_CODE;
+  }
   switch (property) {
   case MTP_PROPERTY_STORAGE_ID: // 0xDC01:
     write16(0xDC01);
@@ -772,99 +776,124 @@ uint32_t MTP_class::GetObjectPropDesc(struct MTPContainer &cmd) {
     write32(0);
     write8(0);
     break;
-  default:
-    break;
-  }
-  if (size == 0) {
-    write_finish(); // TODO: remove this when change to split header/data
-    return MTP_RESPONSE_INVALID_OBJECT_PROP_CODE;
   }
   write_finish();
   return MTP_RESPONSE_OK;
 }
 
-void MTP_class::getObjectPropValue(uint32_t p1, uint32_t p2) {
+// GetObjectPropValue, MTP 1.1 spec, page 245
+uint32_t MTP_class::GetObjectPropValue(struct MTPContainer &cmd) {
+  const uint32_t handle = cmd.params[0];
+  const uint32_t property = cmd.params[1];
+  uint32_t data_size = 0;
   char name[MAX_FILENAME_LEN];
-  uint32_t dir;
-  uint32_t size;
+  uint32_t file_size;
   uint32_t parent;
   uint16_t store;
-  storage_.GetObjectInfo(p1, name, &size, &parent, &store);
-  dir = size == 0xFFFFFFFFUL;
-  uint32_t storage = Store2Storage(store);
-  switch (p2) {
+  uint32_t dt;
+  DateTimeFields dtf;
+  uint32_t storage = 0;
+  bool info_needed = true;
+
+  // first check if storage info is needed, and if data size is known
+  switch (property) {
+  case MTP_PROPERTY_STORAGE_ID: // 0xDC01:
+    data_size = 4;
+    break;
+  case MTP_PROPERTY_OBJECT_FORMAT: // 0xDC02:
+    data_size = 2;
+    break;
+  case MTP_PROPERTY_PROTECTION_STATUS: // 0xDC03:
+    data_size = 2;
+    info_needed = false;
+    break;
+  case MTP_PROPERTY_OBJECT_SIZE: // 0xDC04:
+    data_size = 8;
+    break;
+  case MTP_PROPERTY_NAME: // 0xDC44:
+  case MTP_PROPERTY_OBJECT_FILE_NAME: // 0xDC07:
+    break;
+  case MTP_PROPERTY_DATE_CREATED: // 0xDC08:
+    if (storage_.getCreateTime(handle, dt)) {
+      breakTime(dt, dtf);
+      snprintf(name, MAX_FILENAME_LEN, "%04u%02u%02uT%02u%02u%02u",
+               dtf.year + 1900, dtf.mon + 1, dtf.mday, dtf.hour, dtf.min,
+               dtf.sec);
+    } else {
+      name[0] = 0;
+    }
+    data_size = writestringlen(name);
+    info_needed = false;
+    break;
+  case MTP_PROPERTY_DATE_MODIFIED: // 0xDC09:
+    if (storage_.getModifyTime(handle, dt)) {
+      breakTime(dt, dtf);
+      snprintf(name, MAX_FILENAME_LEN, "%04u%02u%02uT%02u%02u%02u",
+               dtf.year + 1900, dtf.mon + 1, dtf.mday, dtf.hour, dtf.min,
+               dtf.sec);
+    } else {
+      name[0] = 0;
+    }
+    data_size = writestringlen(name);
+    info_needed = false;
+    break;
+  case MTP_PROPERTY_PARENT_OBJECT: // 0xDC0B:
+    data_size = 4;
+    break;
+  case MTP_PROPERTY_PERSISTENT_UID: // 0xDC41:
+    data_size = 4 + 4 + 4 + 4;
+    break;
+  }
+
+  // get actual storage info, if needed
+  if (info_needed) {
+    storage_.GetObjectInfo(handle, name, &file_size, &parent, &store);
+    if (property == MTP_PROPERTY_OBJECT_FILE_NAME || property == MTP_PROPERTY_NAME) {
+      data_size = writestringlen(name);
+    }
+    storage = Store2Storage(store);
+  }
+
+  // begin data phase
+  writeDataPhaseHeader(cmd, data_size);
+  if (data_size == 0) {
+    write_finish(); // TODO: remove this when change to split header/data
+    return MTP_RESPONSE_INVALID_OBJECT_PROP_CODE;
+  }
+
+  // transmit actual data
+  switch (property) {
   case MTP_PROPERTY_STORAGE_ID: // 0xDC01:
     write32(storage);
     break;
   case MTP_PROPERTY_OBJECT_FORMAT: // 0xDC02:
-    write16(dir ? 0x3001 : 0x3000);
+    write16((file_size == 0xFFFFFFFF) ? 0x3001 /*directory*/ : 0x3000 /*file*/);
     break;
   case MTP_PROPERTY_PROTECTION_STATUS: // 0xDC03:
     write16(0);
     break;
   case MTP_PROPERTY_OBJECT_SIZE: // 0xDC04:
-    write32(size);
+    write32(file_size);
     write32(0);
     break;
   case MTP_PROPERTY_OBJECT_FILE_NAME: // 0xDC07:
-    writestring(name);
-    break;
+  case MTP_PROPERTY_NAME: // 0xDC44:
   case MTP_PROPERTY_DATE_CREATED: // 0xDC08:
-    // String is like: YYYYMMDDThhmmss.s
-    uint32_t dt;
-    DateTimeFields dtf;
-
-    if (storage_.getCreateTime(p1, dt)) {
-
-      // going to use the buffer name to output
-      breakTime(dt, dtf);
-      snprintf(name, MAX_FILENAME_LEN, "%04u%02u%02uT%02u%02u%02u",
-               dtf.year + 1900, dtf.mon + 1, dtf.mday, dtf.hour, dtf.min,
-               dtf.sec);
-      writestring(name);
-      printf("Create (%x)Date/time:%s\n", dt, name);
-      break;
-    } else {
-      printf("Create failed (%x)Date/time\n", dt);
-    }
-    writestring("");
-    break;
   case MTP_PROPERTY_DATE_MODIFIED: // 0xDC09:
-  {
-    // String is like: YYYYMMDDThhmmss.s
-    uint32_t dt;
-    DateTimeFields dtf;
-
-    if (storage_.getModifyTime(p1, dt)) {
-      // going to use the buffer name to output
-      breakTime(dt, dtf);
-      snprintf(name, MAX_FILENAME_LEN, "%04u%02u%02uT%02u%02u%02u",
-               dtf.year + 1900, dtf.mon + 1, dtf.mday, dtf.hour, dtf.min,
-               dtf.sec);
-      writestring(name);
-      printf("Modify (%x)Date/time:%s\n", dt, name);
-      break;
-    } else {
-      printf("modify failed (%x)Date/time\n", dt);
-    }
-  }
-    writestring("");
+    writestring(name);
     break;
   case MTP_PROPERTY_PARENT_OBJECT: // 0xDC0B:
     write32((store == parent) ? 0 : parent);
     break;
   case MTP_PROPERTY_PERSISTENT_UID: // 0xDC41:
-    write32(p1);
+    write32(handle);
     write32(parent);
     write32(storage);
     write32(0);
     break;
-  case MTP_PROPERTY_NAME: // 0xDC44:
-    writestring(name);
-    break;
-  default:
-    break;
   }
+  write_finish();
+  return MTP_RESPONSE_OK;
 }
 
 uint32_t MTP_class::deleteObject(uint32_t handle) {
@@ -1545,8 +1574,8 @@ void MTP_class::loop(void) {
           return_code = GetObjectPropDesc(container);
           break;
 
-        case 0x9803: // getObjectPropertyValue
-          TRANSMIT(getObjectPropValue(p1, p2));
+        case 0x9803: // GetObjectPropertyValue
+          return_code = GetObjectPropValue(container);
           break;
 
         case 0x9804: // setObjectPropertyValue

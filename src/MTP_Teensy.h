@@ -168,7 +168,7 @@ private:
   uint32_t GetObjectPropsSupported(struct MTPContainer &cmd);
 
   uint32_t GetObjectPropDesc(struct MTPContainer &cmd);
-  void getObjectPropValue(uint32_t p1, uint32_t p2);
+  uint32_t GetObjectPropValue(struct MTPContainer &cmd);
 
   uint32_t setObjectPropValue(struct MTPContainer &cmd);
   uint32_t formatStore(struct MTPContainer &cmd);
