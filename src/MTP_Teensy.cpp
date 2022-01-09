@@ -1121,26 +1121,6 @@ void MTP_class::write_finish() {
 
 
 
-#define TRANSMIT(FUN)                                                          \
-  do {                                                                         \
-    write_length_ = 0;                                                         \
-    write_get_length_ = true;                                                  \
-    FUN;                                                                       \
-    write_get_length_ = false;                                                 \
-    MTPHeader header;                                                          \
-    header.len = write_length_ + 12;                                           \
-    header.type = 2;                                                           \
-    header.op = container.op;                                                  \
-    header.transaction_id = container.transaction_id;                          \
-    write(&header, 12);                                                        \
-    FUN;                                                                       \
-    write_finish();                                                            \
-  } while (0)
-
-
-
-
-
 uint32_t MTP_class::GetObject(struct MTPContainer &cmd) {
   const int object_id = cmd.params[0];
   uint32_t size = storage_.GetSize(object_id);
@@ -1170,8 +1150,6 @@ uint32_t MTP_class::GetObject(struct MTPContainer &cmd) {
   //printf("GetObject, done\n");
   return MTP_RESPONSE_OK;
 }
-
-
 
 
 
