@@ -70,9 +70,254 @@ void printf_debug(const char *format, ...);
 uint32_t MTP_class::sessionID_ = 0;
 
 
+//***************************************************************************
+//  Top level - public functions called by user program
+//***************************************************************************
 
 
-// MTP Responder.
+int MTP_class::begin() {
+  // lets set up to check for MTP messages and tell
+  // other side we are busy...  Maybe should be function:
+  g_pmtpd_interval = this;
+  printf("\n\n*** Start Interval Timer ***\n");
+  g_intervaltimer.begin(&_interval_timer_handler, 50000); // 20 Hz
+  return usb_init_events();
+}
+
+
+void MTP_class::loop(void) {
+  if (g_pmtpd_interval) {
+    g_pmtpd_interval = nullptr; // clear out timer.
+    g_intervaltimer.end();      // try maybe 20 times per second...
+    printf("*** end Interval Timer ***\n");
+  }
+  if (receive_bulk(0)) {
+    if (receive_buffer.len >= 12 && receive_buffer.len <= 32) {
+      // This container holds the operation code received from host
+      // Commands which transmit a 12 byte header as the first part
+      // of their data phase will reuse this container, overwriting
+      // the len & type fields, but keeping op and transaction_id.
+      // Then this container is again reused to transmit the final
+      // response code, keeping the original transaction_id, but
+      // the other 3 header fields are based on "return_code".  If
+      // the response requires parameters, they are written into
+      // this container's parameter list.
+      struct MTPContainer container;
+      memset(&container, 0, sizeof(container));
+      memcpy(&container, receive_buffer.data, receive_buffer.len);
+      free_received_bulk();
+      printContainer(&container, "loop:");
+
+      int p1 = container.params[0];
+      int p2 = container.params[1];
+      int p3 = container.params[2];
+      TID = container.transaction_id;
+
+      // The low 16 bits of return_code have the response code
+      // operation field.  The top 4 bits indicate the number
+      // of parameters to transmit with the response code.
+      int return_code = 0x2001; // OK use as default value
+
+      if (container.type == MTP_CONTAINER_TYPE_COMMAND) {
+        switch (container.op) {
+        case 0x1001: // GetDeviceInfo
+          return_code = GetDeviceInfo(container);
+          break;
+        case 0x1002: // OpenSession
+          return_code = OpenSession(container);
+          break;
+        case 0x1003: // CloseSession
+          printf("MTP_class::CloseSession\n");
+          sessionID_ = 0; //
+          break;
+        case 0x1004: // GetStorageIDs
+          return_code = GetStorageIDs(container);
+          break;
+        case 0x1005: // GetStorageInfo
+          return_code = GetStorageInfo(container);
+          break;
+        case 0x1006: // GetNumObjects
+          return_code = GetNumObjects(container);
+          break;
+        case 0x1007: // GetObjectHandles
+          return_code = GetObjectHandles(container);
+          break;
+        case 0x1008: // GetObjectInfo
+          return_code = GetObjectInfo(container);
+          break;
+        case 0x1009: // GetObject
+          return_code = GetObject(container);
+          break;
+        case 0x100B: // DeleteObject
+          if (p2) {
+            return_code = 0x2014; // spec by format unsupported
+          } else {
+            if (!storage_.DeleteObject(p1)) {
+              return_code = 0x2012; // partial deletion
+            }
+          }
+          break;
+        case 0x100C: // SendObjectInfo
+	  return_code = SendObjectInfo(container);
+          break;
+        case 0x100D: // SendObject
+          return_code = SendObject(container);
+          break;
+        case 0x100F: // FormatStore
+          return_code = formatStore(container);
+          break;
+        case 0x1014: // GetDevicePropDesc
+          return_code = GetDevicePropDesc(container);
+          break;
+        case 0x1015: // GetDevicePropvalue
+          return_code = GetDevicePropValue(container);
+          break;
+        case 0x1010: // Reset
+          return_code = 0x2005;
+          break;
+        case 0x1019: // MoveObject
+          return_code = moveObject(p1, p2, p3);
+          break;
+        case 0x101A: // CopyObject
+          return_code = copyObject(p1, p2, p3);
+          if (!return_code) {
+            return_code = 0x2005;
+          } else {
+            container.params[0] = return_code;
+            uint8_t error_code = storage_.getLastError();
+            switch (error_code) {
+              default:
+                return_code = 0x2001;
+                break;
+              case MTPStorage::RMDIR_FAIL:
+              case MTPStorage::WRITE_ERROR:
+              case MTPStorage::DEST_OPEN_FAIL:
+                return_code = MTP_RESPONSE_STORAGE_FULL;
+                break;
+            }
+            return_code |= (1<<28);
+          }
+          break;
+        case 0x101B: // GetPartialObject
+          return_code = GetPartialObject(container);
+          break;
+        case 0x9801: // GetObjectPropsSupported
+          return_code = GetObjectPropsSupported(container);
+          break;
+        case 0x9802: // GetObjectPropDesc
+          return_code = GetObjectPropDesc(container);
+          break;
+        case 0x9803: // GetObjectPropertyValue
+          return_code = GetObjectPropValue(container);
+          break;
+        case 0x9804: // setObjectPropertyValue
+          return_code = setObjectPropValue(container);
+          break;
+        default:
+          return_code = 0x2005; // operation not supported
+          break;
+        }
+      } else {
+        return_code = 0x2005; // we should only get cmds
+        printContainer(&container, "!!! unexpected/unknown message:");
+      }
+      if (return_code && usb_mtp_status == 0x01) {
+        container.len = 12 + (return_code >> 28) * 4; // top 4 bits is number of parameters
+        container.type = MTP_CONTAINER_TYPE_RESPONSE;
+        container.op = (return_code & 0xFFFF);        // low 16 bits is op response code
+        // container.transaction_id reused from original received command
+        #if DEBUG > 1
+        printContainer(&container); // to switch on set debug to 2 at beginning of file
+        #endif
+        write(&container, container.len);
+        write_finish();
+      }
+    } else {
+      printf("ERROR: loop received command with %u bytes\n", receive_buffer.len);
+      free_received_bulk();
+      // TODO: what is the proper way to handle this error?
+      // Still Image Class spec 1.0 says on page 20:
+      //   "If the number of bytes transferred in the Command phase is less than
+      //    that specified in the first four bytes of the Command Block then the
+      //    device has received an invalid command and should STALL the Bulk-Pipe
+      //    (refer to Clause 7.2)."
+      // What are we supposed to do is too much data arrives?  Or other invalid cmds?
+    }
+  }
+
+  // check here to mske sure the USB status is reset
+  if (usb_mtp_status != 0x01) {
+    printf("MTP_class::Loop usb_mtp_status %x != 0x1 reset\n", usb_mtp_status);
+    usb_mtp_status = 0x01;
+  }
+
+  // See if Storage needs to do anything
+  storage_.loop();
+}
+
+
+// IntervalTimer runs a mini version of loop() at 20 Hz, to keep quick response to host
+//
+MTP_class *MTP_class::g_pmtpd_interval = nullptr;
+IntervalTimer MTP_class::g_intervaltimer;
+
+void MTP_class::_interval_timer_handler() {
+  if (g_pmtpd_interval)
+    g_pmtpd_interval->processIntervalTimer();
+}
+
+void MTP_class::processIntervalTimer() {
+  if (receive_bulk(0)) {
+    if (receive_buffer.len >= 12 && receive_buffer.len <= 32) {
+      struct MTPContainer container;
+      memset(&container, 0, sizeof(container));
+      memcpy(&container, receive_buffer.data, receive_buffer.len);
+      free_received_bulk();
+      printContainer(&container, "timer:"); // to switch on set debug to 1 at beginning of file
+
+      TID = container.transaction_id;
+      uint32_t return_code = 0x2001; // 0x2001=OK
+      if (container.type == 1) { // command
+        switch (container.op) {
+        case MTP_OPERATION_GET_DEVICE_INFO: // GetDescription 0x1001
+          return_code = GetDeviceInfo(container);
+          break;
+        case MTP_OPERATION_OPEN_SESSION: // open session 0x1002
+          return_code = OpenSession(container);
+          break;
+        case MTP_OPERATION_GET_DEVICE_PROP_DESC: // 1014
+          return_code = GetDevicePropDesc(container);
+          break;
+        default:
+          return_code = MTP_RESPONSE_DEVICE_BUSY; // busy 0x2019
+          break;
+        }
+      } else {
+        // TODO: should this send 0x2005 MTP_RESPONSE_OPERATION_NOT_SUPPORTED ??
+        return_code = MTP_RESPONSE_UNDEFINED; // undefined 0x2000
+      }
+      container.type = 3;
+      container.len = 12;
+      container.op = return_code;
+#if DEBUG > 1
+      printContainer(&container);
+#endif
+      allocate_transmit_bulk();
+      memcpy(transmit_buffer.data, &container, container.len);
+      transmit_buffer.len = container.len;
+      transmit_bulk();
+    } else {
+      printf("ERROR: intervaltimer received command with %u bytes\n", receive_buffer.len);
+      free_received_bulk();
+    }
+  }
+}
+
+
+//***************************************************************************
+//  MTP Commands - File Transfer and File Operations
+//***************************************************************************
+
 /*
   struct MTPHeader {
     uint32_t len;  // 0
@@ -89,137 +334,308 @@ uint32_t MTP_class::sessionID_ = 0;
     uint32_t params[5];    // 12
   };
 */
-int MTP_class::begin() {
 
-  // lets set up to check for MTP messages and tell
-  // other side we are busy...  Maybe should be function:
-  g_pmtpd_interval = this;
-  printf("\n\n*** Start Interval Timer ***\n");
-  g_intervaltimer.begin(&_interval_timer_handler, 50000); // 20 Hz
-  return usb_init_events();
+// When the host (your PC) wants to put a new file onto any of Teensy's drives
+// first uses SendObjectInfo to tell us info about the file.  Then SendObject
+// is used to actually transfer the file's data.
+//
+// SendObjectInfo, MTP 1.1 spec, page 223
+uint32_t MTP_class::SendObjectInfo(struct MTPContainer &cmd) { // MTP 1.1 spec, page 223
+  uint32_t storage = cmd.params[0];
+  uint32_t parent = cmd.params[1];
+  printf("SendObjectInfo: %x %x ", storage, parent);
+  uint32_t store = Storage2Store(storage);
+  struct MTPHeader header;
+  if (!readDataPhaseHeader(&header)) return MTP_RESPONSE_INVALID_DATASET;
+  printf("Dataset len=%u\n", header.len);
+  // receive ObjectInfo Dataset, MTP 1.1 spec, page 50
+  char filename[MAX_FILENAME_LEN];
+  uint16_t oformat;
+  uint32_t file_size;
+  if (read(NULL, 4)                          // StorageID (unused)
+   && read16(&oformat)                       // ObjectFormatCode
+   && read(NULL, 2)                          // Protection Status (unused)
+   && read32(&file_size)                     // Object Compressed Size
+   && read(NULL, 40)                         // Image info (unused)
+   && readstring(filename, sizeof(filename)) // Filename
+   && readDateTimeString(&dtCreated_)        // Date Created
+   && readDateTimeString(&dtModified_)       // Date Modified
+   && readstring(NULL, 0)                    // Keywords
+   && (true)) {                              // TODO: read complete function (handle ZLP)
+    printf("%s ", (oformat == 0x3001) ? "Dir" : "File");
+    printf("\"%s\" ", filename);
+    printf("size:%u ", file_size);
+    printf("Created:%x ", dtCreated_);
+    printf("Modified:%x\n", dtModified_);
+    if (receive_buffer.data == NULL) {
+      printf(" read consumed all data (TODO: how to check ZLP)\n");
+      // TODO: need to check for ZLP here....
+    } else {
+      printf(" ERROR, receive buffer has %u bytes unused!\n",
+        receive_buffer.len - receive_buffer.index);
+    }
+  } else {
+    return MTP_RESPONSE_INVALID_DATASET;
+  }
+  // Lets see if we have enough room to store this file:
+  uint32_t free_space = storage_.totalSize(store) - storage_.usedSize(store);
+  if (file_size > free_space) {
+    printf("Size of object:%u is > free space: %u\n", file_size, free_space);
+    return MTP_RESPONSE_STORAGE_FULL;
+  }
+  const bool dir = (oformat == 0x3001);
+  object_id_ = storage_.Create(store, parent, dir, filename);
+  if (object_id_ == 0xFFFFFFFFUL) {
+    return MTP_RESPONSE_SPECIFICATION_OF_DESTINATION_UNSUPPORTED;
+  }
+  if (dir) {
+    // lets see if we should update the date and time stamps.
+    // if it is dirctory, then sendObject will not be called, so do it now.
+    if (!storage_.updateDateTimeStamps(object_id_, dtCreated_, dtModified_)) {
+      // BUGBUG: failed to update, maybe FS needs little time to settle in
+      // before trying this.
+      for (uint8_t i = 0; i < 10; i++) {
+        printf("!!!(%d) Try delay and call update time stamps again\n", i);
+        delay(25);
+        if (storage_.updateDateTimeStamps(object_id_, dtCreated_, dtModified_))
+          break;
+      }
+    }
+    storage_.close();
+  }
+  cmd.params[2] = object_id_;
+  return MTP_RESPONSE_OK | (3<<28); // response with 3 params
 }
 
-void MTP_class::writestring(const char *str) {
-  if (*str) {
-    write8(strlen(str) + 1);
-    while (*str) {
-      write16(*str);  // TODO: decode UTF8 -> Unicode16
-      ++str;
+// SendObject, MTP 1.1 spec, page 225
+uint32_t MTP_class::SendObject(struct MTPContainer &cmd) {
+  MTPHeader header;
+  if (!readDataPhaseHeader(&header)) return MTP_RESPONSE_PARAMETER_NOT_SUPPORTED;
+  uint32_t size = header.len - sizeof(header);
+  printf("SendObject: %u bytes, id=%x\n", size, object_id_);
+  // TODO: check size matches file_size from SendObjectInfo
+  // TODO: check if object_id_
+  // TODO: should we do storage_.Create() here?  Can we preallocate file size?
+  uint32_t ret = MTP_RESPONSE_OK;
+  uint32_t pos = 0;
+  while (pos < size) {
+    if (receive_buffer.data == NULL) {
+      if (!receive_bulk(100)) {
+        ret = MTP_RESPONSE_OPERATION_NOT_SUPPORTED;
+        break;
+      }
     }
-    write16(0);
+    uint32_t to_copy = receive_buffer.len - receive_buffer.index;
+    if (to_copy > size) to_copy = size;
+    //printf("SendObject, pos=%u, write=%u, size=%u\n", pos, to_copy, size);
+    bool ok = storage_.write((char *)(receive_buffer.data + receive_buffer.index), to_copy);
+    if (!ok) {
+      ret = MTP_RESPONSE_OPERATION_NOT_SUPPORTED; // TODO: best response for write error??
+      // maybe send MTP_EVENT_CANCEL_TRANSACTION event??
+      break;
+    }
+    pos += to_copy;
+    receive_buffer.index += to_copy;
+    if (receive_buffer.index >= receive_buffer.len) {
+      free_received_bulk();
+    }
+  }
+  while (pos < size) {
+    // consume remaining incoming data, if we aborted for any reason
+    if (receive_buffer.data == NULL && !receive_bulk(250)) break;
+    pos += receive_buffer.len - receive_buffer.index;
+    free_received_bulk();
+  }
+  // TODO: check no lingering buffered data, and ZLP is present if expected
+  printf("SendObject complete\n");
+  storage_.updateDateTimeStamps(object_id_, dtCreated_, dtModified_);
+  storage_.close();
+
+  if (ret == MTP_RESPONSE_OK) object_id_ = 0; // SendObjectInfo can not be reused after success
+  return ret;
+}
+
+
+
+// When the host (your PC) wants to put a read a file from any of Teensy's drives
+// first it uses GetObjectInfo to request all the file's metadata.  Then GetObject
+// is used to read the actual file data.
+//
+// GetObjectInfo, MTP 1.1 spec, page 218
+uint32_t MTP_class::GetObjectInfo(struct MTPContainer &cmd) {
+  uint32_t handle = cmd.params[0];
+  uint32_t size, parent, dt;
+  char filename[MAX_FILENAME_LEN], ctimebuf[16], mtimebuf[16];
+  DateTimeFields dtf;
+  uint16_t store;
+  storage_.GetObjectInfo(handle, filename, &size, &parent, &store);
+
+  if (storage_.getCreateTime(handle, dt)) {
+    breakTime(dt, dtf);
+    snprintf(ctimebuf, sizeof(ctimebuf), "%04u%02u%02uT%02u%02u%02u",
+             dtf.year + 1900, dtf.mon + 1, dtf.mday, dtf.hour, dtf.min,
+             dtf.sec);
   } else {
-    write8(0);
+    ctimebuf[0] = 0;
+  }
+  if (storage_.getModifyTime(handle, dt)) {
+    breakTime(dt, dtf);
+    snprintf(mtimebuf, sizeof(mtimebuf), "%04u%02u%02uT%02u%02u%02u",
+             dtf.year + 1900, dtf.mon + 1, dtf.mday, dtf.hour, dtf.min,
+             dtf.sec);
+  } else {
+    mtimebuf[0] = 0;
+  }
+
+  writeDataPhaseHeader(cmd,
+    4 + 2 + 2 + 4 + 2 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 2 + 4 + 4
+    + writestringlen(filename) + writestringlen(ctimebuf)
+    + writestringlen(mtimebuf) + writestringlen(""));
+
+  uint32_t storage = Store2Storage(store);
+  write32(storage);                                // storage
+  write16(size == 0xFFFFFFFFUL ? 0x3001 : 0x0000); // format
+  write16(0);                                      // protection
+  write32(size);                                   // size
+  write16(0);                                      // thumb format
+  write32(0);                                      // thumb size
+  write32(0);                                      // thumb width
+  write32(0);                                      // thumb height
+  write32(0);                                      // pix width
+  write32(0);                                      // pix height
+  write32(0);                                      // bit depth
+  write32(parent);                                 // parent
+  write16(size == 0xFFFFFFFFUL ? 1 : 0);           // association type
+  write32(0);                                      // association description
+  write32(0);                                      // sequence number
+  writestring(filename);                           // filename
+  writestring(ctimebuf);                           // date created
+  writestring(mtimebuf);                           // date modified
+  writestring("");                                 // keywords
+  write_finish();
+  return MTP_RESPONSE_OK;
+}
+
+
+uint32_t MTP_class::GetObject(struct MTPContainer &cmd) {
+  const int object_id = cmd.params[0];
+  uint32_t size = storage_.GetSize(object_id);
+  //printf("GetObject, size=%u\n", size);
+  writeDataPhaseHeader(cmd, size);
+  uint32_t pos = 0;
+  while (pos < size) {
+    if (usb_mtp_status != 0x01) {
+      //printf("GetObject, abort\n");
+      return 0;
+    }
+    if (transmit_buffer.data == NULL) allocate_transmit_bulk();
+    uint32_t avail = transmit_buffer.size - transmit_buffer.len;
+    uint32_t to_copy = size - pos;
+    if (to_copy > avail) to_copy = avail;
+    //printf("GetObject, read=%u, pos=%u\n", to_copy, pos);
+    // Read directly from storage into usb buffer.
+    storage_.read(object_id, pos,
+                   (char *)(transmit_buffer.data + transmit_buffer.len), to_copy);
+    pos += to_copy;
+    transmit_buffer.len += to_copy;
+    if (transmit_buffer.len >= transmit_buffer.size) {
+      transmit_bulk();
+    }
+  }
+  write_finish();
+  //printf("GetObject, done\n");
+  return MTP_RESPONSE_OK;
+}
+
+
+uint32_t MTP_class::GetPartialObject(struct MTPContainer &cmd) {
+  uint32_t object_id = cmd.params[0];
+  uint32_t offset = cmd.params[1];
+  uint32_t NumBytes = cmd.params[2];
+  uint32_t size = storage_.GetSize(object_id);
+  size -= offset;
+  if (NumBytes < size) {
+    size = NumBytes;
+  }
+  writeDataPhaseHeader(cmd, size);
+  uint32_t pos = offset; // into data
+  while (pos < size) {
+    if (usb_mtp_status != 0x01) {
+      //printf("GetPartialObject, abort\n");
+      return 0;
+    }
+    if (transmit_buffer.data == NULL) allocate_transmit_bulk();
+    uint32_t avail = transmit_buffer.size - transmit_buffer.len;
+    uint32_t to_copy = size - pos;
+    if (to_copy > avail) to_copy = avail;
+    storage_.read(object_id, pos,
+                   (char *)(transmit_buffer.data + transmit_buffer.len), to_copy);
+    pos += to_copy;
+    transmit_buffer.len += to_copy;
+    if (transmit_buffer.len >= transmit_buffer.size) {
+      transmit_bulk();
+    }
+  }
+  write_finish();
+  cmd.params[0] = size;
+  return MTP_RESPONSE_OK + (1<<28);
+}
+
+
+uint32_t MTP_class::deleteObject(uint32_t handle) {
+  if (!storage_.DeleteObject(handle)) {
+    return 0x2012; // partial deletion
+  }
+  return 0x2001;
+}
+
+uint32_t MTP_class::moveObject(uint32_t handle, uint32_t newStorage,
+                          uint32_t newHandle) {
+  uint32_t store1 = Storage2Store(newStorage);
+  if (newHandle == 0) newHandle = store1;
+
+  if (storage_.move(handle, store1, newHandle))
+    return 0x2001;
+  else
+    return 0x2005;
+}
+
+uint32_t MTP_class::copyObject(uint32_t handle, uint32_t newStorage,
+                          uint32_t newHandle) {
+  uint32_t store1 = Storage2Store(newStorage);
+  if (newHandle == 0) newHandle = store1;
+
+  return storage_.copy(handle, store1, newHandle);
+}
+
+uint32_t MTP_class::formatStore(struct MTPContainer &cmd) {
+  printf("formatStore begin\n");
+  const uint32_t store = Storage2Store(cmd.params[0]);
+  const uint32_t format = cmd.params[1];
+  g_pmtpd_interval = this;
+  dtFormatStart_ = millis();  // remember when format started
+  g_intervaltimer.begin(&_interval_timer_handler, 50000); // 20 Hz
+  elapsedMillis msec = 0;
+  uint8_t success = storage_.formatStore(store, format);
+  if (g_pmtpd_interval) g_intervaltimer.end();
+  printf("formatStore success=%u, format took %u ms\n", success, (uint32_t)msec);
+  if (success) {
+    storage_.ResetIndex(); // maybe should add a less of sledge hammer here.
+    // send_DeviceResetEvent();
+    return MTP_RESPONSE_OK;
+  } else {
+    return MTP_RESPONSE_OPERATION_NOT_SUPPORTED;
   }
 }
 
 
-static uint32_t writestringlen(const char *str) {
-  if (!str) return 1;
-  return strlen(str)*2 + 2 + 1; // TODO: size after UTF8 -> Unicode16
-}
 
 
 
-uint32_t MTP_class::GetDeviceInfo(struct MTPContainer &cmd) {
-  PROGMEM static const unsigned short supported_op[] = {
-    MTP_OPERATION_GET_DEVICE_INFO,  // 0x1001
-    MTP_OPERATION_OPEN_SESSION,     // 0x1002
-    MTP_OPERATION_CLOSE_SESSION,    // 0x1003
-    MTP_OPERATION_GET_STORAGE_IDS,  // 0x1004
-    MTP_OPERATION_GET_STORAGE_INFO, // 0x1005
-    // MTP_OPERATION_GET_NUM_OBJECTS                        ,//0x1006
-    MTP_OPERATION_GET_OBJECT_HANDLES, // 0x1007
-    MTP_OPERATION_GET_OBJECT_INFO,    // 0x1008
-    MTP_OPERATION_GET_OBJECT,         // 0x1009
-    // MTP_OPERATION_GET_THUMB                              ,//0x100A
-    MTP_OPERATION_DELETE_OBJECT,         // 0x100B
-    MTP_OPERATION_SEND_OBJECT_INFO,      // 0x100C
-    MTP_OPERATION_SEND_OBJECT,           // 0x100D
-    MTP_OPERATION_FORMAT_STORE,          // 0x100F
-    MTP_OPERATION_GET_DEVICE_PROP_DESC,  // 0x1014
-    MTP_OPERATION_GET_DEVICE_PROP_VALUE, // 0x1015
-    // MTP_OPERATION_SET_DEVICE_PROP_VALUE                  ,//0x1016
-    // MTP_OPERATION_RESET_DEVICE_PROP_VALUE                ,//0x1017
-    MTP_OPERATION_MOVE_OBJECT,        // 0x1019
-    MTP_OPERATION_COPY_OBJECT,        // 0x101A
-    MTP_OPERATION_GET_PARTIAL_OBJECT, // 0x101B
-    MTP_OPERATION_GET_OBJECT_PROPS_SUPPORTED, // 0x9801
-    MTP_OPERATION_GET_OBJECT_PROP_DESC,       // 0x9802
-    MTP_OPERATION_GET_OBJECT_PROP_VALUE,      // 0x9803
-    MTP_OPERATION_SET_OBJECT_PROP_VALUE       // 0x9804
-    // MTP_OPERATION_GET_OBJECT_PROP_LIST                   ,//0x9805
-    // MTP_OPERATION_GET_OBJECT_REFERENCES                  ,//0x9810
-    // MTP_OPERATION_SET_OBJECT_REFERENCES                  ,//0x9811
-    // MTP_OPERATION_GET_PARTIAL_OBJECT_64                  ,//0x95C1
-    // MTP_OPERATION_SEND_PARTIAL_OBJECT                    ,//0x95C2
-    // MTP_OPERATION_TRUNCATE_OBJECT                        ,//0x95C3
-    // MTP_OPERATION_BEGIN_EDIT_OBJECT                      ,//0x95C4
-    // MTP_OPERATION_END_EDIT_OBJECT                         //0x95C5
-  };
-  const int supported_op_num = sizeof(supported_op) / sizeof(supported_op[0]);
-  PROGMEM static const uint16_t supported_events[] = {
-    //    MTP_EVENT_UNDEFINED                         ,//0x4000
-    MTP_EVENT_CANCEL_TRANSACTION, // 0x4001
-    MTP_EVENT_OBJECT_ADDED,       // 0x4002
-    MTP_EVENT_OBJECT_REMOVED,     // 0x4003
-    MTP_EVENT_STORE_ADDED,        // 0x4004
-    MTP_EVENT_STORE_REMOVED,      // 0x4005
-    //    MTP_EVENT_DEVICE_PROP_CHANGED               ,//0x4006
-    //    MTP_EVENT_OBJECT_INFO_CHANGED               ,//0x4007
-    //    MTP_EVENT_DEVICE_INFO_CHANGED               ,//0x4008
-    //    MTP_EVENT_REQUEST_OBJECT_TRANSFER           ,//0x4009
-    //    MTP_EVENT_STORE_FULL                        ,//0x400A
-    MTP_EVENT_DEVICE_RESET,         // 0x400B
-    MTP_EVENT_STORAGE_INFO_CHANGED, // 0x400C
-    //    MTP_EVENT_CAPTURE_COMPLETE                  ,//0x400D
-    MTP_EVENT_UNREPORTED_STATUS,   // 0x400E
-    MTP_EVENT_OBJECT_PROP_CHANGED, // 0xC801
-    //    MTP_EVENT_OBJECT_PROP_DESC_CHANGED          ,//0xC802
-    //    MTP_EVENT_OBJECT_REFERENCES_CHANGED          //0xC803
-  };
-  const int supported_event_num = sizeof(supported_events) / sizeof(supported_events[0]);
-  char buf[20];
-  dtostrf((float)(TEENSYDUINO / 100.0f), 3, 2, buf);
-  strlcat(buf, " / MTP " MTP_VERS, sizeof(buf));
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Warray-bounds"
-  char sernum[10];
-  for (size_t i = 0; i < 10; i++)
-    sernum[i] = usb_string_serial_number.wString[i];
-#pragma GCC diagnostic pop
-  // DeviceInfo Dataset, MTP 1.1 spec, page 40
-  uint32_t size = 2 + 4 + 2 + writestringlen("microsoft.com: 1.0;") + 2
-                  + 4 + sizeof(supported_op)
-                  + 4 + sizeof(supported_events)
-                  + 4 + 2 + 4 + 4 + 2*2
-                  + writestringlen(MTP_MANUF)
-                  + writestringlen(MTP_MODEL)
-                  + writestringlen(buf)
-                  + writestringlen(sernum);
-  printf("GetDeviceInfo size=%u\n", size);
-  writeDataPhaseHeader(cmd, size);
-  write16(100);           // MTP version
-  write32(6);             // MTP extension
-  write16(100);           // MTP version
-  writestring("microsoft.com: 1.0;");
-  write16(1);             // functional mode
-  write32(supported_op_num); // Supported operations (array of uint16)
-  write(supported_op, sizeof(supported_op));
-  write32(supported_event_num); // Events (array of uint16)
-  write(supported_events, sizeof(supported_events));
-  write32(1);             // Device properties (array of uint16)
-  write16(0xd402);        // Device friendly name
-  write32(0);             // Capture formats (array of uint16)
-  write32(2);             // Playback formats (array of uint16)
-  write16(0x3000);        // Undefined format
-  write16(0x3001);        // Folders (associations)
-  writestring(MTP_MANUF); // Manufacturer
-  writestring(MTP_MODEL); // Model
-  writestring(buf);       // version
-  writestring(sernum);    // serial number
-  write_finish();
-  return MTP_RESPONSE_OK;
-}
+//***************************************************************************
+//  MTP Commands - Metadata, Capability Detection, and Boring Stuff
+//***************************************************************************
+
 
 // GetStorageIDs, MTP 1.1 spec, page 213
 uint32_t MTP_class::GetStorageIDs(struct MTPContainer &cmd) {
@@ -320,132 +736,6 @@ uint32_t MTP_class::GetObjectHandles(struct MTPContainer &cmd) {
   return MTP_RESPONSE_OK;
 }
 
-uint32_t MTP_class::GetObjectInfo(struct MTPContainer &cmd) {
-  uint32_t handle = cmd.params[0];
-  uint32_t size, parent, dt;
-  char filename[MAX_FILENAME_LEN], ctimebuf[16], mtimebuf[16];
-  DateTimeFields dtf;
-  uint16_t store;
-  storage_.GetObjectInfo(handle, filename, &size, &parent, &store);
-
-  if (storage_.getCreateTime(handle, dt)) {
-    breakTime(dt, dtf);
-    snprintf(ctimebuf, sizeof(ctimebuf), "%04u%02u%02uT%02u%02u%02u",
-             dtf.year + 1900, dtf.mon + 1, dtf.mday, dtf.hour, dtf.min,
-             dtf.sec);
-  } else {
-    ctimebuf[0] = 0;
-  }
-  if (storage_.getModifyTime(handle, dt)) {
-    breakTime(dt, dtf);
-    snprintf(mtimebuf, sizeof(mtimebuf), "%04u%02u%02uT%02u%02u%02u",
-             dtf.year + 1900, dtf.mon + 1, dtf.mday, dtf.hour, dtf.min,
-             dtf.sec);
-  } else {
-    mtimebuf[0] = 0;
-  }
-
-  writeDataPhaseHeader(cmd,
-    4 + 2 + 2 + 4 + 2 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 2 + 4 + 4
-    + writestringlen(filename) + writestringlen(ctimebuf)
-    + writestringlen(mtimebuf) + writestringlen(""));
-
-  uint32_t storage = Store2Storage(store);
-  write32(storage);                                // storage
-  write16(size == 0xFFFFFFFFUL ? 0x3001 : 0x0000); // format
-  write16(0);                                      // protection
-  write32(size);                                   // size
-  write16(0);                                      // thumb format
-  write32(0);                                      // thumb size
-  write32(0);                                      // thumb width
-  write32(0);                                      // thumb height
-  write32(0);                                      // pix width
-  write32(0);                                      // pix height
-  write32(0);                                      // bit depth
-  write32(parent);                                 // parent
-  write16(size == 0xFFFFFFFFUL ? 1 : 0);           // association type
-  write32(0);                                      // association description
-  write32(0);                                      // sequence number
-  writestring(filename);                           // filename
-  writestring(ctimebuf);                           // date created
-  writestring(mtimebuf);                           // date modified
-  writestring("");                                 // keywords
-  write_finish();
-  return MTP_RESPONSE_OK;
-}
-
-bool MTP_class::readDataPhaseHeader(struct MTPHeader *header) {
-  if (!read(header, sizeof(struct MTPHeader))) return false;
-  if (header && header->type != MTP_CONTAINER_TYPE_DATA) return false;
-  // TODO: when we later implement split header + data USB optimization
-  //       described in MTP 1.1 spec pages 281-282, we should check that
-  //       receive_buffer.data is NULL.  Return false if unexpected data.
-  return true;
-}
-
-bool MTP_class::readstring(char *buffer, uint32_t buffer_size) {
-  uint8_t len;
-  if (!read8(&len)) return false;
-  if (len == 0) {
-    if (buffer) *buffer = 0; // empty string
-    return true;
-  }
-  unsigned int buffer_index = 0;
-  for (unsigned int string_index = 0; string_index < len; string_index++) {
-    uint16_t c;
-    if (!read16(&c)) return false;
-    if (string_index == (unsigned)(len-1) && c != 0) return false; // last char16 must be zero
-    if (buffer) {
-      // encode Unicode16 -> UTF8
-      if (c < 0x80 && buffer_index < buffer_size-2) {
-        buffer[buffer_index++] = c & 0x7F;
-      } else if (c < 0x800 && buffer_index < buffer_size-3) {
-        buffer[buffer_index++] = 0xC0 | ((c >> 6) & 0x1F);
-        buffer[buffer_index++] = 0x80 | (c & 0x3F);
-      } else if (buffer_index < buffer_size-4) {
-        buffer[buffer_index++] = 0xE0 | ((c >> 12) & 0x0F);
-        buffer[buffer_index++] = 0x80 | ((c >> 6) & 0x3F);
-        buffer[buffer_index++] = 0x80 | (c & 0x3F);
-      } else {
-        while (buffer_index < buffer_size) buffer[buffer_index++] = 0;
-        buffer = nullptr;
-      }
-    }
-  }
-  if (buffer) buffer[buffer_index] = 0; // redundant?? (last char16 must be zero)
-  return true;
-}
-
-bool MTP_class::readDateTimeString(uint32_t *pdt) {
-  char dtb[20]; // let it take care of the conversions.
-  if (!readstring(dtb, sizeof(dtb))) return false;
-  //printf("  DateTime string: %s\n", dtb);
-  //                            01234567890123456
-  // format of expected String: YYYYMMDDThhmmss.s
-  if (strlen(dtb) < 15) return false;
-  for (int i=0; i < 15; i++) {
-    if (i == 8) {
-      if (dtb[i] != 'T') return false;
-    } else {
-      if (dtb[i] < '0' || dtb[i] > '9') return false;
-    }
-  }
-  DateTimeFields dtf;
-  // Quick and dirty!
-  uint16_t year = ((dtb[0] - '0') * 1000) + ((dtb[1] - '0') * 100) +
-                  ((dtb[2] - '0') * 10) + (dtb[3] - '0');
-  dtf.year = year - 1900;                               // range 70-206
-  dtf.mon = ((dtb[4] - '0') * 10) + (dtb[5] - '0') - 1; // zero based not 1
-  dtf.mday = ((dtb[6] - '0') * 10) + (dtb[7] - '0');
-  dtf.wday = 0; // hopefully not needed...
-  dtf.hour = ((dtb[9] - '0') * 10) + (dtb[10] - '0');
-  dtf.min = ((dtb[11] - '0') * 10) + (dtb[12] - '0');
-  dtf.sec = ((dtb[13] - '0') * 10) + (dtb[14] - '0');
-  *pdt = makeTime(dtf);
-  //printf(">> date/Time: %x %u/%u/%u %u:%u:%u\n", *pdt, dtf.mon + 1, dtf.mday,
-         //year, dtf.hour, dtf.min, dtf.sec);
-  return true;
-}
 
 // GetDevicePropValue, MTP 1.1 spec, page 234
 uint32_t MTP_class::GetDevicePropValue(struct MTPContainer &cmd) {
@@ -464,48 +754,6 @@ uint32_t MTP_class::GetDevicePropValue(struct MTPContainer &cmd) {
   return MTP_RESPONSE_DEVICE_PROP_NOT_SUPPORTED;
 }
 
-// GetDevicePropDesc, MTP 1.1 spec, page 233
-uint32_t MTP_class::GetDevicePropDesc(struct MTPContainer &cmd) {
-  const uint32_t property = cmd.params[0];
-  switch (property) {
-  case 0xd402: // friendly name
-    writeDataPhaseHeader(cmd, 5 + writestringlen(MTP_NAME)*2 + 1);
-    // DevicePropDesc Dataset, MTP 1.1 spec, page 42
-    write16(property);     // Device Property Code
-    write16(0xFFFF);       // Datatype, string type
-    write8(0);             // read-only
-    writestring(MTP_NAME); // Factory Default Value
-    writestring(MTP_NAME); // Current Value
-    write8(0);             // no form
-    write_finish();
-    return MTP_RESPONSE_OK;
-  }
-  writeDataPhaseHeader(cmd, 0);
-  return MTP_RESPONSE_DEVICE_PROP_NOT_SUPPORTED;
-}
-
-// GetObjectPropsSupported, MTP 1.1 spec, page 243
-uint32_t MTP_class::GetObjectPropsSupported(struct MTPContainer &cmd) {
-  PROGMEM static const uint16_t propertyList[] = {
-    MTP_PROPERTY_STORAGE_ID,        // 0xDC01
-    MTP_PROPERTY_OBJECT_FORMAT,     // 0xDC02
-    MTP_PROPERTY_PROTECTION_STATUS, // 0xDC03
-    MTP_PROPERTY_OBJECT_SIZE,       // 0xDC04
-    MTP_PROPERTY_OBJECT_FILE_NAME,  // 0xDC07
-    MTP_PROPERTY_DATE_CREATED,      // 0xDC08
-    MTP_PROPERTY_DATE_MODIFIED,     // 0xDC09
-    MTP_PROPERTY_PARENT_OBJECT,     // 0xDC0B
-    MTP_PROPERTY_PERSISTENT_UID,    // 0xDC41
-    MTP_PROPERTY_NAME               // 0xDC44
-  };
-  const uint32_t propertyListNum = sizeof(propertyList) / sizeof(propertyList[0]);
-  //uint32_t format = cmd.params[0]; // TODO: does this matter?
-  writeDataPhaseHeader(cmd, 4 + sizeof(propertyList));
-  write32(propertyListNum);
-  write(propertyList, sizeof(propertyList));
-  write_finish();
-  return MTP_RESPONSE_OK;
-}
 
 // GetObjectPropDesc, MTP 1.1 spec, page 244
 uint32_t MTP_class::GetObjectPropDesc(struct MTPContainer &cmd) {
@@ -754,31 +1002,176 @@ uint32_t MTP_class::GetObjectPropValue(struct MTPContainer &cmd) {
   return MTP_RESPONSE_OK;
 }
 
-uint32_t MTP_class::deleteObject(uint32_t handle) {
-  if (!storage_.DeleteObject(handle)) {
-    return 0x2012; // partial deletion
+
+//  SetObjectPropValue, MTP 1.1 spec, page 246
+uint32_t MTP_class::setObjectPropValue(struct MTPContainer &cmd) {
+  uint32_t object_id = cmd.params[0];
+  uint32_t property_code = cmd.params[1];
+
+  struct MTPHeader header;
+  if (!readDataPhaseHeader(&header)) return MTP_RESPONSE_INVALID_DATASET;
+
+  if (property_code == 0xDC07) {
+    char filename[MAX_FILENAME_LEN];
+    if (readstring(filename, sizeof(filename))
+     && (true)) {   // TODO: read complete function (handle ZLP)
+      printf("setObjectPropValue, rename id=%x to \"%s\"\n", object_id, filename);
+      storage_.rename(object_id, filename);
+      return MTP_RESPONSE_OK;
+    } else {
+      return MTP_RESPONSE_OPERATION_NOT_SUPPORTED;
+    }
   }
-  return 0x2001;
+  read(NULL, header.len - sizeof(header)); // discard ObjectProp Value
+  return MTP_RESPONSE_OPERATION_NOT_SUPPORTED;
 }
 
-uint32_t MTP_class::moveObject(uint32_t handle, uint32_t newStorage,
-                          uint32_t newHandle) {
-  uint32_t store1 = Storage2Store(newStorage);
-  if (newHandle == 0) newHandle = store1;
 
-  if (storage_.move(handle, store1, newHandle))
-    return 0x2001;
-  else
-    return 0x2005;
+// GetDevicePropDesc, MTP 1.1 spec, page 233
+uint32_t MTP_class::GetDevicePropDesc(struct MTPContainer &cmd) {
+  const uint32_t property = cmd.params[0];
+  switch (property) {
+  case 0xd402: // friendly name
+    writeDataPhaseHeader(cmd, 5 + writestringlen(MTP_NAME)*2 + 1);
+    // DevicePropDesc Dataset, MTP 1.1 spec, page 42
+    write16(property);     // Device Property Code
+    write16(0xFFFF);       // Datatype, string type
+    write8(0);             // read-only
+    writestring(MTP_NAME); // Factory Default Value
+    writestring(MTP_NAME); // Current Value
+    write8(0);             // no form
+    write_finish();
+    return MTP_RESPONSE_OK;
+  }
+  writeDataPhaseHeader(cmd, 0);
+  return MTP_RESPONSE_DEVICE_PROP_NOT_SUPPORTED;
 }
 
-uint32_t MTP_class::copyObject(uint32_t handle, uint32_t newStorage,
-                          uint32_t newHandle) {
-  uint32_t store1 = Storage2Store(newStorage);
-  if (newHandle == 0) newHandle = store1;
-
-  return storage_.copy(handle, store1, newHandle);
+// GetObjectPropsSupported, MTP 1.1 spec, page 243
+uint32_t MTP_class::GetObjectPropsSupported(struct MTPContainer &cmd) {
+  PROGMEM static const uint16_t propertyList[] = {
+    MTP_PROPERTY_STORAGE_ID,        // 0xDC01
+    MTP_PROPERTY_OBJECT_FORMAT,     // 0xDC02
+    MTP_PROPERTY_PROTECTION_STATUS, // 0xDC03
+    MTP_PROPERTY_OBJECT_SIZE,       // 0xDC04
+    MTP_PROPERTY_OBJECT_FILE_NAME,  // 0xDC07
+    MTP_PROPERTY_DATE_CREATED,      // 0xDC08
+    MTP_PROPERTY_DATE_MODIFIED,     // 0xDC09
+    MTP_PROPERTY_PARENT_OBJECT,     // 0xDC0B
+    MTP_PROPERTY_PERSISTENT_UID,    // 0xDC41
+    MTP_PROPERTY_NAME               // 0xDC44
+  };
+  const uint32_t propertyListNum = sizeof(propertyList) / sizeof(propertyList[0]);
+  //uint32_t format = cmd.params[0]; // TODO: does this matter?
+  writeDataPhaseHeader(cmd, 4 + sizeof(propertyList));
+  write32(propertyListNum);
+  write(propertyList, sizeof(propertyList));
+  write_finish();
+  return MTP_RESPONSE_OK;
 }
+
+
+uint32_t MTP_class::GetDeviceInfo(struct MTPContainer &cmd) {
+  PROGMEM static const unsigned short supported_op[] = {
+    MTP_OPERATION_GET_DEVICE_INFO,  // 0x1001
+    MTP_OPERATION_OPEN_SESSION,     // 0x1002
+    MTP_OPERATION_CLOSE_SESSION,    // 0x1003
+    MTP_OPERATION_GET_STORAGE_IDS,  // 0x1004
+    MTP_OPERATION_GET_STORAGE_INFO, // 0x1005
+    // MTP_OPERATION_GET_NUM_OBJECTS                        ,//0x1006
+    MTP_OPERATION_GET_OBJECT_HANDLES, // 0x1007
+    MTP_OPERATION_GET_OBJECT_INFO,    // 0x1008
+    MTP_OPERATION_GET_OBJECT,         // 0x1009
+    // MTP_OPERATION_GET_THUMB                              ,//0x100A
+    MTP_OPERATION_DELETE_OBJECT,         // 0x100B
+    MTP_OPERATION_SEND_OBJECT_INFO,      // 0x100C
+    MTP_OPERATION_SEND_OBJECT,           // 0x100D
+    MTP_OPERATION_FORMAT_STORE,          // 0x100F
+    MTP_OPERATION_GET_DEVICE_PROP_DESC,  // 0x1014
+    MTP_OPERATION_GET_DEVICE_PROP_VALUE, // 0x1015
+    // MTP_OPERATION_SET_DEVICE_PROP_VALUE                  ,//0x1016
+    // MTP_OPERATION_RESET_DEVICE_PROP_VALUE                ,//0x1017
+    MTP_OPERATION_MOVE_OBJECT,        // 0x1019
+    MTP_OPERATION_COPY_OBJECT,        // 0x101A
+    MTP_OPERATION_GET_PARTIAL_OBJECT, // 0x101B
+    MTP_OPERATION_GET_OBJECT_PROPS_SUPPORTED, // 0x9801
+    MTP_OPERATION_GET_OBJECT_PROP_DESC,       // 0x9802
+    MTP_OPERATION_GET_OBJECT_PROP_VALUE,      // 0x9803
+    MTP_OPERATION_SET_OBJECT_PROP_VALUE       // 0x9804
+    // MTP_OPERATION_GET_OBJECT_PROP_LIST                   ,//0x9805
+    // MTP_OPERATION_GET_OBJECT_REFERENCES                  ,//0x9810
+    // MTP_OPERATION_SET_OBJECT_REFERENCES                  ,//0x9811
+    // MTP_OPERATION_GET_PARTIAL_OBJECT_64                  ,//0x95C1
+    // MTP_OPERATION_SEND_PARTIAL_OBJECT                    ,//0x95C2
+    // MTP_OPERATION_TRUNCATE_OBJECT                        ,//0x95C3
+    // MTP_OPERATION_BEGIN_EDIT_OBJECT                      ,//0x95C4
+    // MTP_OPERATION_END_EDIT_OBJECT                         //0x95C5
+  };
+  const int supported_op_num = sizeof(supported_op) / sizeof(supported_op[0]);
+  PROGMEM static const uint16_t supported_events[] = {
+    //    MTP_EVENT_UNDEFINED                         ,//0x4000
+    MTP_EVENT_CANCEL_TRANSACTION, // 0x4001
+    MTP_EVENT_OBJECT_ADDED,       // 0x4002
+    MTP_EVENT_OBJECT_REMOVED,     // 0x4003
+    MTP_EVENT_STORE_ADDED,        // 0x4004
+    MTP_EVENT_STORE_REMOVED,      // 0x4005
+    //    MTP_EVENT_DEVICE_PROP_CHANGED               ,//0x4006
+    //    MTP_EVENT_OBJECT_INFO_CHANGED               ,//0x4007
+    //    MTP_EVENT_DEVICE_INFO_CHANGED               ,//0x4008
+    //    MTP_EVENT_REQUEST_OBJECT_TRANSFER           ,//0x4009
+    //    MTP_EVENT_STORE_FULL                        ,//0x400A
+    MTP_EVENT_DEVICE_RESET,         // 0x400B
+    MTP_EVENT_STORAGE_INFO_CHANGED, // 0x400C
+    //    MTP_EVENT_CAPTURE_COMPLETE                  ,//0x400D
+    MTP_EVENT_UNREPORTED_STATUS,   // 0x400E
+    MTP_EVENT_OBJECT_PROP_CHANGED, // 0xC801
+    //    MTP_EVENT_OBJECT_PROP_DESC_CHANGED          ,//0xC802
+    //    MTP_EVENT_OBJECT_REFERENCES_CHANGED          //0xC803
+  };
+  const int supported_event_num = sizeof(supported_events) / sizeof(supported_events[0]);
+  char buf[20];
+  dtostrf((float)(TEENSYDUINO / 100.0f), 3, 2, buf);
+  strlcat(buf, " / MTP " MTP_VERS, sizeof(buf));
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
+  char sernum[10];
+  for (size_t i = 0; i < 10; i++)
+    sernum[i] = usb_string_serial_number.wString[i];
+#pragma GCC diagnostic pop
+  // DeviceInfo Dataset, MTP 1.1 spec, page 40
+  uint32_t size = 2 + 4 + 2 + writestringlen("microsoft.com: 1.0;") + 2
+                  + 4 + sizeof(supported_op)
+                  + 4 + sizeof(supported_events)
+                  + 4 + 2 + 4 + 4 + 2*2
+                  + writestringlen(MTP_MANUF)
+                  + writestringlen(MTP_MODEL)
+                  + writestringlen(buf)
+                  + writestringlen(sernum);
+  printf("GetDeviceInfo size=%u\n", size);
+  writeDataPhaseHeader(cmd, size);
+  write16(100);           // MTP version
+  write32(6);             // MTP extension
+  write16(100);           // MTP version
+  writestring("microsoft.com: 1.0;");
+  write16(1);             // functional mode
+  write32(supported_op_num); // Supported operations (array of uint16)
+  write(supported_op, sizeof(supported_op));
+  write32(supported_event_num); // Events (array of uint16)
+  write(supported_events, sizeof(supported_events));
+  write32(1);             // Device properties (array of uint16)
+  write16(0xd402);        // Device friendly name
+  write32(0);             // Capture formats (array of uint16)
+  write32(2);             // Playback formats (array of uint16)
+  write16(0x3000);        // Undefined format
+  write16(0x3001);        // Folders (associations)
+  writestring(MTP_MANUF); // Manufacturer
+  writestring(MTP_MODEL); // Model
+  writestring(buf);       // version
+  writestring(sernum);    // serial number
+  write_finish();
+  return MTP_RESPONSE_OK;
+}
+
 
 // OpenSession, MTP 1.1 spec, page 211
 uint32_t MTP_class::OpenSession(struct MTPContainer &cmd) {
@@ -792,12 +1185,180 @@ uint32_t MTP_class::OpenSession(struct MTPContainer &cmd) {
 
 
 
+//***************************************************************************
+//  Generic data read / write
+//***************************************************************************
+
+
+bool MTP_class::readDataPhaseHeader(struct MTPHeader *header) {
+  if (!read(header, sizeof(struct MTPHeader))) return false;
+  if (header && header->type != MTP_CONTAINER_TYPE_DATA) return false;
+  // TODO: when we later implement split header + data USB optimization
+  //       described in MTP 1.1 spec pages 281-282, we should check that
+  //       receive_buffer.data is NULL.  Return false if unexpected data.
+  return true;
+}
+
+bool MTP_class::readstring(char *buffer, uint32_t buffer_size) {
+  uint8_t len;
+  if (!read8(&len)) return false;
+  if (len == 0) {
+    if (buffer) *buffer = 0; // empty string
+    return true;
+  }
+  unsigned int buffer_index = 0;
+  for (unsigned int string_index = 0; string_index < len; string_index++) {
+    uint16_t c;
+    if (!read16(&c)) return false;
+    if (string_index == (unsigned)(len-1) && c != 0) return false; // last char16 must be zero
+    if (buffer) {
+      // encode Unicode16 -> UTF8
+      if (c < 0x80 && buffer_index < buffer_size-2) {
+        buffer[buffer_index++] = c & 0x7F;
+      } else if (c < 0x800 && buffer_index < buffer_size-3) {
+        buffer[buffer_index++] = 0xC0 | ((c >> 6) & 0x1F);
+        buffer[buffer_index++] = 0x80 | (c & 0x3F);
+      } else if (buffer_index < buffer_size-4) {
+        buffer[buffer_index++] = 0xE0 | ((c >> 12) & 0x0F);
+        buffer[buffer_index++] = 0x80 | ((c >> 6) & 0x3F);
+        buffer[buffer_index++] = 0x80 | (c & 0x3F);
+      } else {
+        while (buffer_index < buffer_size) buffer[buffer_index++] = 0;
+        buffer = nullptr;
+      }
+    }
+  }
+  if (buffer) buffer[buffer_index] = 0; // redundant?? (last char16 must be zero)
+  return true;
+}
+
+bool MTP_class::readDateTimeString(uint32_t *pdt) {
+  char dtb[20]; // let it take care of the conversions.
+  if (!readstring(dtb, sizeof(dtb))) return false;
+  //printf("  DateTime string: %s\n", dtb);
+  //                            01234567890123456
+  // format of expected String: YYYYMMDDThhmmss.s
+  if (strlen(dtb) < 15) return false;
+  for (int i=0; i < 15; i++) {
+    if (i == 8) {
+      if (dtb[i] != 'T') return false;
+    } else {
+      if (dtb[i] < '0' || dtb[i] > '9') return false;
+    }
+  }
+  DateTimeFields dtf;
+  // Quick and dirty!
+  uint16_t year = ((dtb[0] - '0') * 1000) + ((dtb[1] - '0') * 100) +
+                  ((dtb[2] - '0') * 10) + (dtb[3] - '0');
+  dtf.year = year - 1900;                               // range 70-206
+  dtf.mon = ((dtb[4] - '0') * 10) + (dtb[5] - '0') - 1; // zero based not 1
+  dtf.mday = ((dtb[6] - '0') * 10) + (dtb[7] - '0');
+  dtf.wday = 0; // hopefully not needed...
+  dtf.hour = ((dtb[9] - '0') * 10) + (dtb[10] - '0');
+  dtf.min = ((dtb[11] - '0') * 10) + (dtb[12] - '0');
+  dtf.sec = ((dtb[13] - '0') * 10) + (dtb[14] - '0');
+  *pdt = makeTime(dtf);
+  //printf(">> date/Time: %x %u/%u/%u %u:%u:%u\n", *pdt, dtf.mon + 1, dtf.mday,
+         //year, dtf.hour, dtf.min, dtf.sec);
+  return true;
+}
+
+
+bool MTP_class::read(void *ptr, uint32_t size) {
+  char *data = (char *)ptr;
+  while (size > 0) {
+    if (receive_buffer.data == NULL) {
+      if (!receive_bulk(100)) {
+        if (data) memset(data, 0, size);
+        return false;
+      }
+    }
+    // TODO: what happens if read spans multiple packets?  Do any cases exist?
+    uint32_t to_copy = receive_buffer.len - receive_buffer.index;
+    if (to_copy > size) to_copy = size;
+    if (data) {
+      memcpy(data, receive_buffer.data + receive_buffer.index, to_copy);
+      data += to_copy;
+    }
+    size -= to_copy;
+    receive_buffer.index += to_copy;
+    if (receive_buffer.index >= receive_buffer.len) {
+      free_received_bulk();
+    }
+  }
+  return true;
+}
 
 
 
 
+void MTP_class::writeDataPhaseHeader(struct MTPContainer &container, uint32_t data_size)
+{
+  container.len = data_size + 12;
+  container.type = MTP_CONTAINER_TYPE_DATA;
+  // container.op reused from received command container
+  // container.transaction_id reused from received command container
+  write(&container, 12);
+  // TODO: when we later implement split header + data USB optimization
+  //       described in MTP 1.1 spec pages 281-282, we will need to
+  //       call transmit_bulk() here to transmit a partial packet
+}
+
+void MTP_class::writestring(const char *str) {
+  if (*str) {
+    write8(strlen(str) + 1);
+    while (*str) {
+      write16(*str);  // TODO: decode UTF8 -> Unicode16
+      ++str;
+    }
+    write16(0);
+  } else {
+    write8(0);
+  }
+}
+
+uint32_t MTP_class::writestringlen(const char *str) {
+  if (!str) return 1;
+  return strlen(str)*2 + 2 + 1; // TODO: size after UTF8 -> Unicode16
+}
+
+void MTP_class::write(const void *ptr, int len) {
+  if (len < 0) return;
+  if (write_get_length_) {
+    write_length_ += len;
+    return;
+  }
+  const char *data = (const char *)ptr;
+  while (len > 0) {
+    if (transmit_buffer.data == NULL) allocate_transmit_bulk();
+    unsigned int avail = transmit_buffer.size - transmit_buffer.len;
+    unsigned int to_copy = len;
+    if (to_copy > avail) to_copy = avail;
+    memcpy(transmit_buffer.data + transmit_buffer.len, data, to_copy);
+    data += to_copy;
+    len -= to_copy;
+    transmit_buffer.len += to_copy;
+    if (transmit_buffer.len >= transmit_buffer.size) {
+      transmit_bulk();
+    }
+  }
+}
+
+void MTP_class::write_finish() {
+  if (transmit_buffer.data == NULL) {
+    if (write_length_ == 0) return;
+    printf("send a ZLP\n");
+    allocate_transmit_bulk();
+  }
+  transmit_bulk();
+}
 
 
+
+
+//***************************************************************************
+//  USB bulk endpoint low-level input & output
+//***************************************************************************
 
 #if defined(__MK20DX128__) || defined(__MK20DX256__) ||                        \
     defined(__MK64FX512__) || defined(__MK66FX1M0__)
@@ -855,7 +1416,7 @@ int MTP_class::transmit_bulk() { // T3
 }
 
 // TODO: core library not yet implementing cancel on Teensy 3.x
-static uint8_t usb_mtp_status = 0x01;
+uint8_t MTP_class::usb_mtp_status = 0x01;
 
 
 #elif defined(__IMXRT1062__)
@@ -905,566 +1466,9 @@ int MTP_class::transmit_bulk() { // T4
 
 
 
-
-bool MTP_class::read(void *ptr, uint32_t size) {
-  char *data = (char *)ptr;
-  while (size > 0) {
-    if (receive_buffer.data == NULL) {
-      if (!receive_bulk(100)) {
-        if (data) memset(data, 0, size);
-        return false;
-      }
-    }
-    // TODO: what happens if read spans multiple packets?  Do any cases exist?
-    uint32_t to_copy = receive_buffer.len - receive_buffer.index;
-    if (to_copy > size) to_copy = size;
-    if (data) {
-      memcpy(data, receive_buffer.data + receive_buffer.index, to_copy);
-      data += to_copy;
-    }
-    size -= to_copy;
-    receive_buffer.index += to_copy;
-    if (receive_buffer.index >= receive_buffer.len) {
-      free_received_bulk();
-    }
-  }
-  return true;
-}
-
-
-
-void MTP_class::write(const void *ptr, int len) {
-  if (len < 0) return;
-  if (write_get_length_) {
-    write_length_ += len;
-    return;
-  }
-  const char *data = (const char *)ptr;
-  while (len > 0) {
-    if (transmit_buffer.data == NULL) allocate_transmit_bulk();
-    unsigned int avail = transmit_buffer.size - transmit_buffer.len;
-    unsigned int to_copy = len;
-    if (to_copy > avail) to_copy = avail;
-    memcpy(transmit_buffer.data + transmit_buffer.len, data, to_copy);
-    data += to_copy;
-    len -= to_copy;
-    transmit_buffer.len += to_copy;
-    if (transmit_buffer.len >= transmit_buffer.size) {
-      transmit_bulk();
-    }
-  }
-}
-
-void MTP_class::writeDataPhaseHeader(struct MTPContainer &container, uint32_t data_size)
-{
-  container.len = data_size + 12;
-  container.type = MTP_CONTAINER_TYPE_DATA;
-  // container.op reused from received command container
-  // container.transaction_id reused from received command container
-  write(&container, 12);
-  // TODO: when we later implement split header + data USB optimization
-  //       described in MTP 1.1 spec pages 281-282, we will need to
-  //       call transmit_bulk() here to transmit a partial packet
-}
-
-
-void MTP_class::write_finish() {
-  if (transmit_buffer.data == NULL) {
-    if (write_length_ == 0) return;
-    printf("send a ZLP\n");
-    allocate_transmit_bulk();
-  }
-  transmit_bulk();
-}
-
-
-
-uint32_t MTP_class::GetObject(struct MTPContainer &cmd) {
-  const int object_id = cmd.params[0];
-  uint32_t size = storage_.GetSize(object_id);
-  //printf("GetObject, size=%u\n", size);
-  writeDataPhaseHeader(cmd, size);
-  uint32_t pos = 0;
-  while (pos < size) {
-    if (usb_mtp_status != 0x01) {
-      //printf("GetObject, abort\n");
-      return 0;
-    }
-    if (transmit_buffer.data == NULL) allocate_transmit_bulk();
-    uint32_t avail = transmit_buffer.size - transmit_buffer.len;
-    uint32_t to_copy = size - pos;
-    if (to_copy > avail) to_copy = avail;
-    //printf("GetObject, read=%u, pos=%u\n", to_copy, pos);
-    // Read directly from storage into usb buffer.
-    storage_.read(object_id, pos,
-                   (char *)(transmit_buffer.data + transmit_buffer.len), to_copy);
-    pos += to_copy;
-    transmit_buffer.len += to_copy;
-    if (transmit_buffer.len >= transmit_buffer.size) {
-      transmit_bulk();
-    }
-  }
-  write_finish();
-  //printf("GetObject, done\n");
-  return MTP_RESPONSE_OK;
-}
-
-
-
-uint32_t MTP_class::GetPartialObject(struct MTPContainer &cmd) {
-  uint32_t object_id = cmd.params[0];
-  uint32_t offset = cmd.params[1];
-  uint32_t NumBytes = cmd.params[2];
-  uint32_t size = storage_.GetSize(object_id);
-  size -= offset;
-  if (NumBytes < size) {
-    size = NumBytes;
-  }
-  writeDataPhaseHeader(cmd, size);
-  uint32_t pos = offset; // into data
-  while (pos < size) {
-    if (usb_mtp_status != 0x01) {
-      //printf("GetPartialObject, abort\n");
-      return 0;
-    }
-    if (transmit_buffer.data == NULL) allocate_transmit_bulk();
-    uint32_t avail = transmit_buffer.size - transmit_buffer.len;
-    uint32_t to_copy = size - pos;
-    if (to_copy > avail) to_copy = avail;
-    storage_.read(object_id, pos,
-                   (char *)(transmit_buffer.data + transmit_buffer.len), to_copy);
-    pos += to_copy;
-    transmit_buffer.len += to_copy;
-    if (transmit_buffer.len >= transmit_buffer.size) {
-      transmit_bulk();
-    }
-  }
-  write_finish();
-  cmd.params[0] = size;
-  return MTP_RESPONSE_OK + (1<<28);
-}
-
-
-// SendObjectInfo, MTP 1.1 spec, page 223
-uint32_t MTP_class::SendObjectInfo(struct MTPContainer &cmd) { // MTP 1.1 spec, page 223
-  uint32_t storage = cmd.params[0];
-  uint32_t parent = cmd.params[1];
-  printf("SendObjectInfo: %x %x ", storage, parent);
-  uint32_t store = Storage2Store(storage);
-  struct MTPHeader header;
-  if (!readDataPhaseHeader(&header)) return MTP_RESPONSE_INVALID_DATASET;
-  printf("Dataset len=%u\n", header.len);
-  // receive ObjectInfo Dataset, MTP 1.1 spec, page 50
-  char filename[MAX_FILENAME_LEN];
-  uint16_t oformat;
-  uint32_t file_size;
-  if (read(NULL, 4)                          // StorageID (unused)
-   && read16(&oformat)                       // ObjectFormatCode
-   && read(NULL, 2)                          // Protection Status (unused)
-   && read32(&file_size)                     // Object Compressed Size
-   && read(NULL, 40)                         // Image info (unused)
-   && readstring(filename, sizeof(filename)) // Filename
-   && readDateTimeString(&dtCreated_)        // Date Created
-   && readDateTimeString(&dtModified_)       // Date Modified
-   && readstring(NULL, 0)                    // Keywords
-   && (true)) {                              // TODO: read complete function (handle ZLP)
-    printf("%s ", (oformat == 0x3001) ? "Dir" : "File");
-    printf("\"%s\" ", filename);
-    printf("size:%u ", file_size);
-    printf("Created:%x ", dtCreated_);
-    printf("Modified:%x\n", dtModified_);
-    if (receive_buffer.data == NULL) {
-      printf(" read consumed all data (TODO: how to check ZLP)\n");
-      // TODO: need to check for ZLP here....
-    } else {
-      printf(" ERROR, receive buffer has %u bytes unused!\n",
-        receive_buffer.len - receive_buffer.index);
-    }
-  } else {
-    return MTP_RESPONSE_INVALID_DATASET;
-  }
-  // Lets see if we have enough room to store this file:
-  uint32_t free_space = storage_.totalSize(store) - storage_.usedSize(store);
-  if (file_size > free_space) {
-    printf("Size of object:%u is > free space: %u\n", file_size, free_space);
-    return MTP_RESPONSE_STORAGE_FULL;
-  }
-  const bool dir = (oformat == 0x3001);
-  object_id_ = storage_.Create(store, parent, dir, filename);
-  if (object_id_ == 0xFFFFFFFFUL) {
-    return MTP_RESPONSE_SPECIFICATION_OF_DESTINATION_UNSUPPORTED;
-  }
-  if (dir) {
-    // lets see if we should update the date and time stamps.
-    // if it is dirctory, then sendObject will not be called, so do it now.
-    if (!storage_.updateDateTimeStamps(object_id_, dtCreated_, dtModified_)) {
-      // BUGBUG: failed to update, maybe FS needs little time to settle in
-      // before trying this.
-      for (uint8_t i = 0; i < 10; i++) {
-        printf("!!!(%d) Try delay and call update time stamps again\n", i);
-        delay(25);
-        if (storage_.updateDateTimeStamps(object_id_, dtCreated_, dtModified_))
-          break;
-      }
-    }
-    storage_.close();
-  }
-  cmd.params[2] = object_id_;
-  return MTP_RESPONSE_OK | (3<<28); // response with 3 params
-}
-
-
-
-uint32_t MTP_class::SendObject(struct MTPContainer &cmd)
-{
-  MTPHeader header;
-  if (!readDataPhaseHeader(&header)) return MTP_RESPONSE_PARAMETER_NOT_SUPPORTED;
-  uint32_t size = header.len - sizeof(header);
-  printf("SendObject: %u bytes, id=%x\n", size, object_id_);
-  // TODO: check size matches file_size from SendObjectInfo
-  // TODO: check if object_id_
-  // TODO: should we do storage_.Create() here?  Can we preallocate file size?
-  uint32_t ret = MTP_RESPONSE_OK;
-  uint32_t pos = 0;
-  while (pos < size) {
-    if (receive_buffer.data == NULL) {
-      if (!receive_bulk(100)) {
-        ret = MTP_RESPONSE_OPERATION_NOT_SUPPORTED;
-        break;
-      }
-    }
-    uint32_t to_copy = receive_buffer.len - receive_buffer.index;
-    if (to_copy > size) to_copy = size;
-    //printf("SendObject, pos=%u, write=%u, size=%u\n", pos, to_copy, size);
-    bool ok = storage_.write((char *)(receive_buffer.data + receive_buffer.index), to_copy);
-    if (!ok) {
-      ret = MTP_RESPONSE_OPERATION_NOT_SUPPORTED; // TODO: best response for write error??
-      // maybe send MTP_EVENT_CANCEL_TRANSACTION event??
-      break;
-    }
-    pos += to_copy;
-    receive_buffer.index += to_copy;
-    if (receive_buffer.index >= receive_buffer.len) {
-      free_received_bulk();
-    }
-  }
-  while (pos < size) {
-    // consume remaining incoming data, if we aborted for any reason
-    if (receive_buffer.data == NULL && !receive_bulk(250)) break;
-    pos += receive_buffer.len - receive_buffer.index;
-    free_received_bulk();
-  }
-  // TODO: check no lingering buffered data, and ZLP is present if expected
-  printf("SendObject complete\n");
-  storage_.updateDateTimeStamps(object_id_, dtCreated_, dtModified_);
-  storage_.close();
-
-  if (ret == MTP_RESPONSE_OK) object_id_ = 0; // SendObjectInfo can not be reused after success
-  return ret;
-}
-
-
-//  SetObjectPropValue, MTP 1.1 spec, page 246
-uint32_t MTP_class::setObjectPropValue(struct MTPContainer &cmd) {
-  uint32_t object_id = cmd.params[0];
-  uint32_t property_code = cmd.params[1];
-
-  struct MTPHeader header;
-  if (!readDataPhaseHeader(&header)) return MTP_RESPONSE_INVALID_DATASET;
-
-  if (property_code == 0xDC07) {
-    char filename[MAX_FILENAME_LEN];
-    if (readstring(filename, sizeof(filename))
-     && (true)) {   // TODO: read complete function (handle ZLP)
-      printf("setObjectPropValue, rename id=%x to \"%s\"\n", object_id, filename);
-      storage_.rename(object_id, filename);
-      return MTP_RESPONSE_OK;
-    } else {
-      return MTP_RESPONSE_OPERATION_NOT_SUPPORTED;
-    }
-  }
-  read(NULL, header.len - sizeof(header)); // discard ObjectProp Value
-  return MTP_RESPONSE_OPERATION_NOT_SUPPORTED;
-}
-
-
-uint32_t MTP_class::formatStore(struct MTPContainer &cmd) {
-  printf("formatStore begin\n");
-  const uint32_t store = Storage2Store(cmd.params[0]);
-  const uint32_t format = cmd.params[1];
-  g_pmtpd_interval = this;
-  dtFormatStart_ = millis();  // remember when format started
-  g_intervaltimer.begin(&_interval_timer_handler, 50000); // 20 Hz
-  elapsedMillis msec = 0;
-  uint8_t success = storage_.formatStore(store, format);
-  if (g_pmtpd_interval) g_intervaltimer.end();
-  printf("formatStore success=%u, format took %u ms\n", success, (uint32_t)msec);
-  if (success) {
-    storage_.ResetIndex(); // maybe should add a less of sledge hammer here.
-    // send_DeviceResetEvent();
-    return MTP_RESPONSE_OK;
-  } else {
-    return MTP_RESPONSE_OPERATION_NOT_SUPPORTED;
-  }
-}
-
-
-
-MTP_class *MTP_class::g_pmtpd_interval = nullptr;
-IntervalTimer MTP_class::g_intervaltimer;
-
-void MTP_class::_interval_timer_handler() {
-  if (g_pmtpd_interval)
-    g_pmtpd_interval->processIntervalTimer();
-}
-
-void MTP_class::processIntervalTimer() { // T3
-  if (receive_bulk(0)) {
-    if (receive_buffer.len >= 12 && receive_buffer.len <= 32) {
-      struct MTPContainer container;
-      memset(&container, 0, sizeof(container));
-      memcpy(&container, receive_buffer.data, receive_buffer.len);
-      free_received_bulk();
-      printContainer(&container, "timer:"); // to switch on set debug to 1 at beginning of file
-
-      TID = container.transaction_id;
-      uint32_t return_code = 0x2001; // 0x2001=OK
-      if (container.type == 1) { // command
-        switch (container.op) {
-        case MTP_OPERATION_GET_DEVICE_INFO: // GetDescription 0x1001
-          return_code = GetDeviceInfo(container);
-          break;
-        case MTP_OPERATION_OPEN_SESSION: // open session 0x1002
-          return_code = OpenSession(container);
-          break;
-        case MTP_OPERATION_GET_DEVICE_PROP_DESC: // 1014
-          return_code = GetDevicePropDesc(container);
-          break;
-        default:
-          return_code = MTP_RESPONSE_DEVICE_BUSY; // busy 0x2019
-          break;
-        }
-      } else {
-        // TODO: should this send 0x2005 MTP_RESPONSE_OPERATION_NOT_SUPPORTED ??
-        return_code = MTP_RESPONSE_UNDEFINED; // undefined 0x2000
-      }
-      container.type = 3;
-      container.len = 12;
-      container.op = return_code;
-#if DEBUG > 1
-      printContainer(&container);
-#endif
-      allocate_transmit_bulk();
-      memcpy(transmit_buffer.data, &container, container.len);
-      transmit_buffer.len = container.len;
-      transmit_bulk();
-    } else {
-      printf("ERROR: intervaltimer received command with %u bytes\n", receive_buffer.len);
-      free_received_bulk();
-    }
-  }
-}
-
-
-
-void MTP_class::loop(void) {
-  if (g_pmtpd_interval) {
-    g_pmtpd_interval = nullptr; // clear out timer.
-    g_intervaltimer.end();      // try maybe 20 times per second...
-    printf("*** end Interval Timer ***\n");
-  }
-  if (receive_bulk(0)) {
-    if (receive_buffer.len >= 12 && receive_buffer.len <= 32) {
-      // This container holds the operation code received from host
-      // Commands which transmit a 12 byte header as the first part
-      // of their data phase will reuse this container, overwriting
-      // the len & type fields, but keeping op and transaction_id.
-      // Then this container is again reused to transmit the final
-      // response code, keeping the original transaction_id, but
-      // the other 3 header fields are based on "return_code".  If
-      // the response requires parameters, they are written into
-      // this container's parameter list.
-      struct MTPContainer container;
-      memset(&container, 0, sizeof(container));
-      memcpy(&container, receive_buffer.data, receive_buffer.len);
-      free_received_bulk();
-      printContainer(&container, "loop:");
-
-      int p1 = container.params[0];
-      int p2 = container.params[1];
-      int p3 = container.params[2];
-      TID = container.transaction_id;
-
-      // The low 16 bits of return_code have the response code
-      // operation field.  The top 4 bits indicate the number
-      // of parameters to transmit with the response code.
-      int return_code = 0x2001; // OK use as default value
-
-      if (container.type == MTP_CONTAINER_TYPE_COMMAND) {
-        switch (container.op) {
-        case 0x1001: // GetDeviceInfo
-          return_code = GetDeviceInfo(container);
-          break;
-
-        case 0x1002: // OpenSession
-          return_code = OpenSession(container);
-          break;
-
-        case 0x1003: // CloseSession
-          printf("MTP_class::CloseSession\n");
-          sessionID_ = 0; //
-          break;
-
-        case 0x1004: // GetStorageIDs
-          return_code = GetStorageIDs(container);
-          break;
-
-        case 0x1005: // GetStorageInfo
-          return_code = GetStorageInfo(container);
-          break;
-
-        case 0x1006: // GetNumObjects
-          return_code = GetNumObjects(container);
-          break;
-
-        case 0x1007: // GetObjectHandles
-          return_code = GetObjectHandles(container);
-          break;
-
-        case 0x1008: // GetObjectInfo
-          return_code = GetObjectInfo(container);
-          break;
-
-        case 0x1009: // GetObject
-          return_code = GetObject(container);
-          break;
-
-        case 0x100B: // DeleteObject
-          if (p2) {
-            return_code = 0x2014; // spec by format unsupported
-          } else {
-            if (!storage_.DeleteObject(p1)) {
-              return_code = 0x2012; // partial deletion
-            }
-          }
-          break;
-
-        case 0x100C: // SendObjectInfo
-	  return_code = SendObjectInfo(container);
-          break;
-
-        case 0x100D: // SendObject
-          return_code = SendObject(container);
-          break;
-
-        case 0x100F: // FormatStore
-          return_code = formatStore(container);
-          break;
-
-        case 0x1014: // GetDevicePropDesc
-          return_code = GetDevicePropDesc(container);
-          break;
-
-        case 0x1015: // GetDevicePropvalue
-          return_code = GetDevicePropValue(container);
-          break;
-
-        case 0x1010: // Reset
-          return_code = 0x2005;
-          break;
-
-        case 0x1019: // MoveObject
-          return_code = moveObject(p1, p2, p3);
-          break;
-
-        case 0x101A: // CopyObject
-          return_code = copyObject(p1, p2, p3);
-          if (!return_code) {
-            return_code = 0x2005;
-          } else {
-            container.params[0] = return_code;
-            uint8_t error_code = storage_.getLastError();
-            switch (error_code) {
-              default:
-                return_code = 0x2001;
-                break;
-              case MTPStorage::RMDIR_FAIL:
-              case MTPStorage::WRITE_ERROR:
-              case MTPStorage::DEST_OPEN_FAIL:
-                return_code = MTP_RESPONSE_STORAGE_FULL;
-                break;
-            }
-            return_code |= (1<<28);
-          }
-          break;
-
-        case 0x101B: // GetPartialObject
-          return_code = GetPartialObject(container);
-          break;
-
-        case 0x9801: // GetObjectPropsSupported
-          return_code = GetObjectPropsSupported(container);
-          break;
-
-        case 0x9802: // GetObjectPropDesc
-          return_code = GetObjectPropDesc(container);
-          break;
-
-        case 0x9803: // GetObjectPropertyValue
-          return_code = GetObjectPropValue(container);
-          break;
-
-        case 0x9804: // setObjectPropertyValue
-          return_code = setObjectPropValue(container);
-          break;
-
-        default:
-          return_code = 0x2005; // operation not supported
-          break;
-        }
-      } else {
-        return_code = 0x2005; // we should only get cmds
-        printContainer(&container, "!!! unexpected/unknown message:");
-      }
-      if (return_code && usb_mtp_status == 0x01) {
-        container.len = 12 + (return_code >> 28) * 4; // top 4 bits is number of parameters
-        container.type = MTP_CONTAINER_TYPE_RESPONSE;
-        container.op = (return_code & 0xFFFF);        // low 16 bits is op response code
-        // container.transaction_id reused from original received command
-        #if DEBUG > 1
-        printContainer(&container); // to switch on set debug to 2 at beginning of file
-        #endif
-        write(&container, container.len);
-        write_finish();
-      }
-    } else {
-      printf("ERROR: loop received command with %u bytes\n", receive_buffer.len);
-      free_received_bulk();
-      // TODO: what is the proper way to handle this error?
-      // Still Image Class spec 1.0 says on page 20:
-      //   "If the number of bytes transferred in the Command phase is less than
-      //    that specified in the first four bytes of the Command Block then the
-      //    device has received an invalid command and should STALL the Bulk-Pipe
-      //    (refer to Clause 7.2)."
-      // What are we supposed to do is too much data arrives?  Or other invalid cmds?
-    }
-  }
-
-  // check here to mske sure the USB status is reset
-  if (usb_mtp_status != 0x01) {
-    printf("MTP_class::Loop usb_mtp_status %x != 0x1 reset\n", usb_mtp_status);
-    usb_mtp_status = 0x01;
-  }
-
-  // See if Storage needs to do anything
-  storage_.loop();
-}
-
-
-
-
-
-
+//***************************************************************************
+//  MTP Events - inform the host of changes Teensy makes to files
+//***************************************************************************
 
 
 #if USE_EVENTS == 1
@@ -1706,6 +1710,11 @@ bool MTP_class::send_removeObjectEvent(uint32_t store, const char *pathname) {
 #endif // USE_EVENTS
 
 
+
+
+//***************************************************************************
+//  Debug printing
+//***************************************************************************
 
 
 void MTP_class::printContainer(const void *container, const char *msg) {

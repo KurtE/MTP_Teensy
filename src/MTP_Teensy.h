@@ -112,7 +112,12 @@ private:
   void allocate_transmit_event();
   int transmit_event();
 
-#if defined(__IMXRT1062__)
+#if defined(__MK20DX128__) || defined(__MK20DX256__) || \
+    defined(__MK64FX512__) || defined(__MK66FX1M0__)
+
+  static uint8_t usb_mtp_status;
+
+#elif defined(__IMXRT1062__)
 #define MTP_RX_SIZE MTP_RX_SIZE_480
 #define MTP_TX_SIZE MTP_TX_SIZE_480
 
@@ -136,6 +141,7 @@ private:
   void write64(uint64_t x) { write(&x, sizeof(x)); }
 
   void writestring(const char *str);
+  uint32_t writestringlen(const char *str);
   void writeDataPhaseHeader(struct MTPContainer &container, uint32_t data_size);
 
   uint32_t GetDeviceInfo(struct MTPContainer &cmd);
