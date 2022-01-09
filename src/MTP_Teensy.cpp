@@ -340,6 +340,9 @@ void MTP_class::processIntervalTimer() {
 // is used to actually transfer the file's data.
 //
 // SendObjectInfo, MTP 1.1 spec, page 223
+//   Command: 2 parameters: Destination StorageID, Parent ObjectHandle
+//   Data: PC->Teensy: ObjectInfo
+//   Response: 3 parameters: Destination StorageID, Parent ObjectHandle, ObjectHandle
 uint32_t MTP_class::SendObjectInfo(struct MTPContainer &cmd) { // MTP 1.1 spec, page 223
   uint32_t storage = cmd.params[0];
   uint32_t parent = cmd.params[1];
@@ -408,6 +411,9 @@ uint32_t MTP_class::SendObjectInfo(struct MTPContainer &cmd) { // MTP 1.1 spec, 
 }
 
 // SendObject, MTP 1.1 spec, page 225
+//   Command: no parameters
+//   Data: PC->Teensy: Binary Data
+//   Response: no parameters
 uint32_t MTP_class::SendObject(struct MTPContainer &cmd) {
   MTPHeader header;
   if (!readDataPhaseHeader(&header)) return MTP_RESPONSE_PARAMETER_NOT_SUPPORTED;
@@ -462,6 +468,9 @@ uint32_t MTP_class::SendObject(struct MTPContainer &cmd) {
 // is used to read the actual file data.
 //
 // GetObjectInfo, MTP 1.1 spec, page 218
+//   Command: 1 parameter: ObjectHandle
+//   Data: Teensy->PC: ObjectInfo
+//   Response: no parameters
 uint32_t MTP_class::GetObjectInfo(struct MTPContainer &cmd) {
   uint32_t handle = cmd.params[0];
   uint32_t size, parent, dt;
@@ -517,6 +526,10 @@ uint32_t MTP_class::GetObjectInfo(struct MTPContainer &cmd) {
 }
 
 
+//  GetObject, MTP 1.1 spec, page 219
+//   Command: 1 parameter: ObjectHandle
+//   Data: Teensy->PC: Binary Data
+//   Response: no parameters
 uint32_t MTP_class::GetObject(struct MTPContainer &cmd) {
   const int object_id = cmd.params[0];
   uint32_t size = storage_.GetSize(object_id);
@@ -548,6 +561,10 @@ uint32_t MTP_class::GetObject(struct MTPContainer &cmd) {
 }
 
 
+//  GetPartialObject, MTP 1.1 spec, page 240
+//   Command: 3 parameters: ObjectHandle, Offset in bytes, Maximum number of bytes
+//   Data: Teensy->PC: binary data
+//   Response: 1 parameter: Actual number of bytes sent
 uint32_t MTP_class::GetPartialObject(struct MTPContainer &cmd) {
   uint32_t object_id = cmd.params[0];
   uint32_t offset = cmd.params[1];
@@ -582,6 +599,10 @@ uint32_t MTP_class::GetPartialObject(struct MTPContainer &cmd) {
 }
 
 
+//  DeleteObject, MTP 1.1 spec, page 221
+//   Command: 3 parameters: ObjectHandle, [ObjectFormatCode]
+//   Data: none
+//   Response: no parameters
 uint32_t MTP_class::deleteObject(uint32_t handle) {
   if (!storage_.DeleteObject(handle)) {
     return 0x2012; // partial deletion
@@ -589,6 +610,10 @@ uint32_t MTP_class::deleteObject(uint32_t handle) {
   return 0x2001;
 }
 
+//  MoveObject, MTP 1.1 spec, page 238
+//   Command: 3 parameters: ObjectHandle, StorageID target, ObjectHandle of the new ParentObject
+//   Data: none
+//   Response: no parameters
 uint32_t MTP_class::moveObject(uint32_t handle, uint32_t newStorage,
                           uint32_t newHandle) {
   uint32_t store1 = Storage2Store(newStorage);
@@ -600,6 +625,10 @@ uint32_t MTP_class::moveObject(uint32_t handle, uint32_t newStorage,
     return 0x2005;
 }
 
+//  CopyObject, MTP 1.1 spec, page 239
+//   Command: 3 parameters: ObjectHandle, StorageID target, ObjectHandle of the new ParentObject
+//   Data: none
+//   Response: no parameters
 uint32_t MTP_class::copyObject(uint32_t handle, uint32_t newStorage,
                           uint32_t newHandle) {
   uint32_t store1 = Storage2Store(newStorage);
@@ -608,6 +637,10 @@ uint32_t MTP_class::copyObject(uint32_t handle, uint32_t newStorage,
   return storage_.copy(handle, store1, newHandle);
 }
 
+//  FormatStore, MTP 1.1 spec, page 228
+//   Command: 2 parameters: StorageID, [FileSystem Format]
+//   Data: none
+//   Response: no parameters
 uint32_t MTP_class::formatStore(struct MTPContainer &cmd) {
   printf("formatStore begin\n");
   const uint32_t store = Storage2Store(cmd.params[0]);
@@ -638,6 +671,9 @@ uint32_t MTP_class::formatStore(struct MTPContainer &cmd) {
 
 
 // GetStorageIDs, MTP 1.1 spec, page 213
+//   Command: no parameters
+//   Data: Teensy->PC: StorageID array
+//   Response: no parameters
 uint32_t MTP_class::GetStorageIDs(struct MTPContainer &cmd) {
   uint32_t num = storage_.get_FSCount();
   // Quick and dirty, we maybe allow some storages to be removed, lets loop
@@ -659,6 +695,9 @@ uint32_t MTP_class::GetStorageIDs(struct MTPContainer &cmd) {
 }
 
 // GetStorageInfo, MTP 1.1 spec, page 214
+//   Command: 1 parameter: StorageID
+//   Data: Teensy->PC: StorageInfo
+//   Response: no parameters
 uint32_t MTP_class::GetStorageInfo(struct MTPContainer &cmd) {
   uint32_t storage = cmd.params[0];
   uint32_t store = Storage2Store(storage);
@@ -690,6 +729,9 @@ uint32_t MTP_class::GetStorageInfo(struct MTPContainer &cmd) {
 }
 
 // GetNumObjects, MTP 1.1 spec, page 215
+//   Command: 3 parameters: StorageID, [ObjectFormatCode], [Parent folder]
+//   Data: none
+//   Response: 1 parameter: NumObjects
 uint32_t MTP_class::GetNumObjects(struct MTPContainer &cmd) {
   uint32_t storage = cmd.params[0];
   uint32_t format = cmd.params[1];
@@ -708,6 +750,9 @@ uint32_t MTP_class::GetNumObjects(struct MTPContainer &cmd) {
 }
 
 // GetObjectHandles, MTP 1.1 spec, page 217
+//   Command: 3 parameters: StorageID, [ObjectFormatCode], [Parent folder]
+//   Data: Teensy->PC: ObjectHandle array
+//   Response: no parameters
 uint32_t MTP_class::GetObjectHandles(struct MTPContainer &cmd) {
   uint32_t storage = cmd.params[0];
   uint32_t format = cmd.params[1];
@@ -736,8 +781,10 @@ uint32_t MTP_class::GetObjectHandles(struct MTPContainer &cmd) {
   return MTP_RESPONSE_OK;
 }
 
-
 // GetDevicePropValue, MTP 1.1 spec, page 234
+//   Command: 1 parameter: DevicePropCode
+//   Data: Teensy->PC: DeviceProp Value
+//   Response: no parameters
 uint32_t MTP_class::GetDevicePropValue(struct MTPContainer &cmd) {
   const uint32_t property = cmd.params[0];
   switch (property) {
@@ -754,8 +801,10 @@ uint32_t MTP_class::GetDevicePropValue(struct MTPContainer &cmd) {
   return MTP_RESPONSE_DEVICE_PROP_NOT_SUPPORTED;
 }
 
-
 // GetObjectPropDesc, MTP 1.1 spec, page 244
+//   Command: 2 parameter: ObjectPropCode, Object Format Code
+//   Data: Teensy->PC: ObjectPropDesc
+//   Response: no parameters
 uint32_t MTP_class::GetObjectPropDesc(struct MTPContainer &cmd) {
   uint32_t property = cmd.params[0];
   //uint32_t format = cmd.params[1]; // TODO: does this matter?
@@ -888,6 +937,9 @@ uint32_t MTP_class::GetObjectPropDesc(struct MTPContainer &cmd) {
 }
 
 // GetObjectPropValue, MTP 1.1 spec, page 245
+//   Command: 2 parameters: ObjectHandle, ObjectPropCode
+//   Data: Teensy->PC: ObjectProp Value
+//   Response: no parameters
 uint32_t MTP_class::GetObjectPropValue(struct MTPContainer &cmd) {
   const uint32_t handle = cmd.params[0];
   const uint32_t property = cmd.params[1];
@@ -1002,8 +1054,10 @@ uint32_t MTP_class::GetObjectPropValue(struct MTPContainer &cmd) {
   return MTP_RESPONSE_OK;
 }
 
-
-//  SetObjectPropValue, MTP 1.1 spec, page 246
+// SetObjectPropValue, MTP 1.1 spec, page 246
+//   Command: 2 parameters: ObjectHandle, ObjectPropCode
+//   Data: PC->Teensy: ObjectProp Value
+//   Response: no parameters
 uint32_t MTP_class::setObjectPropValue(struct MTPContainer &cmd) {
   uint32_t object_id = cmd.params[0];
   uint32_t property_code = cmd.params[1];
@@ -1026,8 +1080,10 @@ uint32_t MTP_class::setObjectPropValue(struct MTPContainer &cmd) {
   return MTP_RESPONSE_OPERATION_NOT_SUPPORTED;
 }
 
-
 // GetDevicePropDesc, MTP 1.1 spec, page 233
+//   Command: 1 parameter: DevicePropCode
+//   Data: Teensy->PC: DevicePropDesc
+//   Response: no parameters
 uint32_t MTP_class::GetDevicePropDesc(struct MTPContainer &cmd) {
   const uint32_t property = cmd.params[0];
   switch (property) {
@@ -1048,6 +1104,9 @@ uint32_t MTP_class::GetDevicePropDesc(struct MTPContainer &cmd) {
 }
 
 // GetObjectPropsSupported, MTP 1.1 spec, page 243
+//   Command: 1 parameter: ObjectFormatCode
+//   Data: Teensy->PC: ObjectPropCode Array
+//   Response: no parameters
 uint32_t MTP_class::GetObjectPropsSupported(struct MTPContainer &cmd) {
   PROGMEM static const uint16_t propertyList[] = {
     MTP_PROPERTY_STORAGE_ID,        // 0xDC01
@@ -1070,7 +1129,10 @@ uint32_t MTP_class::GetObjectPropsSupported(struct MTPContainer &cmd) {
   return MTP_RESPONSE_OK;
 }
 
-
+// GetDeviceInfo, MTP 1.1 spec, page 210
+//   Command: no parameters
+//   Data: Teensy->PC: DeviceInfo
+//   Response: no parameters
 uint32_t MTP_class::GetDeviceInfo(struct MTPContainer &cmd) {
   PROGMEM static const unsigned short supported_op[] = {
     MTP_OPERATION_GET_DEVICE_INFO,  // 0x1001
@@ -1172,8 +1234,10 @@ uint32_t MTP_class::GetDeviceInfo(struct MTPContainer &cmd) {
   return MTP_RESPONSE_OK;
 }
 
-
 // OpenSession, MTP 1.1 spec, page 211
+//   Command: 1 parameter: SessionID
+//   Data: none
+//   Response: no parameters
 uint32_t MTP_class::OpenSession(struct MTPContainer &cmd) {
   sessionID_ = cmd.params[0];
   storage_.ResetIndex();
