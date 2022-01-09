@@ -70,87 +70,6 @@ void printf_debug(const char *format, ...);
 uint32_t MTP_class::sessionID_ = 0;
 
 
-const unsigned short supported_op[] = {
-    MTP_OPERATION_GET_DEVICE_INFO,  // 0x1001
-    MTP_OPERATION_OPEN_SESSION,     // 0x1002
-    MTP_OPERATION_CLOSE_SESSION,    // 0x1003
-    MTP_OPERATION_GET_STORAGE_IDS,  // 0x1004
-    MTP_OPERATION_GET_STORAGE_INFO, // 0x1005
-    // MTP_OPERATION_GET_NUM_OBJECTS                        ,//0x1006
-    MTP_OPERATION_GET_OBJECT_HANDLES, // 0x1007
-    MTP_OPERATION_GET_OBJECT_INFO,    // 0x1008
-    MTP_OPERATION_GET_OBJECT,         // 0x1009
-    // MTP_OPERATION_GET_THUMB                              ,//0x100A
-    MTP_OPERATION_DELETE_OBJECT,         // 0x100B
-    MTP_OPERATION_SEND_OBJECT_INFO,      // 0x100C
-    MTP_OPERATION_SEND_OBJECT,           // 0x100D
-    MTP_OPERATION_FORMAT_STORE,          // 0x100F
-    MTP_OPERATION_GET_DEVICE_PROP_DESC,  // 0x1014
-    MTP_OPERATION_GET_DEVICE_PROP_VALUE, // 0x1015
-    // MTP_OPERATION_SET_DEVICE_PROP_VALUE                  ,//0x1016
-    // MTP_OPERATION_RESET_DEVICE_PROP_VALUE                ,//0x1017
-    MTP_OPERATION_MOVE_OBJECT,        // 0x1019
-    MTP_OPERATION_COPY_OBJECT,        // 0x101A
-    MTP_OPERATION_GET_PARTIAL_OBJECT, // 0x101B
-
-    MTP_OPERATION_GET_OBJECT_PROPS_SUPPORTED, // 0x9801
-    MTP_OPERATION_GET_OBJECT_PROP_DESC,       // 0x9802
-    MTP_OPERATION_GET_OBJECT_PROP_VALUE,      // 0x9803
-    MTP_OPERATION_SET_OBJECT_PROP_VALUE       // 0x9804
-    // MTP_OPERATION_GET_OBJECT_PROP_LIST                   ,//0x9805
-    // MTP_OPERATION_GET_OBJECT_REFERENCES                  ,//0x9810
-    // MTP_OPERATION_SET_OBJECT_REFERENCES                  ,//0x9811
-
-    // MTP_OPERATION_GET_PARTIAL_OBJECT_64                  ,//0x95C1
-    // MTP_OPERATION_SEND_PARTIAL_OBJECT                    ,//0x95C2
-    // MTP_OPERATION_TRUNCATE_OBJECT                        ,//0x95C3
-    // MTP_OPERATION_BEGIN_EDIT_OBJECT                      ,//0x95C4
-    // MTP_OPERATION_END_EDIT_OBJECT                         //0x95C5
-};
-
-const int supported_op_size = sizeof(supported_op);
-const int supported_op_num = supported_op_size / sizeof(supported_op[0]);
-
-
-const uint16_t propertyList[] = {
-    MTP_PROPERTY_STORAGE_ID,        // 0xDC01
-    MTP_PROPERTY_OBJECT_FORMAT,     // 0xDC02
-    MTP_PROPERTY_PROTECTION_STATUS, // 0xDC03
-    MTP_PROPERTY_OBJECT_SIZE,       // 0xDC04
-    MTP_PROPERTY_OBJECT_FILE_NAME,  // 0xDC07
-    MTP_PROPERTY_DATE_CREATED, // 0xDC08
-    MTP_PROPERTY_DATE_MODIFIED, // 0xDC09
-    MTP_PROPERTY_PARENT_OBJECT,  // 0xDC0B
-    MTP_PROPERTY_PERSISTENT_UID, // 0xDC41
-    MTP_PROPERTY_NAME            // 0xDC44
-};
-
-uint32_t propertyListNum = sizeof(propertyList) / sizeof(propertyList[0]);
-
-
-const uint16_t supported_events[] = {
-    //    MTP_EVENT_UNDEFINED                         ,//0x4000
-    MTP_EVENT_CANCEL_TRANSACTION, // 0x4001
-    MTP_EVENT_OBJECT_ADDED,       // 0x4002
-    MTP_EVENT_OBJECT_REMOVED,     // 0x4003
-    MTP_EVENT_STORE_ADDED,        // 0x4004
-    MTP_EVENT_STORE_REMOVED,      // 0x4005
-    //    MTP_EVENT_DEVICE_PROP_CHANGED               ,//0x4006
-    //    MTP_EVENT_OBJECT_INFO_CHANGED               ,//0x4007
-    //    MTP_EVENT_DEVICE_INFO_CHANGED               ,//0x4008
-    //    MTP_EVENT_REQUEST_OBJECT_TRANSFER           ,//0x4009
-    //    MTP_EVENT_STORE_FULL                        ,//0x400A
-    MTP_EVENT_DEVICE_RESET,         // 0x400B
-    MTP_EVENT_STORAGE_INFO_CHANGED, // 0x400C
-    //    MTP_EVENT_CAPTURE_COMPLETE                  ,//0x400D
-    MTP_EVENT_UNREPORTED_STATUS,   // 0x400E
-    MTP_EVENT_OBJECT_PROP_CHANGED, // 0xC801
-    //    MTP_EVENT_OBJECT_PROP_DESC_CHANGED          ,//0xC802
-    //    MTP_EVENT_OBJECT_REFERENCES_CHANGED          //0xC803
-};
-
-const int supported_event_num =
-    sizeof(supported_events) / sizeof(supported_events[0]);
 
 
 // MTP Responder.
@@ -176,8 +95,7 @@ int MTP_class::begin() {
   // other side we are busy...  Maybe should be function:
   g_pmtpd_interval = this;
   printf("\n\n*** Start Interval Timer ***\n");
-  g_intervaltimer.begin(&_interval_timer_handler,
-                        50000); // try maybe 20 times per second...
+  g_intervaltimer.begin(&_interval_timer_handler, 50000); // 20 Hz
   return usb_init_events();
 }
 
@@ -203,6 +121,63 @@ static uint32_t writestringlen(const char *str) {
 
 
 uint32_t MTP_class::GetDeviceInfo(struct MTPContainer &cmd) {
+  PROGMEM static const unsigned short supported_op[] = {
+    MTP_OPERATION_GET_DEVICE_INFO,  // 0x1001
+    MTP_OPERATION_OPEN_SESSION,     // 0x1002
+    MTP_OPERATION_CLOSE_SESSION,    // 0x1003
+    MTP_OPERATION_GET_STORAGE_IDS,  // 0x1004
+    MTP_OPERATION_GET_STORAGE_INFO, // 0x1005
+    // MTP_OPERATION_GET_NUM_OBJECTS                        ,//0x1006
+    MTP_OPERATION_GET_OBJECT_HANDLES, // 0x1007
+    MTP_OPERATION_GET_OBJECT_INFO,    // 0x1008
+    MTP_OPERATION_GET_OBJECT,         // 0x1009
+    // MTP_OPERATION_GET_THUMB                              ,//0x100A
+    MTP_OPERATION_DELETE_OBJECT,         // 0x100B
+    MTP_OPERATION_SEND_OBJECT_INFO,      // 0x100C
+    MTP_OPERATION_SEND_OBJECT,           // 0x100D
+    MTP_OPERATION_FORMAT_STORE,          // 0x100F
+    MTP_OPERATION_GET_DEVICE_PROP_DESC,  // 0x1014
+    MTP_OPERATION_GET_DEVICE_PROP_VALUE, // 0x1015
+    // MTP_OPERATION_SET_DEVICE_PROP_VALUE                  ,//0x1016
+    // MTP_OPERATION_RESET_DEVICE_PROP_VALUE                ,//0x1017
+    MTP_OPERATION_MOVE_OBJECT,        // 0x1019
+    MTP_OPERATION_COPY_OBJECT,        // 0x101A
+    MTP_OPERATION_GET_PARTIAL_OBJECT, // 0x101B
+    MTP_OPERATION_GET_OBJECT_PROPS_SUPPORTED, // 0x9801
+    MTP_OPERATION_GET_OBJECT_PROP_DESC,       // 0x9802
+    MTP_OPERATION_GET_OBJECT_PROP_VALUE,      // 0x9803
+    MTP_OPERATION_SET_OBJECT_PROP_VALUE       // 0x9804
+    // MTP_OPERATION_GET_OBJECT_PROP_LIST                   ,//0x9805
+    // MTP_OPERATION_GET_OBJECT_REFERENCES                  ,//0x9810
+    // MTP_OPERATION_SET_OBJECT_REFERENCES                  ,//0x9811
+    // MTP_OPERATION_GET_PARTIAL_OBJECT_64                  ,//0x95C1
+    // MTP_OPERATION_SEND_PARTIAL_OBJECT                    ,//0x95C2
+    // MTP_OPERATION_TRUNCATE_OBJECT                        ,//0x95C3
+    // MTP_OPERATION_BEGIN_EDIT_OBJECT                      ,//0x95C4
+    // MTP_OPERATION_END_EDIT_OBJECT                         //0x95C5
+  };
+  const int supported_op_num = sizeof(supported_op) / sizeof(supported_op[0]);
+  PROGMEM static const uint16_t supported_events[] = {
+    //    MTP_EVENT_UNDEFINED                         ,//0x4000
+    MTP_EVENT_CANCEL_TRANSACTION, // 0x4001
+    MTP_EVENT_OBJECT_ADDED,       // 0x4002
+    MTP_EVENT_OBJECT_REMOVED,     // 0x4003
+    MTP_EVENT_STORE_ADDED,        // 0x4004
+    MTP_EVENT_STORE_REMOVED,      // 0x4005
+    //    MTP_EVENT_DEVICE_PROP_CHANGED               ,//0x4006
+    //    MTP_EVENT_OBJECT_INFO_CHANGED               ,//0x4007
+    //    MTP_EVENT_DEVICE_INFO_CHANGED               ,//0x4008
+    //    MTP_EVENT_REQUEST_OBJECT_TRANSFER           ,//0x4009
+    //    MTP_EVENT_STORE_FULL                        ,//0x400A
+    MTP_EVENT_DEVICE_RESET,         // 0x400B
+    MTP_EVENT_STORAGE_INFO_CHANGED, // 0x400C
+    //    MTP_EVENT_CAPTURE_COMPLETE                  ,//0x400D
+    MTP_EVENT_UNREPORTED_STATUS,   // 0x400E
+    MTP_EVENT_OBJECT_PROP_CHANGED, // 0xC801
+    //    MTP_EVENT_OBJECT_PROP_DESC_CHANGED          ,//0xC802
+    //    MTP_EVENT_OBJECT_REFERENCES_CHANGED          //0xC803
+  };
+  const int supported_event_num = sizeof(supported_events) / sizeof(supported_events[0]);
   char buf[20];
   dtostrf((float)(TEENSYDUINO / 100.0f), 3, 2, buf);
   strlcat(buf, " / MTP " MTP_VERS, sizeof(buf));
@@ -511,6 +486,19 @@ uint32_t MTP_class::GetDevicePropDesc(struct MTPContainer &cmd) {
 
 // GetObjectPropsSupported, MTP 1.1 spec, page 243
 uint32_t MTP_class::GetObjectPropsSupported(struct MTPContainer &cmd) {
+  PROGMEM static const uint16_t propertyList[] = {
+    MTP_PROPERTY_STORAGE_ID,        // 0xDC01
+    MTP_PROPERTY_OBJECT_FORMAT,     // 0xDC02
+    MTP_PROPERTY_PROTECTION_STATUS, // 0xDC03
+    MTP_PROPERTY_OBJECT_SIZE,       // 0xDC04
+    MTP_PROPERTY_OBJECT_FILE_NAME,  // 0xDC07
+    MTP_PROPERTY_DATE_CREATED,      // 0xDC08
+    MTP_PROPERTY_DATE_MODIFIED,     // 0xDC09
+    MTP_PROPERTY_PARENT_OBJECT,     // 0xDC0B
+    MTP_PROPERTY_PERSISTENT_UID,    // 0xDC41
+    MTP_PROPERTY_NAME               // 0xDC44
+  };
+  const uint32_t propertyListNum = sizeof(propertyList) / sizeof(propertyList[0]);
   //uint32_t format = cmd.params[0]; // TODO: does this matter?
   writeDataPhaseHeader(cmd, 4 + sizeof(propertyList));
   write32(propertyListNum);
