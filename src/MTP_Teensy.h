@@ -125,13 +125,13 @@ private:
   static const uint32_t DISK_BUFFER_SIZE = 4 * 1024; // used by MTP_Storage
   uint8_t rx_data_buffer[MTP_RX_SIZE] __attribute__((aligned(32))) = {0};
   static uint8_t disk_buffer_[DISK_BUFFER_SIZE] __attribute__((aligned(32)));
+  uint16_t transmit_packet_size_mask = 0x01FF;
 
 #endif
 
   static uint32_t sessionID_;
 
-  bool write_get_length_ = false;
-  uint32_t write_length_ = 0;
+  bool write_transfer_open = false;
   void write(const void *ptr, int len);
   void write_finish();
 

@@ -78,6 +78,9 @@ uint32_t MTP_class::sessionID_ = 0;
 int MTP_class::begin() {
   // lets set up to check for MTP messages and tell
   // other side we are busy...  Maybe should be function:
+#if defined(__IMXRT1062__)
+  transmit_packet_size_mask = usb_mtp_rxSize() - 1;
+#endif
   g_pmtpd_interval = this;
   printf("\n\n*** Start Interval Timer ***\n");
   g_intervaltimer.begin(&_interval_timer_handler, 50000); // 20 Hz
@@ -1387,11 +1390,6 @@ uint32_t MTP_class::writestringlen(const char *str) {
 }
 
 void MTP_class::write(const void *ptr, int len) {
-  if (len < 0) return;
-  if (write_get_length_) {
-    write_length_ += len;
-    return;
-  }
   const char *data = (const char *)ptr;
   while (len > 0) {
     if (transmit_buffer.data == NULL) allocate_transmit_bulk();
@@ -1410,7 +1408,7 @@ void MTP_class::write(const void *ptr, int len) {
 
 void MTP_class::write_finish() {
   if (transmit_buffer.data == NULL) {
-    if (write_length_ == 0) return;
+    if (!write_transfer_open) return;
     printf("send a ZLP\n");
     allocate_transmit_bulk();
   }
@@ -1471,6 +1469,7 @@ int MTP_class::transmit_bulk() { // T3
   usb_packet_t *packet = (usb_packet_t *)transmit_buffer.usb;
   int len = transmit_buffer.len;
   packet->len = len;
+  write_transfer_open = (len == 64);
   usb_tx(MTP_TX_ENDPOINT, packet);
   transmit_buffer.len = 0;
   transmit_buffer.index = 0;
@@ -1517,6 +1516,8 @@ void MTP_class::allocate_transmit_bulk() { // T4
 int MTP_class::transmit_bulk() { // T4
   int r = 0;
   if (usb_mtp_status == 0x01) {
+    write_transfer_open = (transmit_buffer.len > 0 &&
+      (transmit_buffer.len & transmit_packet_size_mask) == 0);
     usb_mtp_send(transmit_buffer.data, transmit_buffer.len, 50);
   }
   transmit_buffer.len = 0;
