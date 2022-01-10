@@ -710,7 +710,7 @@ uint32_t MTP_class::GetStorageInfo(struct MTPContainer &cmd) {
 
   uint32_t size = 2 + 2 + 2 + 8 + 8 + 4 + writestringlen(name) + writestringlen(_volumeID);
   writeDataPhaseHeader(cmd, size);
-
+  // StorageInfo, MTP 1.1 spec, page 46
   write16(storage_.readonly(store) ? 0x0001
                                     : 0x0004); // storage type (removable RAM)
   write16(storage_.has_directories(store)
@@ -852,10 +852,11 @@ uint32_t MTP_class::GetObjectPropDesc(struct MTPContainer &cmd) {
     write_finish(); // TODO: remove this when change to split header/data
     return MTP_RESPONSE_INVALID_OBJECT_PROP_CODE;
   }
+  // ObjectPropDesc, MTP 1.1 spec, Table 5-1, page 56
   switch (property) {
   case MTP_PROPERTY_STORAGE_ID: // 0xDC01:
     write16(0xDC01);
-    write16(0x006);
+    write16(0x006); // 6=uint32_t
     write8(0); // get
     write32(0);
     write32(0);
@@ -863,7 +864,7 @@ uint32_t MTP_class::GetObjectPropDesc(struct MTPContainer &cmd) {
     break;
   case MTP_PROPERTY_OBJECT_FORMAT: // 0xDC02:
     write16(0xDC02);
-    write16(0x004);
+    write16(0x004); // 4=uint16_t
     write8(0); // get
     write16(0);
     write32(0);
@@ -871,7 +872,7 @@ uint32_t MTP_class::GetObjectPropDesc(struct MTPContainer &cmd) {
     break;
   case MTP_PROPERTY_PROTECTION_STATUS: // 0xDC03:
     write16(0xDC03);
-    write16(0x004);
+    write16(0x004); // 4=uint16_t
     write8(0); // get
     write16(0);
     write32(0);
@@ -879,7 +880,7 @@ uint32_t MTP_class::GetObjectPropDesc(struct MTPContainer &cmd) {
     break;
   case MTP_PROPERTY_OBJECT_SIZE: // 0xDC04:
     write16(0xDC04);
-    write16(0x008);
+    write16(0x008); // 8=uint64_t
     write8(0); // get
     write64(0);
     write32(0);
@@ -887,7 +888,7 @@ uint32_t MTP_class::GetObjectPropDesc(struct MTPContainer &cmd) {
     break;
   case MTP_PROPERTY_OBJECT_FILE_NAME: // 0xDC07:
     write16(0xDC07);
-    write16(0xFFFF);
+    write16(0xFFFF); // FFFF=string
     write8(1); // get/set
     write8(0);
     write32(0);
@@ -895,23 +896,23 @@ uint32_t MTP_class::GetObjectPropDesc(struct MTPContainer &cmd) {
     break;
   case MTP_PROPERTY_DATE_CREATED: // 0xDC08:
     write16(0xDC08);
-    write16(0xFFFF);
+    write16(0xFFFF); // FFFF=string
     write8(1); // get
     write8(0);
     write32(0);
-    write8(0);
+    write8(0); // TODO: should this be 3 (Form Flag on page 56)
     break;
   case MTP_PROPERTY_DATE_MODIFIED: // 0xDC09:
     write16(0xDC09);
-    write16(0xFFFF);
+    write16(0xFFFF); // FFFF=string
     write8(1); // may be both get set?
     write8(0);
     write32(0);
-    write8(0);
+    write8(0); // TODO: should this be 3 (Form Flag on page 56)
     break;
   case MTP_PROPERTY_PARENT_OBJECT: // 0xDC0B:
     write16(0xDC0B);
-    write16(6);
+    write16(6); // 6=uint32_t
     write8(0); // get
     write32(0);
     write32(0);
@@ -919,7 +920,7 @@ uint32_t MTP_class::GetObjectPropDesc(struct MTPContainer &cmd) {
     break;
   case MTP_PROPERTY_PERSISTENT_UID: // 0xDC41:
     write16(0xDC41);
-    write16(0x0A);
+    write16(0x0A); // A=uint128_t
     write8(0); // get
     write64(0);
     write64(0);
@@ -1385,7 +1386,7 @@ void MTP_class::writestring(const char *str) {
 }
 
 uint32_t MTP_class::writestringlen(const char *str) {
-  if (!str) return 1;
+  if (!str || *str == 0) return 1;
   return strlen(str)*2 + 2 + 1; // TODO: size after UTF8 -> Unicode16
 }
 
