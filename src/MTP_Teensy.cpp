@@ -366,7 +366,7 @@ uint32_t MTP_class::SendObjectInfo(struct MTPContainer &cmd) { // MTP 1.1 spec, 
   if (!readDataPhaseHeader(&header)) return MTP_RESPONSE_INVALID_DATASET;
   printf("Dataset len=%u\n", header.len);
   // receive ObjectInfo Dataset, MTP 1.1 spec, page 50
-  char filename[MAX_FILENAME_LEN];
+  char filename[MTP_MAX_FILENAME_LEN];
   uint16_t oformat;
   uint32_t file_size;
   if (read(NULL, 4)                          // StorageID (unused)
@@ -488,7 +488,7 @@ uint32_t MTP_class::SendObject(struct MTPContainer &cmd) {
 uint32_t MTP_class::GetObjectInfo(struct MTPContainer &cmd) {
   uint32_t handle = cmd.params[0];
   uint32_t size, parent, dt;
-  char filename[MAX_FILENAME_LEN], ctimebuf[16], mtimebuf[16];
+  char filename[MTP_MAX_FILENAME_LEN], ctimebuf[16], mtimebuf[16];
   DateTimeFields dtf;
   uint16_t store;
   storage_.GetObjectInfo(handle, filename, &size, &parent, &store);
@@ -959,7 +959,7 @@ uint32_t MTP_class::GetObjectPropValue(struct MTPContainer &cmd) {
   const uint32_t handle = cmd.params[0];
   const uint32_t property = cmd.params[1];
   uint32_t data_size = 0;
-  char name[MAX_FILENAME_LEN];
+  char name[MTP_MAX_FILENAME_LEN];
   uint32_t file_size;
   uint32_t parent;
   uint16_t store;
@@ -989,7 +989,7 @@ uint32_t MTP_class::GetObjectPropValue(struct MTPContainer &cmd) {
   case MTP_PROPERTY_DATE_CREATED: // 0xDC08:
     if (storage_.getCreateTime(handle, dt)) {
       breakTime(dt, dtf);
-      snprintf(name, MAX_FILENAME_LEN, "%04u%02u%02uT%02u%02u%02u",
+      snprintf(name, MTP_MAX_FILENAME_LEN, "%04u%02u%02uT%02u%02u%02u",
                dtf.year + 1900, dtf.mon + 1, dtf.mday, dtf.hour, dtf.min,
                dtf.sec);
     } else {
@@ -1001,7 +1001,7 @@ uint32_t MTP_class::GetObjectPropValue(struct MTPContainer &cmd) {
   case MTP_PROPERTY_DATE_MODIFIED: // 0xDC09:
     if (storage_.getModifyTime(handle, dt)) {
       breakTime(dt, dtf);
-      snprintf(name, MAX_FILENAME_LEN, "%04u%02u%02uT%02u%02u%02u",
+      snprintf(name, MTP_MAX_FILENAME_LEN, "%04u%02u%02uT%02u%02u%02u",
                dtf.year + 1900, dtf.mon + 1, dtf.mday, dtf.hour, dtf.min,
                dtf.sec);
     } else {
@@ -1081,7 +1081,7 @@ uint32_t MTP_class::setObjectPropValue(struct MTPContainer &cmd) {
   if (!readDataPhaseHeader(&header)) return MTP_RESPONSE_INVALID_DATASET;
 
   if (property_code == 0xDC07) {
-    char filename[MAX_FILENAME_LEN];
+    char filename[MTP_MAX_FILENAME_LEN];
     if (readstring(filename, sizeof(filename))
      && (true)) {   // TODO: read complete function (handle ZLP)
       printf("setObjectPropValue, rename id=%x to \"%s\"\n", object_id, filename);

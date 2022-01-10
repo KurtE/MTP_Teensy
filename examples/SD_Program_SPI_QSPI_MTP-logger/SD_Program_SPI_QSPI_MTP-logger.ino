@@ -217,6 +217,20 @@ void setup() {
   menu();
 }
 
+const char *getFSPN(uint32_t ii) {
+  FS* pfs = MTP.storage()->getStoreFS(ii);
+  // total set of hacks...
+  if (pfs == (FS *)&lfsram) return lfsram.getPN();
+  if (pfs == (FS *)&lfsProg) return lfsProg.getPN();
+  #ifdef ARDUINO_TEENSY41
+  if (pfs == (FS *)&lfsqspi) return lfsqspi.getPN();
+  #endif
+  for (uint8_t i = 0; i < CLFSSPIPINS; i++) {
+    if (pfs == (FS *)&lfsspi[i]) return lfsspi[i].getPN();
+  }
+  return "";
+}
+
 void loop() {
   if (DBGSerial.available()) {
     uint8_t command = DBGSerial.read();
@@ -228,9 +242,12 @@ void loop() {
       uint32_t fsCount = MTP.storage()->getFSCount();
       DBGSerial.printf("\nDump Storage list(%u)\n", fsCount);
       for (uint32_t ii = 0; ii < fsCount; ii++) {
-        DBGSerial.printf("store:%u storage:%x name:%s fs:%x\n", ii,
+        DBGSerial.printf("store:%u storage:%x name:%s fs:%x pn:", ii,
                          MTP.Store2Storage(ii), MTP.storage()->getStoreName(ii),
                          (uint32_t)MTP.storage()->getStoreFS(ii));
+        Serial.flush();  
+        const char *pfspn = getFSPN(ii);     
+        DBGSerial.printf("%s(%p)\n", pfspn, pfspn);
       }
       DBGSerial.println("\nDump Index List");
       MTP.storage()->dumpIndexList();
@@ -314,6 +331,9 @@ void loop() {
       break;
     }
 #endif
+    case '3':
+      MTP.storage()->printClearRecordReadWriteCounts();
+      break;
     case '\r':
     case '\n':
     case 'h':
@@ -436,6 +456,8 @@ void menu() {
   DBGSerial.println("\tp[filename] - play audio wave file");
   DBGSerial.println("\tP - Play all wave files");
 #endif  
+  DBGSerial.println("\t3 - Debug print and clear Storage cache calls");
+  DBGSerial.println("\tP - Play all wave files");
   DBGSerial.println("\th - Menu");
   DBGSerial.println();
 }
