@@ -1388,12 +1388,50 @@ void MTP_class::writeDataPhaseHeader(struct MTPContainer &container, uint32_t da
   //       call transmit_bulk() here to transmit a partial packet
 }
 
+
+static int utf8_strlen(const char *str) {
+  int len=0, count=0;
+  while (1) {
+    unsigned int c = *str++;
+    if (c == 0) return len;
+    if ((c & 0x80) == 0) {
+      len++;
+      count = 0;
+    } else if ((c & 0xC0) == 0x80 && count > 0) {
+      if (--count == 0) len++;
+    } else if ((c & 0xE0) == 0xC0) {
+      count = 1;
+    } else if ((c & 0xF0) == 0xE0) {
+      count = 2;
+    } else {
+      count = 0;
+    }
+  }
+}
+
 void MTP_class::writestring(const char *str) {
-  if (*str) {
-    write8(strlen(str) + 1);
-    while (*str) {
-      write16(*str);  // TODO: decode UTF8 -> Unicode16
-      ++str;
+  if (str && *str) {
+    write8(utf8_strlen(str) + 1);
+    int count = 0;
+    uint16_t char16 = 0;
+    while (1) {
+      unsigned int c = *str++;
+      if (c == 0) break;
+      if ((c & 0x80) == 0) { // chars 1-127
+        write16(c);
+        count = 0;
+      } else if ((c & 0xC0) == 0x80 && count > 0) { // extra 6 bits
+        char16 = (char16 << 6) | (c & 0x3F);
+        if (--count == 0) write16(char16);
+      } else if ((c & 0xE0) == 0xC0) { // begin char 128-2047
+        char16 = c & 0x1F;
+        count = 1;
+      } else if ((c & 0xF0) == 0xE0) { // begin char 2048-65535
+        char16 = c & 0x0F;
+        count = 2;
+      } else { // chars 65536+ not supported
+        count = 0;
+      }
     }
     write16(0);
   } else {
@@ -1403,7 +1441,7 @@ void MTP_class::writestring(const char *str) {
 
 uint32_t MTP_class::writestringlen(const char *str) {
   if (!str || *str == 0) return 1;
-  return strlen(str)*2 + 2 + 1; // TODO: size after UTF8 -> Unicode16
+  return utf8_strlen(str)*2 + 2 + 1;
 }
 
 void MTP_class::write(const void *ptr, int len) {
