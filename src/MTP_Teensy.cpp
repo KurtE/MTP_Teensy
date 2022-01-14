@@ -87,6 +87,14 @@ int MTP_class::begin() {
   return usb_init_events();
 }
 
+uint32_t MTP_class::addFilesystem(FS &disk, const char *diskname) {
+  uint32_t store = storage_.addFilesystem(disk, diskname);
+  if (store != 0xFFFFFFFF) {
+    send_StoreAddedEvent(store);
+  }
+  return store; // TODO: let's change this to bool for success / fail
+}
+
 
 void MTP_class::loop(void) {
   if (g_pmtpd_interval) {
@@ -290,6 +298,9 @@ void MTP_class::processIntervalTimer() {
           break;
         case MTP_OPERATION_GET_DEVICE_PROP_DESC: // 1014
           return_code = GetDevicePropDesc(container);
+          break;
+        case 0x1004: // GetStorageIDs 1004, needed by MacOS Android File Transfer app
+          return_code = GetStorageIDs(container);
           break;
         default:
           return_code = MTP_RESPONSE_DEVICE_BUSY; // busy 0x2019
@@ -1709,6 +1720,7 @@ int MTP_class::send_Event(uint16_t eventCode, uint32_t p1, uint32_t p2) {
 }
 int MTP_class::send_Event(uint16_t eventCode, uint32_t p1, uint32_t p2,
                      uint32_t p3) {
+  printf("*MTP_class::send_Event(%x) %x %x %x\n", eventCode, p1, p2, p3);
   MTPContainer event;
   event.len = 24;
   event.op = eventCode;

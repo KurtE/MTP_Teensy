@@ -65,7 +65,7 @@ public:
   void loop(void);
 
   // methods to add and query storage information.
-  inline uint32_t addFilesystem(FS &disk, const char *diskname) { return storage_.addFilesystem(disk, diskname); }
+  uint32_t addFilesystem(FS &disk, const char *diskname);
   inline uint32_t getFilesystemCount(void) { return storage_.getFSCount(); }
   inline FS* getFilesystemByIndex(uint32_t store) { return storage_.getStoreFS(store); }
   inline const char *getFilesystemNameByIndex(uint32_t store) { return storage_.getStoreName(store); }
