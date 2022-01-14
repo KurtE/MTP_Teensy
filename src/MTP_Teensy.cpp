@@ -1314,6 +1314,11 @@ bool MTP_class::readstring(char *buffer, uint32_t buffer_size) {
 bool MTP_class::readDateTimeString(uint32_t *pdt) {
   char dtb[20]; // let it take care of the conversions.
   if (!readstring(dtb, sizeof(dtb))) return false;
+  if (dtb[0] == 0) {
+    // host sent empty string, use time from Teensy's RTC
+    *pdt = Teensy3Clock.get();
+    return true;
+  }
   //printf("  DateTime string: %s\n", dtb);
   //                            01234567890123456
   // format of expected String: YYYYMMDDThhmmss.s
