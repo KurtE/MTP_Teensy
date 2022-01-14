@@ -1390,6 +1390,7 @@ void MTP_class::writeDataPhaseHeader(struct MTPContainer &container, uint32_t da
 
 
 static int utf8_strlen(const char *str) {
+  if (!str) return 0;
   int len=0, count=0;
   while (1) {
     unsigned int c = *str++;
@@ -1410,8 +1411,9 @@ static int utf8_strlen(const char *str) {
 }
 
 void MTP_class::writestring(const char *str) {
-  if (str && *str) {
-    write8(utf8_strlen(str) + 1);
+  int len = utf8_strlen(str);
+  if (len > 0) {
+    write8(len + 1);
     int count = 0;
     uint16_t char16 = 0;
     while (1) {
@@ -1440,8 +1442,9 @@ void MTP_class::writestring(const char *str) {
 }
 
 uint32_t MTP_class::writestringlen(const char *str) {
-  if (!str || *str == 0) return 1;
-  return utf8_strlen(str)*2 + 2 + 1;
+  int len = utf8_strlen(str);
+  if (len == 0) return 1;
+  return len*2 + 2 + 1;
 }
 
 void MTP_class::write(const void *ptr, int len) {
