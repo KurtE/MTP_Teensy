@@ -75,6 +75,10 @@ public:
   static inline Stream *PrintStream(void) { return printStream_; }
   static void PrintStream(Stream *stream) { printStream_ = stream; }
   MTPStorage *storage() {return &storage_ ;}
+
+  // Test to set file name to 232 as overhead of 24 in storage...
+  enum {MAX_FILENAME_LEN=232, MAX_PATH_LEN=256};
+
 private:
   friend class MTPStorage;
   static Stream *printStream_;

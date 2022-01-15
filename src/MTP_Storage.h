@@ -36,25 +36,73 @@
 #ifndef FILE_WRITE_BEGIN
 #define FILE_WRITE_BEGIN 2
 #endif
-#define MTPD_MAX_FILESYSTEMS 20
-#ifndef MAX_FILENAME_LEN
-#define MAX_FILENAME_LEN 256
+#define MTPD_MAX_FILESYSTEMS 0x10   // 16
+#ifndef MTP_MAX_FILENAME_LEN
+#define MTP_MAX_FILENAME_LEN 256 // reduced by size of record header stuff so fits in 256
+#endif
+#ifndef MTP_MAX_PATH_LEN
+#define MTP_MAX_PATH_LEN 260
 #endif
 
+#if defined(__MK20DX128__) || defined(__MK20DX256__)
+#define MTP_RECORD_BLOCKS 0
+#else
+#define MTP_RECORD_BLOCKS 4
+#endif
 
 class MTPStorage final {
 public:
-	struct Record {
-	  uint32_t parent;
-	  uint32_t child; // size stored here for files
-	  uint32_t sibling;
+
+// Start of with same record structure...
+	struct __attribute__((__packed__)) Record  {
 	  uint32_t dtModify;
 	  uint32_t dtCreate;
-	  uint8_t isdir;
-	  uint8_t scanned;
-	  uint16_t store; // index int physical storage (0 ... num_storages-1)
-	  char name[MAX_FILENAME_LEN];
+	  uint16_t parent;
+	  uint16_t sibling;
+	  uint32_t child; // size stored here for files
+	  uint8_t store; // index int physical storage (0 ... num_storages-1)
+	  uint8_t isdir:1;
+	  uint8_t scanned:1;
+	  char name[MTP_MAX_FILENAME_LEN];
 	};
+
+	struct __attribute__((__packed__)) RecordFixed  {
+	  uint32_t dtModify;
+	  uint32_t dtCreate;
+	  uint16_t parent;
+	  uint16_t sibling;
+	  uint32_t child; // size stored here for files
+	  uint8_t store; // index int physical storage (0 ... num_storages-1)
+	  uint8_t isdir:1;
+	  uint8_t scanned:1;
+	  char name[0];
+	};
+
+#if MTP_RECORD_BLOCKS
+	// Maybe group records so no need to hold store.
+	// but maybe hold it, max of 16 or 32...
+	// blocks if we have 2k blocks and if average names are 16 bytes we could hold
+	// average of 64items 
+	// Packing records and knowing which block is going to be simple
+	// bottom 6 bits of object id is the index within a block
+	// upper 10 (or 26 if I go back to 32 bits) will be the 2K record number to
+	// read and write. 
+	enum {MAX_RECORDS_PER_BLOCK=64, BLOCK_SIZE=2048, BLOCK_SIZE_DATA=BLOCK_SIZE - (2*MAX_RECORDS_PER_BLOCK + 3),
+		BLOCK_SIZE_NAME_FUDGE=64};
+	struct RecordBlock {
+		uint16_t recordOffsets[MAX_RECORDS_PER_BLOCK];
+		uint16_t dataIndexNextFree; 
+		uint8_t  recordCount; 
+		uint8_t  data[BLOCK_SIZE_DATA];
+	};
+
+	struct RecordBlockInfo {
+		uint16_t	block_index; 	// which block is it.
+		uint16_t	last_cycle_used; // remember the last cycle through map we used this page
+		uint8_t		dirty;			// is this block dirty
+	};
+#endif
+
 	constexpr MTPStorage() {  }
 	uint32_t addFilesystem(FS &disk, const char *diskname);
 	uint32_t addFilesystem(FS &fs, const char *name, void *unused1, uint32_t unused2) {
@@ -163,17 +211,18 @@ public:
 	void printRecord(int h, Record *p);
 	void printRecordIncludeName(int h, Record *p);
 	void dumpIndexList(void);
-	void loop() {
-	}
+	void loop() {	}
+	void printClearRecordReadWriteCounts();
+
 private:
 	unsigned int fsCount = 0;
 	const char *name[MTPD_MAX_FILESYSTEMS] = {nullptr};
 	FS *fs[MTPD_MAX_FILESYSTEMS] = {nullptr};
-	uint32_t store_first_child_[MTPD_MAX_FILESYSTEMS] = {0};
+	uint16_t store_first_child_[MTPD_MAX_FILESYSTEMS] = {0};
 	uint8_t store_scanned_[MTPD_MAX_FILESYSTEMS] = {0};
 	uint8_t store_storage_minor_index_[MTPD_MAX_FILESYSTEMS] = {0};
 	uint32_t index_entries_ = 0;
-	bool index_generated = false;
+	bool index_generated_ = false;
 	bool all_scanned_ = false;
 	uint32_t next_ = 0;
 	bool follow_sibling_ = 0;
@@ -187,6 +236,21 @@ private:
 	uint32_t mode_ = 0;
 	uint32_t open_file_ = 0xFFFFFFFEUL;
 	uint8_t last_error_ = 0;
+
+	// probably temporary...
+	uint32_t debug_read_record_count_ = 0;
+	uint32_t debug_fs_read_record_count_ = 0;
+	uint32_t debug_write_record_count_ = 0;
+	uint32_t debug_fs_write_record_count_ = 0;
+
+	#if MTP_RECORD_BLOCKS
+	static RecordBlock recordBlocks_[MTP_RECORD_BLOCKS];
+	static RecordBlockInfo recordBlocksInfo_[MTP_RECORD_BLOCKS];
+	uint16_t map_objectid_to_block_cycle_ = 0; // used to measure how long ago a block was touched...
+	void ClearRecordBlock(uint8_t index);
+	uint8_t CacheRecordBlock(uint16_t block_index);
+	int16_t maxrecordBlockWritten_ = -1;
+	#endif
 };
 
 void mtp_yield(void);
