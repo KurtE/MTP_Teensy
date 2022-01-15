@@ -38,7 +38,7 @@
 #endif
 #define MTPD_MAX_FILESYSTEMS 0x10   // 16
 #ifndef MTP_MAX_FILENAME_LEN
-#define MTP_MAX_FILENAME_LEN (256-24) // reduced by size of record header stuff so fits in 256
+#define MTP_MAX_FILENAME_LEN 256 // reduced by size of record header stuff so fits in 256
 #endif
 #ifndef MTP_MAX_PATH_LEN
 #define MTP_MAX_PATH_LEN 260
@@ -58,8 +58,8 @@ public:
 	  uint32_t dtModify;
 	  uint32_t dtCreate;
 	  uint16_t parent;
-	  uint16_t child; // size stored here for files
 	  uint16_t sibling;
+	  uint32_t child; // size stored here for files
 	  uint8_t store; // index int physical storage (0 ... num_storages-1)
 	  uint8_t isdir:1;
 	  uint8_t scanned:1;
@@ -70,8 +70,8 @@ public:
 	  uint32_t dtModify;
 	  uint32_t dtCreate;
 	  uint16_t parent;
-	  uint16_t child; // size stored here for files
 	  uint16_t sibling;
+	  uint32_t child; // size stored here for files
 	  uint8_t store; // index int physical storage (0 ... num_storages-1)
 	  uint8_t isdir:1;
 	  uint8_t scanned:1;
