@@ -32,11 +32,11 @@
 #include "MTP_Teensy.h"
 #include "MTP_Storage.h"
 #include <limits.h>
-//#if defined __has_include
-//#if __has_include(<MemoryHexDump.h>)
+#if defined __has_include
+#if __has_include(<MemoryHexDump.h>)
 #include <MemoryHexDump.h>
-//#endif
-//#endif
+#endif
+#endif
 
 //=============================================================================
 // Define some static data
