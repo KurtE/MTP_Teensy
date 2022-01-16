@@ -16,6 +16,7 @@
 // warning, this sketch uses libraries that are not shipped as part of Teensyduino
 // ILI9341_t3n - https://github.com/KurtE/ILI9341_t3n 
 // JPGDEC - https://github.com/bitbank2/JPEGDEC
+// PNGdec - https://github.com/bitbank2/PNGdec
 
 #include <ILI9341_t3n.h>
 #include <SPI.h>
@@ -28,6 +29,8 @@
 #include <JPEGDEC.h>
 //#endif
 //#endif
+
+#include <PNGdec.h>
 
 
 #define TFT_DC  9
@@ -87,6 +90,7 @@ void loop() {
   uint8_t name_len;
   bool bmp_file = false;
   bool jpg_file = false;
+  bool png_file = false;
   
   Serial.println("Loop looking for image file");
   
@@ -107,7 +111,10 @@ void loop() {
 
     if((strcmp(&name[name_len-4], ".bmp") == 0) || (strcmp(&name[name_len-4], ".BMP") == 0)) bmp_file = true;
     if((strcmp(&name[name_len-4], ".jpg") == 0) || (strcmp(&name[name_len-4], ".JPG") == 0)) jpg_file = true;
-    if ( bmp_file || jpg_file ) break;
+    if(stricmp(&name[name_len-4], ".bmp") == 0) bmp_file = true;
+    if(stricmp(&name[name_len-4], ".jpg") == 0) jpg_file = true;
+    if(stricmp(&name[name_len-4], ".png") == 0) png_file = true;
+    if ( bmp_file || jpg_file || png_file) break;
   }
   tft.fillScreen(ILI9341_BLACK);
   if (imageFile && bmp_file) {
@@ -118,6 +125,12 @@ void loop() {
     processJPGFile(name);
     imageFile.close();
   #endif  
+
+  #ifdef __PNGDEC__
+  } else if(imageFile && png_file) {
+    processPNGFile(name);
+    imageFile.close();
+  #endif
   } else {
     tft.fillScreen(ILI9341_GREEN);
     tft.setTextColor(ILI9341_WHITE);
@@ -273,6 +286,19 @@ uint32_t read32(File &f) {
   return result;
 }
 
+
+
+#if defined( __JPEGDEC__) || defined(__PNGDEC__)
+void * myOpen(const char *filename, int32_t *size) {
+  myfile = SD.open(filename);
+  *size = myfile.size();
+  return &myfile;
+}
+void myClose(void *handle) {
+  if (myfile) myfile.close();
+}
+#endif
+
 //=============================================================================
 // JPeg support 
 //=============================================================================
@@ -286,7 +312,7 @@ void processJPGFile(const char *name)
   Serial.print(F("Loading JPG image '"));
   Serial.print(name);
   Serial.println('\'');
-  if (jpeg.open(name, myOpen, myClose, myRead, mySeek, JPEGDraw)) {
+  if (jpeg.open(name, myOpen, myClose, myReadJPG, mySeekJPG, JPEGDraw)) {
     int image_width = jpeg.getWidth();
     int image_height = jpeg.getHeight();
     Serial.printf("Image size: %dx%d\n", image_width, image_height);
@@ -302,19 +328,11 @@ void processJPGFile(const char *name)
 }
 
 
-void * myOpen(const char *filename, int32_t *size) {
-  myfile = SD.open(filename);
-  *size = myfile.size();
-  return &myfile;
-}
-void myClose(void *handle) {
-  if (myfile) myfile.close();
-}
-int32_t myRead(JPEGFILE *handle, uint8_t *buffer, int32_t length) {
+int32_t myReadJPG(JPEGFILE *handle, uint8_t *buffer, int32_t length) {
   if (!myfile) return 0;
   return myfile.read(buffer, length);
 }
-int32_t mySeek(JPEGFILE *handle, int32_t position) {
+int32_t mySeekJPG(JPEGFILE *handle, int32_t position) {
   if (!myfile) return 0;
   return myfile.seek(position);
 }
@@ -325,4 +343,48 @@ int JPEGDraw(JPEGDRAW *pDraw) {
   tft.writeRect(pDraw->x, pDraw->y, pDraw->iWidth, pDraw->iHeight, pDraw->pPixels);
   return 1;
 }
+#endif
+
+//=============================================================================
+// PNG support 
+//=============================================================================
+//used for png files primarily
+#ifdef __PNGDEC__
+PNG png;
+
+void processPNGFile(const char *name)
+{
+  int rc;  
+  
+  Serial.println();
+  Serial.print(F("Loading PNG image '"));
+  Serial.print(name);
+  Serial.println('\'');
+  rc = png.open((const char *)name, myOpen, myClose, myReadPNG, mySeekPNG, PNGDraw);
+  if (rc == PNG_SUCCESS) {
+    Serial.printf("image specs: (%d x %d), %d bpp, pixel type: %d\n", png.getWidth(), png.getHeight(), png.getBpp(), png.getPixelType());
+    rc = png.decode(NULL, 0);
+    png.close();
+  } else {
+    Serial.println("Was not a valid jpeg file");
+  }
+}
+
+int32_t myReadPNG(PNGFILE *handle, uint8_t *buffer, int32_t length) {
+  if (!myfile) return 0;
+  return myfile.read(buffer, length);
+}
+int32_t mySeekPNG(PNGFILE *handle, int32_t position) {
+  if (!myfile) return 0;
+  return myfile.seek(position);
+}
+
+// Function to draw pixels to the display
+void PNGDraw(PNGDRAW *pDraw) {
+uint16_t usPixels[640];  //may have to incresse this based on the max x-valid of your image.
+
+  png.getLineAsRGB565(pDraw, usPixels, PNG_RGB565_LITTLE_ENDIAN, 0xffffffff);
+  tft.writeRect(0, pDraw->y + 24, pDraw->iWidth, 1, usPixels);
+}
+
 #endif
