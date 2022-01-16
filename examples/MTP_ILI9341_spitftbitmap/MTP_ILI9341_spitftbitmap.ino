@@ -13,10 +13,22 @@
   MIT license, all text above must be included in any redistribution
  ****************************************************/
 
+// warning, this sketch uses libraries that are not shipped as part of Teensyduino
+// ILI9341_t3n - https://github.com/KurtE/ILI9341_t3n 
+// JPGDEC - https://github.com/bitbank2/JPEGDEC
+
 #include <ILI9341_t3n.h>
 #include <SPI.h>
 #include <SD.h>
 #include <MTP_Teensy.h>
+
+//#if defined __has_include
+//#if __has_include(<JPEGDEC.h>)
+// __has_include does not work on Arduino unless something explictily had included it without...
+#include <JPEGDEC.h>
+//#endif
+//#endif
+
 
 #define TFT_DC  9
 #define TFT_CS 10
@@ -27,8 +39,10 @@ ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST);
 //#define SD_CS 6  // Works on SPI with this CS pin
 
 File rootFile;
+File myfile;
+
 elapsedMillis emDisplayed;
-#define DISPLAY_IMAGES_TIME 5000
+#define DISPLAY_IMAGES_TIME 2500
 
 void setup(void) {
   // mandatory to begin the MTP session.
@@ -44,6 +58,7 @@ void setup(void) {
   Serial.begin(9600);
   tft.setTextColor(ILI9341_WHITE);
   tft.setTextSize(2);
+  tft.setRotation(1);
   tft.println(F("Waiting for Arduino Serial Monitor..."));
   while (!Serial) {
     if (millis() > 3000) break;
@@ -68,10 +83,15 @@ void loop() {
   MTP.loop();
   if (emDisplayed < DISPLAY_IMAGES_TIME) return; 
   bool did_rewind = false;
-
+  const char *name = nullptr;
+  uint8_t name_len;
+  bool bmp_file = false;
+  bool jpg_file = false;
+  
   Serial.println("Loop looking for image file");
   
   File imageFile;
+  
   for (;;) {
     imageFile = rootFile.openNextFile();
     if (!imageFile) {
@@ -81,13 +101,23 @@ void loop() {
       did_rewind = true;
     }
     // maybe should check file name quick and dirty
-    const char *name = imageFile.name();
-    uint8_t name_len = strlen(name);
+    name = imageFile.name();
+    name_len = strlen(name);
     if (!name) continue;
-    if (stricmp(&name[name_len-4], ".bmp") == 0) break;
+
+    if((strcmp(&name[name_len-4], ".bmp") == 0) || (strcmp(&name[name_len-4], ".BMP") == 0)) bmp_file = true;
+    if((strcmp(&name[name_len-4], ".jpg") == 0) || (strcmp(&name[name_len-4], ".JPG") == 0)) jpg_file = true;
+    if ( bmp_file || jpg_file ) break;
   }
-  if (imageFile) {
+  tft.fillScreen(ILI9341_BLACK);
+  if (imageFile && bmp_file) {
     bmpDraw(imageFile, imageFile.name(), 0, 0);
+
+  #ifdef  __JPEGDEC__
+  } else if(imageFile && jpg_file) {
+    processJPGFile(name);
+    imageFile.close();
+  #endif  
   } else {
     tft.fillScreen(ILI9341_GREEN);
     tft.setTextColor(ILI9341_WHITE);
@@ -97,6 +127,11 @@ void loop() {
   emDisplayed = 0;
 }
 
+
+
+//=============================================================================
+// BMP support 
+//=============================================================================
 // This function opens a Windows Bitmap (BMP) file and
 // displays it at the given coordinates.  It's sped up
 // by reading many pixels worth of data at a time
@@ -112,10 +147,6 @@ void loop() {
 // last 60 pixels from the 3rd read may not be used.
 
 #define BUFFPIXEL 80
-
-
-//===========================================================
-// Try Draw using writeRect
 void bmpDraw(File &bmpFile, const char *filename, uint8_t x, uint16_t y) {
 
 //  File     bmpFile;
@@ -139,12 +170,6 @@ void bmpDraw(File &bmpFile, const char *filename, uint8_t x, uint16_t y) {
   Serial.print(F("Loading image '"));
   Serial.print(filename);
   Serial.println('\'');
-
-// Open requested file on SD card
-//  if (!(bmpFile = SD.open(filename))) {
-//    Serial.print(F("File not found"));
-//    return;
-//  }
 
   // Parse BMP header
   if(read16(bmpFile) == 0x4D42) { // BMP signature
@@ -247,3 +272,57 @@ uint32_t read32(File &f) {
   ((uint8_t *)&result)[3] = f.read(); // MSB
   return result;
 }
+
+//=============================================================================
+// JPeg support 
+//=============================================================================
+//used for jpeg files primarily
+#ifdef __JPEGDEC__
+JPEGDEC jpeg;
+
+void processJPGFile(const char *name)
+{
+  Serial.println();
+  Serial.print(F("Loading JPG image '"));
+  Serial.print(name);
+  Serial.println('\'');
+  if (jpeg.open(name, myOpen, myClose, myRead, mySeek, JPEGDraw)) {
+    int image_width = jpeg.getWidth();
+    int image_height = jpeg.getHeight();
+    Serial.printf("Image size: %dx%d\n", image_width, image_height);
+    int decode_options = 0;
+    if ((image_width > ((int)tft.width() * 8 )) || (image_height > ((int)tft.height() * 8 ))) decode_options = JPEG_SCALE_EIGHTH;
+    else if ((image_width > ((int)tft.width() * 4 )) || (image_height > ((int)tft.height() * 4 ))) decode_options = JPEG_SCALE_QUARTER;
+    else if ((image_width > ((int)tft.width() * 2 )) || (image_height > ((int)tft.height() * 2 ))) decode_options = JPEG_SCALE_HALF;
+    jpeg.decode(0, 0, decode_options);
+    jpeg.close();
+  } else {
+    Serial.println("Was not a valid jpeg file");
+  }
+}
+
+
+void * myOpen(const char *filename, int32_t *size) {
+  myfile = SD.open(filename);
+  *size = myfile.size();
+  return &myfile;
+}
+void myClose(void *handle) {
+  if (myfile) myfile.close();
+}
+int32_t myRead(JPEGFILE *handle, uint8_t *buffer, int32_t length) {
+  if (!myfile) return 0;
+  return myfile.read(buffer, length);
+}
+int32_t mySeek(JPEGFILE *handle, int32_t position) {
+  if (!myfile) return 0;
+  return myfile.seek(position);
+}
+// Function to draw pixels to the display
+int JPEGDraw(JPEGDRAW *pDraw) {
+  //Serial.printf("jpeg draw: x,y=%d,%d, cx,cy = %d,%d\n",
+     //pDraw->x, pDraw->y, pDraw->iWidth, pDraw->iHeight);
+  tft.writeRect(pDraw->x, pDraw->y, pDraw->iWidth, pDraw->iHeight, pDraw->pPixels);
+  return 1;
+}
+#endif
