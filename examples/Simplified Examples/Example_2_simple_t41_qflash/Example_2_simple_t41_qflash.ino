@@ -44,7 +44,7 @@ void loop()
         Serial.printf("\nDump Storage list(%u)\n", fsCount);
         for (uint32_t ii = 0; ii < fsCount; ii++) {
           Serial.printf("store:%u storage:%x name:%s fs:%x\n", ii, MTP.Store2Storage(ii),
-                           MTP.getFilesystemNameByIndex(ii), (uint32_t)getFilesystemByIndex(ii));
+                           MTP.getFilesystemNameByIndex(ii), (uint32_t)MTP.getFilesystemByIndex(ii));
         }
         Serial.println("\nDump Index List");
         MTP.storage()->dumpIndexList();

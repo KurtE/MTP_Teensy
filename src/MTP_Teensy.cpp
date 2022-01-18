@@ -302,6 +302,9 @@ void MTP_class::processIntervalTimer() {
         case 0x1004: // GetStorageIDs 1004, needed by MacOS Android File Transfer app
           return_code = GetStorageIDs(container);
           break;
+        case 0x9801: // GetObjectPropsSupported
+          return_code = GetObjectPropsSupported(container);
+          break;
         default:
           return_code = MTP_RESPONSE_DEVICE_BUSY; // busy 0x2019
           break;

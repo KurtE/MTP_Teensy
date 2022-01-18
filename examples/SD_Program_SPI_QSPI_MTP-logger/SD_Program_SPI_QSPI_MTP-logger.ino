@@ -109,15 +109,18 @@ void setup() {
   // start up MTPD early which will if asked tell the MTP
   // host that we are busy, until we have finished setting
   // up...
-  DBGSerial.begin(2000000);
   MTP.PrintStream(&rstream); // Setup which stream to use...
+  rstream.printf("+++ before MTP.begin() %u\n", millis());
 
   MTP.begin();
 
   // Open serial communications and wait for port to open:
+  rstream.printf("+++ before wait on !Serial %u\n", millis());
   while (!DBGSerial && millis() < 5000) {
     // wait for serial port to connect.
   }
+  //DBGSerial.begin(2000000); // don't call it wastes 2 seconds. 
+  rstream.printf("+++ after wait on !Serial %u\n", millis());
 
   // set to real stream
   MTP.PrintStream(&DBGSerial); // Setup which stream to use...
