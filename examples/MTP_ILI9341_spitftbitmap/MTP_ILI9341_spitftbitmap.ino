@@ -15,8 +15,8 @@
 
 // warning, this sketch uses libraries that are not shipped as part of Teensyduino
 // ILI9341_t3n - https://github.com/KurtE/ILI9341_t3n 
-// JPGDEC - https://github.com/bitbank2/JPEGDEC
-// PNGdec - https://github.com/bitbank2/PNGdec
+// JPGDEC - https://github.com/bitbank2/JPEGDEC (also on arduino library manager)
+// PNGdec - https://github.com/bitbank2/PNGdec (also on arduino library manager)
 
 #include <ILI9341_t3n.h>
 #include <SPI.h>
@@ -351,7 +351,7 @@ int JPEGDraw(JPEGDRAW *pDraw) {
 //used for png files primarily
 #ifdef __PNGDEC__
 PNG png;
-
+uint16_t *usPixels = nullptr;  //may have to incresse this based on the max x-valid of your image.
 void processPNGFile(const char *name)
 {
   int rc;  
@@ -362,11 +362,15 @@ void processPNGFile(const char *name)
   Serial.println('\'');
   rc = png.open((const char *)name, myOpen, myClose, myReadPNG, mySeekPNG, PNGDraw);
   if (rc == PNG_SUCCESS) {
+    usPixels = (uint16_t*)malloc(png.getWidth() * 2);
     Serial.printf("image specs: (%d x %d), %d bpp, pixel type: %d\n", png.getWidth(), png.getHeight(), png.getBpp(), png.getPixelType());
-    rc = png.decode(NULL, 0);
-    png.close();
+    if (usPixels) {
+      rc = png.decode(NULL, 0);
+      png.close();
+      free(usPixels);
+    } else Serial.println("Error could not allocate line buffer");
   } else {
-    Serial.println("Was not a valid jpeg file");
+    Serial.printf("Was not a valid PNG file RC:%d\n", rc);
   }
 }
 
@@ -381,8 +385,6 @@ int32_t mySeekPNG(PNGFILE *handle, int32_t position) {
 
 // Function to draw pixels to the display
 void PNGDraw(PNGDRAW *pDraw) {
-uint16_t usPixels[640];  //may have to incresse this based on the max x-valid of your image.
-
   png.getLineAsRGB565(pDraw, usPixels, PNG_RGB565_LITTLE_ENDIAN, 0xffffffff);
   tft.writeRect(0, pDraw->y + 24, pDraw->iWidth, 1, usPixels);
 }
