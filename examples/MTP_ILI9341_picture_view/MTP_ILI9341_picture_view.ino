@@ -51,10 +51,19 @@ void setup(void) {
 
   // Keep the SD card inactive while working the display.
   pinMode(SD_CS, INPUT_PULLUP);
-  delay(200);
-
+  delay(20);
   tft.begin();
   tft.fillScreen(ILI9341_BLUE);
+
+  //Serial.print(F("Initializing SD card..."));
+  tft.println(F("Init SD card..."));
+  while (!SD.begin(SD_CS)) {
+    //Serial.println(F("failed to access SD card!"));
+    tft.println(F("failed to access SD card!"));
+    delay(2000);
+  }
+  MTP.addFilesystem(SD, "SD Card");
+
 
   Serial.begin(9600);
   tft.setTextColor(ILI9341_WHITE);
@@ -65,14 +74,6 @@ void setup(void) {
     if (millis() > 3000) break;
   }
 
-  Serial.print(F("Initializing SD card..."));
-  tft.println(F("Init SD card..."));
-  while (!SD.begin(SD_CS)) {
-    Serial.println(F("failed to access SD card!"));
-    tft.println(F("failed to access SD card!"));
-    delay(2000);
-  }
-  MTP.addFilesystem(SD, "SD Card");
 
   rootFile = SD.open("/");
 
