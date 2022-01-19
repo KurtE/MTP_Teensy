@@ -338,8 +338,8 @@ int32_t mySeekJPG(JPEGFILE *handle, int32_t position) {
 }
 // Function to draw pixels to the display
 int JPEGDraw(JPEGDRAW *pDraw) {
-  Serial.printf("jpeg draw: x,y=%d,%d, cx,cy = %d,%d\n",
-     pDraw->x, pDraw->y, pDraw->iWidth, pDraw->iHeight);
+//  Serial.printf("jpeg draw: x,y=%d,%d, cx,cy = %d,%d\n",
+//     pDraw->x, pDraw->y, pDraw->iWidth, pDraw->iHeight);
   tft.writeRect(pDraw->x, pDraw->y, pDraw->iWidth, pDraw->iHeight, pDraw->pPixels);
   return 1;
 }

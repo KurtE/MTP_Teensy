@@ -112,7 +112,7 @@ void setup() {
   MTP.PrintStream(&rstream); // Setup which stream to use...
   rstream.printf("+++ before MTP.begin() %u\n", millis());
 
-  MTP.begin();
+  //MTP.begin();
 
   // Open serial communications and wait for port to open:
   rstream.printf("+++ before wait on !Serial %u\n", millis());
