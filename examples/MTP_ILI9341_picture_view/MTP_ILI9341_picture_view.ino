@@ -1,5 +1,5 @@
 //=============================================================================
-// Simple bitamp display program with MTP support added.
+// Simple image (BMP optional JPEG and PNG) display program with MTP support added.
 //=============================================================================
 
 /***************************************************
@@ -23,19 +23,17 @@
 #include <SD.h>
 #include <MTP_Teensy.h>
 
-//#if defined __has_include
-//#if __has_include(<JPEGDEC.h>)
-// __has_include does not work on Arduino unless something explictily had included it without...
+// optional JPEG support requires external library
+// uncomment if you wish to use. 
 #include <JPEGDEC.h>
-//#endif
-//#endif
 
+// optional PNG support requires external library
 #include <PNGdec.h>
 
 
 #define TFT_DC  9
 #define TFT_CS 10
-#define TFT_RST 8
+#define TFT_RST -1
 ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST);
 
 #define SD_CS BUILTIN_SDCARD  // Works on T_3.6 and T_4.1 ...
@@ -80,6 +78,7 @@ void setup(void) {
 
   Serial.println("OK!");
   emDisplayed = DISPLAY_IMAGES_TIME; 
+  tft.useFrameBuffer(true);
 }
 
 void loop() {
@@ -137,6 +136,7 @@ void loop() {
     tft.setTextSize(2);
     tft.println(F("No Files Found"));
   }
+  tft.updateScreen();
   emDisplayed = 0;
 }
 
@@ -338,8 +338,8 @@ int32_t mySeekJPG(JPEGFILE *handle, int32_t position) {
 }
 // Function to draw pixels to the display
 int JPEGDraw(JPEGDRAW *pDraw) {
-  //Serial.printf("jpeg draw: x,y=%d,%d, cx,cy = %d,%d\n",
-     //pDraw->x, pDraw->y, pDraw->iWidth, pDraw->iHeight);
+  Serial.printf("jpeg draw: x,y=%d,%d, cx,cy = %d,%d\n",
+     pDraw->x, pDraw->y, pDraw->iWidth, pDraw->iHeight);
   tft.writeRect(pDraw->x, pDraw->y, pDraw->iWidth, pDraw->iHeight, pDraw->pPixels);
   return 1;
 }
