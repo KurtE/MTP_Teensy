@@ -19,6 +19,7 @@
 // PNGdec - https://github.com/bitbank2/PNGdec (also on arduino library manager)
 
 #include <ILI9341_t3n.h>
+#include <XPT2046_Touchscreen.h>
 #include <SPI.h>
 #include <SD.h>
 #include <MTP_Teensy.h>
@@ -30,21 +31,46 @@
 // optional PNG support requires external library
 #include <PNGdec.h>
 
+//****************************************************************************
+// This is calibration data for the raw touch data to the screen coordinates
+//****************************************************************************
+// Warning, These are
+#define TS_MINX 337
+#define TS_MINY 529
+#define TS_MAXX 3729
+#define TS_MAXY 3711
 
+//****************************************************************************
+// Settings and objects
+//****************************************************************************
 #define TFT_DC  9
 #define TFT_CS 10
 #define TFT_RST -1
-ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST);
+
+#define TOUCH_CS 27
+#define TOUCH_TIRQ 26
 
 #define SD_CS BUILTIN_SDCARD  // Works on T_3.6 and T_4.1 ...
 //#define SD_CS 6  // Works on SPI with this CS pin
 
+
+
+ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST);
+
+#ifdef TOUCH_CS
+XPT2046_Touchscreen ts(TOUCH_CS, TOUCH_TIRQ);
+#endif
+
 File rootFile;
 File myfile;
+bool fast_mode = false;
 
 elapsedMillis emDisplayed;
 #define DISPLAY_IMAGES_TIME 2500
 
+//****************************************************************************
+// Setup
+//****************************************************************************
 void setup(void) {
   // mandatory to begin the MTP session.
   MTP.begin();
@@ -52,6 +78,12 @@ void setup(void) {
   // Keep the SD card inactive while working the display.
   pinMode(SD_CS, INPUT_PULLUP);
   delay(20);
+  #ifdef TOUCH_CS
+  pinMode(TOUCH_CS, OUTPUT); digitalWriteFast(TOUCH_CS, HIGH);
+  pinMode(TFT_CS, OUTPUT); digitalWriteFast(TFT_CS, HIGH);
+  !ts.begin();
+  #endif
+
   tft.begin();
   tft.fillScreen(ILI9341_BLUE);
 
@@ -65,7 +97,7 @@ void setup(void) {
   MTP.addFilesystem(SD, "SD Card");
 
 
-  Serial.begin(9600);
+  //Serial.begin(9600);
   tft.setTextColor(ILI9341_WHITE);
   tft.setTextSize(2);
   tft.setRotation(1);
@@ -82,9 +114,16 @@ void setup(void) {
   tft.useFrameBuffer(true);
 }
 
+//****************************************************************************
+// loop
+//****************************************************************************
 void loop() {
   MTP.loop();
-  if (emDisplayed < DISPLAY_IMAGES_TIME) return; 
+  #ifdef TOUCH_CS
+  ProcessTouchScreen();
+  #endif
+  // don't process unless time elapsed or fast_mode 
+  if (!fast_mode && (emDisplayed < DISPLAY_IMAGES_TIME)) return; 
   bool did_rewind = false;
   const char *name = nullptr;
   uint8_t name_len;
@@ -391,3 +430,48 @@ void PNGDraw(PNGDRAW *pDraw) {
 }
 
 #endif
+
+//=============================================================================
+// Touch screen support 
+//=============================================================================
+void ProcessTouchScreen()
+{
+  // See if there's any  touch data for us
+//  if (ts.bufferEmpty()) {
+//    return;
+//  }
+
+  // You can also wait for a touch
+  if (! ts.touched()) {
+    fast_mode = false;
+    return;
+  }
+
+  // first hack, if screen pressed go very fast
+  fast_mode = true;
+
+  // Retrieve a point
+  TS_Point p = ts.getPoint();
+
+  // p is in ILI9341_t3 setOrientation 1 settings. so we need to map x and y differently.
+
+  Serial.print("X = "); Serial.print(p.x);
+  Serial.print("\tY = "); Serial.print(p.y);
+  Serial.print("\tPressure = "); Serial.print(p.z);
+
+
+  // Scale from ~0->4000 to tft.width using the calibration #'s
+#if 1 // SCREEN_ORIENTATION_1
+  p.x = map(p.x, TS_MINX, TS_MAXX, 0, tft.width());
+  p.y = map(p.y, TS_MINY, TS_MAXY, 0, tft.height());
+#else
+  
+  uint16_t px = map(p.y, TS_MAXY, TS_MINY, 0, tft.width());
+  p.y = map(p.x, TS_MINX, TS_MAXX, 0, tft.height());
+  p.x = px;
+#endif  
+    Serial.print(" ("); Serial.print(p.x);
+    Serial.print(", "); Serial.print(p.y);
+    Serial.println(")");
+
+}
