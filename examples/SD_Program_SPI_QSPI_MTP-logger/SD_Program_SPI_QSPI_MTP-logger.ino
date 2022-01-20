@@ -236,13 +236,13 @@ void setup() {
 const char *getFSPN(uint32_t ii) {
   FS* pfs = MTP.storage()->getStoreFS(ii);
   // total set of hacks...
-  if (pfs == (FS *)&lfsram) return lfsram.getPN();
-  if (pfs == (FS *)&lfsProg) return lfsProg.getPN();
+  if (pfs == (FS *)&lfsram) return lfsram.getMediaName();
+  if (pfs == (FS *)&lfsProg) return lfsProg.getMediaName();
   #ifdef ARDUINO_TEENSY41
-  if (pfs == (FS *)&lfsqspi) return lfsqspi.getPN();
+  if (pfs == (FS *)&lfsqspi) return lfsqspi.getMediaName();
   #endif
   for (uint8_t i = 0; i < CLFSSPIPINS; i++) {
-    if (pfs == (FS *)&lfsspi[i]) return lfsspi[i].getPN();
+    if (pfs == (FS *)&lfsspi[i]) return lfsspi[i].getMediaName();
   }
   return "";
 }
@@ -258,7 +258,7 @@ void loop() {
       uint32_t fsCount = MTP.storage()->getFSCount();
       DBGSerial.printf("\nDump Storage list(%u)\n", fsCount);
       for (uint32_t ii = 0; ii < fsCount; ii++) {
-        DBGSerial.printf("store:%u storage:%x name:%s fs:%x pn:", ii,
+        DBGSerial.printf("store:%u storage:%x name:%s fs:%x media:", ii,
                          MTP.Store2Storage(ii), MTP.storage()->getStoreName(ii),
                          (uint32_t)MTP.storage()->getStoreFS(ii));
         Serial.flush();  
