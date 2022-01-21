@@ -13,12 +13,19 @@
   MIT license, all text above must be included in any redistribution
  ****************************************************/
 
-// warning, this sketch uses libraries that are not shipped as part of Teensyduino
+// warning, this sketch uses libraries that are not installed as part of Teensyduino
 // ILI9341_t3n - https://github.com/KurtE/ILI9341_t3n 
 // JPGDEC - https://github.com/bitbank2/JPEGDEC (also on arduino library manager)
 // PNGdec - https://github.com/bitbank2/PNGdec (also on arduino library manager)
 
-#include <ILI9341_t3n.h>
+// optional support for ILI9341_t3n - that adds additional features
+//#include <ILI9341_t3n.h>
+
+// If ILI9341_t3n is not included include ILI9341_t3 which is installed by Teensyduino
+#ifndef  _ILI9341_t3NH_
+#include <ILI9341_t3.h>
+#endif
+
 #include <XPT2046_Touchscreen.h>
 #include <SPI.h>
 #include <SD.h>
@@ -55,7 +62,11 @@
 
 
 
+#ifdef  _ILI9341_t3NH_
 ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST);
+#else
+ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC, TFT_RST);
+#endif
 
 #ifdef TOUCH_CS
 XPT2046_Touchscreen ts(TOUCH_CS, TOUCH_TIRQ);
@@ -111,7 +122,10 @@ void setup(void) {
 
   Serial.println("OK!");
   emDisplayed = DISPLAY_IMAGES_TIME; 
+
+#ifdef  _ILI9341_t3NH_
   tft.useFrameBuffer(true);
+#endif
 }
 
 //****************************************************************************
@@ -155,19 +169,19 @@ void loop() {
     if(stricmp(&name[name_len-4], ".png") == 0) png_file = true;
     if ( bmp_file || jpg_file || png_file) break;
   }
-  tft.fillScreen(ILI9341_BLACK);
+//  tft.fillScreen(ILI9341_BLACK);
   if (imageFile && bmp_file) {
-    bmpDraw(imageFile, imageFile.name(), 0, 0);
+    bmpDraw(imageFile, imageFile.name(), 0, 0, true);
 
   #ifdef  __JPEGDEC__
   } else if(imageFile && jpg_file) {
-    processJPGFile(name);
+    processJPGFile(name, true);
     imageFile.close();
   #endif  
 
   #ifdef __PNGDEC__
   } else if(imageFile && png_file) {
-    processPNGFile(name);
+    processPNGFile(name, true);
     imageFile.close();
   #endif
   } else {
@@ -176,7 +190,16 @@ void loop() {
     tft.setTextSize(2);
     tft.println(F("No Files Found"));
   }
+  #ifdef  _ILI9341_t3NH_
   tft.updateScreen();
+  #endif
+  if (Serial.available()) {
+    while(Serial.read() != -1) ;
+    Serial.printf("Paused: enter anything to continue");
+    while(Serial.read() == -1) ;
+    while(Serial.read() != -1) ;
+
+  }
   emDisplayed = 0;
 }
 
@@ -200,7 +223,7 @@ void loop() {
 // last 60 pixels from the 3rd read may not be used.
 
 #define BUFFPIXEL 80
-void bmpDraw(File &bmpFile, const char *filename, uint8_t x, uint16_t y) {
+void bmpDraw(File &bmpFile, const char *filename, uint8_t x, uint16_t y, bool fErase) {
 
 //  File     bmpFile;
   int      bmpWidth, bmpHeight;   // W+H in pixels
@@ -260,6 +283,11 @@ void bmpDraw(File &bmpFile, const char *filename, uint8_t x, uint16_t y) {
         h = bmpHeight;
         if((x+w-1) >= tft.width())  w = tft.width()  - x;
         if((y+h-1) >= tft.height()) h = tft.height() - y;
+
+        if (fErase && (x || y || (w != tft.width()) || (h != tft.height()))) {
+          // Maybe update to only fill unused or maybe fill on each line
+          tft.fillScreen(ILI9341_BLACK);
+        }
 
         for (row=0; row<h; row++) { // For each scanline...
 
@@ -346,20 +374,33 @@ void myClose(void *handle) {
 #ifdef __JPEGDEC__
 JPEGDEC jpeg;
 
-void processJPGFile(const char *name)
+void processJPGFile(const char *name, bool fErase)
 {
   Serial.println();
   Serial.print(F("Loading JPG image '"));
   Serial.print(name);
   Serial.println('\'');
+  uint8_t scale = 1;
   if (jpeg.open(name, myOpen, myClose, myReadJPG, mySeekJPG, JPEGDraw)) {
     int image_width = jpeg.getWidth();
     int image_height = jpeg.getHeight();
-    Serial.printf("Image size: %dx%d\n", image_width, image_height);
+    Serial.printf("Image size: %dx%d", image_width, image_height);
     int decode_options = 0;
-    if ((image_width > ((int)tft.width() * 8 )) || (image_height > ((int)tft.height() * 8 ))) decode_options = JPEG_SCALE_EIGHTH;
-    else if ((image_width > ((int)tft.width() * 4 )) || (image_height > ((int)tft.height() * 4 ))) decode_options = JPEG_SCALE_QUARTER;
-    else if ((image_width > ((int)tft.width() * 2 )) || (image_height > ((int)tft.height() * 2 ))) decode_options = JPEG_SCALE_HALF;
+    if ((image_width > ((int)tft.width() * 8 )) || (image_height > ((int)tft.height() * 8 ))) {
+      decode_options = JPEG_SCALE_EIGHTH;
+      scale = 8;
+    } else if ((image_width > ((int)tft.width() * 4 )) || (image_height > ((int)tft.height() * 4 ))) {
+      decode_options = JPEG_SCALE_QUARTER;
+      scale = 4;
+    } else if ((image_width > ((int)tft.width() * 2 )) || (image_height > ((int)tft.height() * 2 ))) {
+      decode_options = JPEG_SCALE_HALF;
+      scale = 2;
+    }
+    Serial.printf("Scale: 1/%d\n", scale);
+    if (fErase && ((image_width/scale < tft.width()) || (image_height/scale < tft.height()))) {
+      tft.fillScreen(ILI9341_BLACK);
+    }
+
     jpeg.decode(0, 0, decode_options);
     jpeg.close();
   } else {
@@ -377,10 +418,41 @@ int32_t mySeekJPG(JPEGFILE *handle, int32_t position) {
   return myfile.seek(position);
 }
 // Function to draw pixels to the display
+#ifdef  _ILI9341_t3NH_
+inline void writeClippedRect(int16_t x, int16_t y, int16_t cx, int16_t cy, uint16_t *pixels) {
+  tft.writeRect(x, y, cx, cy, pixels);
+}
+#else
+void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels) 
+{
+  if ((x >= 0) && (y >= 0) && ((x + cx) <= tft.width()) && ((y + cy) <= tft.height())) {
+    tft.writeRect(x, y, cx, cy, pixels);
+    Serial.printf("\t(%d, %d, %d, %d)\n", x, y, cx, cy);
+  } else {
+    int width = cx;
+    if ((x + width) > tft.width()) width = tft.width() - x; 
+    uint16_t *ppixLine = pixels;
+    for (int yt = y; yt < (y + cy); yt++) {
+      if (yt < 0) continue;
+      if (yt >= tft.height()) break;
+      if (x >=0) {
+        tft.writeRect(x, yt, width, 1, ppixLine);
+        Serial.printf("\t(%d, %d, %d, %d)\n", x, y, width, 1);
+      } else {
+        tft.writeRect(0, yt, width, 1, ppixLine - x);
+        Serial.printf("\t(%d, %d, %d, %d ++)\n", 0, y, width, 1);
+      }
+      ppixLine += cx;
+    }
+  }  
+} 
+#endif
+
 int JPEGDraw(JPEGDRAW *pDraw) {
-//  Serial.printf("jpeg draw: x,y=%d,%d, cx,cy = %d,%d\n",
-//     pDraw->x, pDraw->y, pDraw->iWidth, pDraw->iHeight);
-  tft.writeRect(pDraw->x, pDraw->y, pDraw->iWidth, pDraw->iHeight, pDraw->pPixels);
+  Serial.printf("jpeg draw: x,y=%d,%d, cx,cy = %d,%d\n",
+     pDraw->x, pDraw->y, pDraw->iWidth, pDraw->iHeight);
+
+  writeClippedRect(pDraw->x, pDraw->y, pDraw->iWidth, pDraw->iHeight, pDraw->pPixels);
   return 1;
 }
 #endif
@@ -392,7 +464,7 @@ int JPEGDraw(JPEGDRAW *pDraw) {
 #ifdef __PNGDEC__
 PNG png;
 uint16_t *usPixels = nullptr;  //may have to incresse this based on the max x-valid of your image.
-void processPNGFile(const char *name)
+void processPNGFile(const char *name, bool fErase)
 {
   int rc;  
   
@@ -404,6 +476,11 @@ void processPNGFile(const char *name)
   if (rc == PNG_SUCCESS) {
     usPixels = (uint16_t*)malloc(png.getWidth() * 2);
     Serial.printf("image specs: (%d x %d), %d bpp, pixel type: %d\n", png.getWidth(), png.getHeight(), png.getBpp(), png.getPixelType());
+    if (fErase && ((png.getWidth() < tft.width()) || (png.getHeight() < tft.height()))) {
+      tft.fillScreen(ILI9341_BLACK);
+    }
+
+
     if (usPixels) {
       rc = png.decode(NULL, 0);
       png.close();
@@ -426,7 +503,7 @@ int32_t mySeekPNG(PNGFILE *handle, int32_t position) {
 // Function to draw pixels to the display
 void PNGDraw(PNGDRAW *pDraw) {
   png.getLineAsRGB565(pDraw, usPixels, PNG_RGB565_LITTLE_ENDIAN, 0xffffffff);
-  tft.writeRect(0, pDraw->y + 24, pDraw->iWidth, 1, usPixels);
+  writeClippedRect(0,  pDraw->y + 24, pDraw->iWidth, 1, usPixels);
 }
 
 #endif
