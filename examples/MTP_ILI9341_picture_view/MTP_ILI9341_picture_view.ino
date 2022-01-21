@@ -79,6 +79,12 @@ bool fast_mode = false;
 elapsedMillis emDisplayed;
 #define DISPLAY_IMAGES_TIME 2500
 
+// Options file information
+static const PROGMEM char options_file_name[] = "PictureViewOptions.ini";
+bool g_debug_output = false;
+int g_JPGScale = 0;
+int g_center_image = 0;
+
 //****************************************************************************
 // Setup
 //****************************************************************************
@@ -117,11 +123,16 @@ void setup(void) {
     if (millis() > 3000) break;
   }
 
-
   rootFile = SD.open("/");
 
   Serial.println("OK!");
   emDisplayed = DISPLAY_IMAGES_TIME; 
+
+  File optionsFile = SD.open(options_file_name);
+  if (optionsFile) {
+    ProcessOptionsFile(optionsFile);
+    optionsFile.close();
+  }
 
 #ifdef  _ILI9341_t3NH_
   tft.useFrameBuffer(true);
@@ -167,6 +178,7 @@ void loop() {
     if(stricmp(&name[name_len-4], ".bmp") == 0) bmp_file = true;
     if(stricmp(&name[name_len-4], ".jpg") == 0) jpg_file = true;
     if(stricmp(&name[name_len-4], ".png") == 0) png_file = true;
+    if (stricmp(name, options_file_name) == 0) ProcessOptionsFile(imageFile);
     if ( bmp_file || jpg_file || png_file) break;
   }
 //  tft.fillScreen(ILI9341_BLACK);
@@ -194,16 +206,90 @@ void loop() {
   tft.updateScreen();
   #endif
   if (Serial.available()) {
+    int ch;
     while(Serial.read() != -1) ;
     Serial.printf("Paused: enter anything to continue");
-    while(Serial.read() == -1) ;
+    while((ch = Serial.read()) == -1) ;
+    if (ch == 'd') g_debug_output = !g_debug_output;
     while(Serial.read() != -1) ;
 
   }
   emDisplayed = 0;
 }
 
+//=============================================================================
+// Options file support - process only if file changed dates (Or first time) 
+//    example looking for update file.
+// This is a real simple parser x=y where x is string y is int... 
+//=============================================================================
+DateTimeFields g_dtf_optFileLast = {99}; // not valid so change first time...
 
+bool ReadOptionsLine(File &optFile, char *key_name, uint8_t sizeof_key, int &key_value) {
+  int ch;
+
+  key_value = 0;
+  // first lets get key name ignore all whitespace...
+  while ((ch = optFile.read()) <= ' ') {
+    if (ch < 0) return false;
+  }
+
+  uint8_t ich = 0;
+  while (ich < (sizeof_key - 1)) {
+    if (ch == '=') {
+      ch = optFile.read();  
+      break;
+    }
+    key_name[ich++] = ch;
+    ch = optFile.read();  
+    if (ch < 0) return false; // 
+  }
+  key_name[ich] = '\0';
+
+  int sign_value = 1;
+  if (ch == '-') {
+    sign_value = -1;
+    ch = optFile.read();  
+    if (ch == -1) return false;
+  }    
+
+  while ((ch >= '0') && (ch <= '9')) {
+    key_value = key_value * 10 + ch - '0';
+    ch = optFile.read();  
+  }
+  // should probably check for other stuff, but...
+  key_value *= sign_value;
+  return true;
+}
+
+
+bool ProcessOptionsFile(File &optfile) {
+  DateTimeFields dtf;
+  int key_value;
+  char key_name[32];
+  if (!optfile) return false;
+  if (!optfile.getModifyTime(dtf)) return false; 
+  if (memcmp(&dtf, &g_dtf_optFileLast, sizeof(dtf)) == 0) return false; 
+  g_dtf_optFileLast = dtf; 
+  Serial.printf("Updated Options file found date: M: %02u/%02u/%04u %02u:%02u\n",
+      dtf.mon + 1, dtf.mday, dtf.year + 1900, dtf.hour, dtf.min );
+
+  // do simple scan through file
+  while (ReadOptionsLine(optfile, key_name, sizeof(key_name), key_value)) {
+    Serial.printf("\t>>%s=%d\n", key_name, key_value);
+    if (stricmp(key_name, "debug") == 0) {
+      g_debug_output = key_value;
+      Serial.printf("\tDebug set to: %d\n", g_debug_output);
+    } else if (stricmp(key_name, "JPGScale") == 0) {
+      g_JPGScale = key_value;
+      Serial.printf("\tJPG Scale: %d\n", g_JPGScale);
+    } else if (stricmp(key_name, "Center") == 0) {
+      g_center_image = key_value;
+      Serial.printf("\tCenter Image: %d\n", g_center_image);
+    }
+  }
+
+  return true;
+}
 
 //=============================================================================
 // BMP support 
@@ -384,17 +470,26 @@ void processJPGFile(const char *name, bool fErase)
   if (jpeg.open(name, myOpen, myClose, myReadJPG, mySeekJPG, JPEGDraw)) {
     int image_width = jpeg.getWidth();
     int image_height = jpeg.getHeight();
-    Serial.printf("Image size: %dx%d", image_width, image_height);
     int decode_options = 0;
-    if ((image_width > ((int)tft.width() * 8 )) || (image_height > ((int)tft.height() * 8 ))) {
-      decode_options = JPEG_SCALE_EIGHTH;
-      scale = 8;
-    } else if ((image_width > ((int)tft.width() * 4 )) || (image_height > ((int)tft.height() * 4 ))) {
-      decode_options = JPEG_SCALE_QUARTER;
-      scale = 4;
-    } else if ((image_width > ((int)tft.width() * 2 )) || (image_height > ((int)tft.height() * 2 ))) {
-      decode_options = JPEG_SCALE_HALF;
-      scale = 2;
+    Serial.printf("Image size: %dx%d", image_width, image_height);
+    switch(g_JPGScale) {
+      case 1: scale = 1; decode_options=0; break;
+      case 2: scale = 2; decode_options=JPEG_SCALE_HALF; break;
+      case 4: scale = 4; decode_options=JPEG_SCALE_QUARTER; break;
+      case 8: scale = 8; decode_options=JPEG_SCALE_EIGHTH; break;
+      default: 
+      {
+        if ((image_width > ((int)tft.width() * 8 )) || (image_height > ((int)tft.height() * 8 ))) {
+          decode_options = JPEG_SCALE_EIGHTH;
+          scale = 8;
+        } else if ((image_width > ((int)tft.width() * 4 )) || (image_height > ((int)tft.height() * 4 ))) {
+          decode_options = JPEG_SCALE_QUARTER;
+          scale = 4;
+        } else if ((image_width > ((int)tft.width() * 2 )) || (image_height > ((int)tft.height() * 2 ))) {
+          decode_options = JPEG_SCALE_HALF;
+          scale = 2;
+        }        
+      }
     }
     Serial.printf("Scale: 1/%d\n", scale);
     if (fErase && ((image_width/scale < tft.width()) || (image_height/scale < tft.height()))) {
@@ -427,7 +522,7 @@ void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels)
 {
   if ((x >= 0) && (y >= 0) && ((x + cx) <= tft.width()) && ((y + cy) <= tft.height())) {
     tft.writeRect(x, y, cx, cy, pixels);
-    Serial.printf("\t(%d, %d, %d, %d)\n", x, y, cx, cy);
+    if (g_debug_output) Serial.printf("\t(%d, %d, %d, %d)\n", x, y, cx, cy);
   } else {
     int width = cx;
     if ((x + width) > tft.width()) width = tft.width() - x; 
@@ -437,10 +532,10 @@ void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels)
       if (yt >= tft.height()) break;
       if (x >=0) {
         tft.writeRect(x, yt, width, 1, ppixLine);
-        Serial.printf("\t(%d, %d, %d, %d)\n", x, y, width, 1);
+        if (g_debug_output)Serial.printf("\t(%d, %d, %d, %d)\n", x, y, width, 1);
       } else {
         tft.writeRect(0, yt, width, 1, ppixLine - x);
-        Serial.printf("\t(%d, %d, %d, %d ++)\n", 0, y, width, 1);
+        if (g_debug_output)Serial.printf("\t(%d, %d, %d, %d ++)\n", 0, y, width, 1);
       }
       ppixLine += cx;
     }
@@ -449,7 +544,7 @@ void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels)
 #endif
 
 int JPEGDraw(JPEGDRAW *pDraw) {
-  Serial.printf("jpeg draw: x,y=%d,%d, cx,cy = %d,%d\n",
+  if (g_debug_output) Serial.printf("jpeg draw: x,y=%d,%d, cx,cy = %d,%d\n",
      pDraw->x, pDraw->y, pDraw->iWidth, pDraw->iHeight);
 
   writeClippedRect(pDraw->x, pDraw->y, pDraw->iWidth, pDraw->iHeight, pDraw->pPixels);
