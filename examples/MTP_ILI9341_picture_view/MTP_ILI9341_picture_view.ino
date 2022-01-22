@@ -86,8 +86,15 @@ int g_JPGScale = 0;
 int g_center_image = 0;
 int g_display_image_time = 2500;
 
-int16_t image_offset_x = 0;
-int16_t image_offset_y = 0;
+// scale boundaries {2, 4, 8, 16<maybe>}
+enum {SCL_HALF=0, SCL_QUARTER, SCL_EIGHTH, SCL_16TH};
+int g_jpg_scale_x_above[] = {(320*3)/2, 320*3, 320*6, 320 * 12};
+int g_jpg_scale_y_above[] = {(240*3)/2, 240*3, 240*6, 240 * 12};
+
+int image_offset_x = 0;
+int image_offset_y = 0;
+
+
 
 //****************************************************************************
 // Setup
@@ -236,6 +243,14 @@ typedef struct {
 static const PROGMEM key_name_value_t keyNameValues[] = {
   {"debug", &g_debug_output},
   {"JPGScale", &g_JPGScale},
+  {"JPGXAbove2", &g_jpg_scale_x_above[SCL_HALF]},
+  {"JPGXAbove4", &g_jpg_scale_x_above[SCL_QUARTER]},
+  {"JPGXAbove8", &g_jpg_scale_x_above[SCL_EIGHTH]},
+  {"JPGXAbove16", &g_jpg_scale_x_above[SCL_16TH]},
+  {"JPGYAbove2", &g_jpg_scale_y_above[SCL_HALF]},
+  {"JPGYAbove4", &g_jpg_scale_y_above[SCL_QUARTER]},
+  {"JPGYAbove8", &g_jpg_scale_y_above[SCL_EIGHTH]},
+  {"JPGYAbove16", &g_jpg_scale_y_above[SCL_16TH]},
   {"Center", &g_center_image},
   {"ImageTimeMS", &g_display_image_time}
 };
@@ -496,13 +511,16 @@ void processJPGFile(const char *name, bool fErase)
       case 8: scale = 8; decode_options=JPEG_SCALE_EIGHTH; break;
       default: 
       {
-        if ((image_width > ((int)tft.width() * 8 )) || (image_height > ((int)tft.height() * 8 ))) {
+        if ((image_width > g_jpg_scale_x_above[SCL_16TH]) || (image_height >  g_jpg_scale_y_above[SCL_16TH])) {
+          decode_options = JPEG_SCALE_EIGHTH | JPEG_SCALE_HALF;
+          scale = 16;
+        } else if ((image_width > g_jpg_scale_x_above[SCL_EIGHTH]) || (image_height >  g_jpg_scale_y_above[SCL_EIGHTH])) {
           decode_options = JPEG_SCALE_EIGHTH;
           scale = 8;
-        } else if ((image_width > ((int)tft.width() * 4 )) || (image_height > ((int)tft.height() * 4 ))) {
+        } else if ((image_width > g_jpg_scale_x_above[SCL_QUARTER]) || (image_height >  g_jpg_scale_y_above[SCL_QUARTER])) {
           decode_options = JPEG_SCALE_QUARTER;
           scale = 4;
-        } else if ((image_width > ((int)tft.width() * 2 )) || (image_height > ((int)tft.height() * 2 ))) {
+        } else if ((image_width > g_jpg_scale_x_above[SCL_HALF]) || (image_height >  g_jpg_scale_y_above[SCL_HALF])) {
           decode_options = JPEG_SCALE_HALF;
           scale = 2;
         }        
