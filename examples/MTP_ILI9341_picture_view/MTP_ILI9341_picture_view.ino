@@ -19,7 +19,7 @@
 // PNGdec - https://github.com/bitbank2/PNGdec (also on arduino library manager)
 
 // optional support for ILI9341_t3n - that adds additional features
-//#include <ILI9341_t3n.h>
+#include <ILI9341_t3n.h>
 
 // If ILI9341_t3n is not included include ILI9341_t3 which is installed by Teensyduino
 #ifndef  _ILI9341_t3NH_
@@ -81,9 +81,13 @@ elapsedMillis emDisplayed;
 
 // Options file information
 static const PROGMEM char options_file_name[] = "PictureViewOptions.ini";
-bool g_debug_output = false;
+int g_debug_output = 0;
 int g_JPGScale = 0;
 int g_center_image = 0;
+int g_display_image_time = 2500;
+
+int16_t image_offset_x = 0;
+int16_t image_offset_y = 0;
 
 //****************************************************************************
 // Setup
@@ -126,7 +130,7 @@ void setup(void) {
   rootFile = SD.open("/");
 
   Serial.println("OK!");
-  emDisplayed = DISPLAY_IMAGES_TIME; 
+  emDisplayed = g_display_image_time; 
 
   File optionsFile = SD.open(options_file_name);
   if (optionsFile) {
@@ -148,7 +152,7 @@ void loop() {
   ProcessTouchScreen();
   #endif
   // don't process unless time elapsed or fast_mode 
-  if (!fast_mode && (emDisplayed < DISPLAY_IMAGES_TIME)) return; 
+  if (!fast_mode && (emDisplayed < (uint32_t)g_display_image_time)) return; 
   bool did_rewind = false;
   const char *name = nullptr;
   uint8_t name_len;
@@ -223,6 +227,18 @@ void loop() {
 // This is a real simple parser x=y where x is string y is int... 
 //=============================================================================
 DateTimeFields g_dtf_optFileLast = {99}; // not valid so change first time...
+#define MAX_KEY_NAME 20
+typedef struct {
+  const char key_name[MAX_KEY_NAME];
+  int *key_value_addr;
+} key_name_value_t;
+
+static const PROGMEM key_name_value_t keyNameValues[] = {
+  {"debug", &g_debug_output},
+  {"JPGScale", &g_JPGScale},
+  {"Center", &g_center_image},
+  {"ImageTimeMS", &g_display_image_time}
+};
 
 bool ReadOptionsLine(File &optFile, char *key_name, uint8_t sizeof_key, int &key_value) {
   int ch;
@@ -265,7 +281,7 @@ bool ReadOptionsLine(File &optFile, char *key_name, uint8_t sizeof_key, int &key
 bool ProcessOptionsFile(File &optfile) {
   DateTimeFields dtf;
   int key_value;
-  char key_name[32];
+  char key_name[20];
   if (!optfile) return false;
   if (!optfile.getModifyTime(dtf)) return false; 
   if (memcmp(&dtf, &g_dtf_optFileLast, sizeof(dtf)) == 0) return false; 
@@ -274,18 +290,18 @@ bool ProcessOptionsFile(File &optfile) {
       dtf.mon + 1, dtf.mday, dtf.year + 1900, dtf.hour, dtf.min );
 
   // do simple scan through file
+  bool found = false;
   while (ReadOptionsLine(optfile, key_name, sizeof(key_name), key_value)) {
-    Serial.printf("\t>>%s=%d\n", key_name, key_value);
-    if (stricmp(key_name, "debug") == 0) {
-      g_debug_output = key_value;
-      Serial.printf("\tDebug set to: %d\n", g_debug_output);
-    } else if (stricmp(key_name, "JPGScale") == 0) {
-      g_JPGScale = key_value;
-      Serial.printf("\tJPG Scale: %d\n", g_JPGScale);
-    } else if (stricmp(key_name, "Center") == 0) {
-      g_center_image = key_value;
-      Serial.printf("\tCenter Image: %d\n", g_center_image);
+    Serial.printf("\t>>%s=%d", key_name, key_value);
+    for (uint8_t key_index = 0; key_index < (sizeof(keyNameValues)/sizeof(keyNameValues[0])); key_index++) {
+      if (stricmp(key_name, keyNameValues[key_index].key_name) == 0) {
+        Serial.printf(" was: %d\n", *(keyNameValues[key_index].key_value_addr));
+        *(keyNameValues[key_index].key_value_addr) = key_value;
+        found = true;
+        break;
+      }
     }
+    if (!found)Serial.println(" ** Unknown Key **");
   }
 
   return true;
@@ -460,6 +476,7 @@ void myClose(void *handle) {
 #ifdef __JPEGDEC__
 JPEGDEC jpeg;
 
+
 void processJPGFile(const char *name, bool fErase)
 {
   Serial.println();
@@ -496,6 +513,15 @@ void processJPGFile(const char *name, bool fErase)
       tft.fillScreen(ILI9341_BLACK);
     }
 
+    if (g_center_image) {
+      image_offset_x = (tft.width() - image_width/scale) / 2;
+      image_offset_y = (tft.height() - image_height/scale) / 2;
+      Serial.printf("\tImage Offsets (%d, %d)\n", image_offset_x, image_offset_y);
+    } else {
+      image_offset_x = 0;
+      image_offset_y = 0;
+    }
+
     jpeg.decode(0, 0, decode_options);
     jpeg.close();
   } else {
@@ -515,17 +541,23 @@ int32_t mySeekJPG(JPEGFILE *handle, int32_t position) {
 // Function to draw pixels to the display
 #ifdef  _ILI9341_t3NH_
 inline void writeClippedRect(int16_t x, int16_t y, int16_t cx, int16_t cy, uint16_t *pixels) {
-  tft.writeRect(x, y, cx, cy, pixels);
+  tft.writeRect(x + image_offset_x, y + image_offset_y, cx, cy, pixels);
 }
 #else
 void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels) 
 {
-  if ((x >= 0) && (y >= 0) && ((x + cx) <= tft.width()) && ((y + cy) <= tft.height())) {
+  x += image_offset_x;
+  y += image_offset_y;
+  int end_x = x + cx;
+  int end_y = y + cy;
+
+  if ((x >= 0) && (y >= 0) && (end_x <= tft.width()) && (end_y <= tft.height())) {
     tft.writeRect(x, y, cx, cy, pixels);
     if (g_debug_output) Serial.printf("\t(%d, %d, %d, %d)\n", x, y, cx, cy);
   } else {
     int width = cx;
-    if ((x + width) > tft.width()) width = tft.width() - x; 
+    if (end_x > tft.width()) width -= (end_x - tft.width()); 
+    if (x < 0) width += x; 
     uint16_t *ppixLine = pixels;
     for (int yt = y; yt < (y + cy); yt++) {
       if (yt < 0) continue;
@@ -575,6 +607,14 @@ void processPNGFile(const char *name, bool fErase)
       tft.fillScreen(ILI9341_BLACK);
     }
 
+    if (g_center_image) {
+      image_offset_x = (tft.width() - png.getWidth()) / 2;
+      image_offset_y = (tft.height() - png.getHeight()) / 2;
+      Serial.printf("\tImage Offsets (%d, %d)\n", image_offset_x, image_offset_y);
+    } else {
+      image_offset_x = 0;
+      image_offset_y = 0;
+    }
 
     if (usPixels) {
       rc = png.decode(NULL, 0);
