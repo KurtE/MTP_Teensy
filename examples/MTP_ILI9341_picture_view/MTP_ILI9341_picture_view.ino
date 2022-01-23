@@ -82,7 +82,9 @@ elapsedMillis emDisplayed;
 // Options file information
 static const PROGMEM char options_file_name[] = "PictureViewOptions.ini";
 int g_debug_output = 0;
+int g_stepMode = 0;
 int g_JPGScale = 0;
+int g_PNGScale = 0;
 int g_center_image = 0;
 int g_display_image_time = 2500;
 
@@ -144,6 +146,7 @@ void setup(void) {
     ProcessOptionsFile(optionsFile);
     optionsFile.close();
   }
+  ShowAllOptionValues();
 
 #ifdef  _ILI9341_t3NH_
   tft.useFrameBuffer(true);
@@ -159,7 +162,7 @@ void loop() {
   ProcessTouchScreen();
   #endif
   // don't process unless time elapsed or fast_mode 
-  if (!fast_mode && (emDisplayed < (uint32_t)g_display_image_time)) return; 
+  if (!fast_mode && !g_stepMode && (emDisplayed < (uint32_t)g_display_image_time)) return; 
   bool did_rewind = false;
   const char *name = nullptr;
   uint8_t name_len;
@@ -216,12 +219,20 @@ void loop() {
   #ifdef  _ILI9341_t3NH_
   tft.updateScreen();
   #endif
-  if (Serial.available()) {
+  if (g_stepMode) {
+    int ch;
+    Serial.printf("Step Mode: enter anything to continue");
+    while((ch = Serial.read()) == -1) MTP.loop();  // in case at startup...
+    if (ch == 'd') g_debug_output = !g_debug_output;
+    if (ch == 's') g_stepMode = !g_stepMode;
+    while(Serial.read() != -1) ;
+  } else if (Serial.available()) {
     int ch;
     while(Serial.read() != -1) ;
     Serial.printf("Paused: enter anything to continue");
-    while((ch = Serial.read()) == -1) ;
+    while((ch = Serial.read()) == -1) MTP.loop();
     if (ch == 'd') g_debug_output = !g_debug_output;
+    if (ch == 's') g_stepMode = !g_stepMode;
     while(Serial.read() != -1) ;
 
   }
@@ -242,15 +253,17 @@ typedef struct {
 
 static const PROGMEM key_name_value_t keyNameValues[] = {
   {"debug", &g_debug_output},
+  {"Step", &g_stepMode},
   {"JPGScale", &g_JPGScale},
-  {"JPGXAbove2", &g_jpg_scale_x_above[SCL_HALF]},
-  {"JPGXAbove4", &g_jpg_scale_x_above[SCL_QUARTER]},
-  {"JPGXAbove8", &g_jpg_scale_x_above[SCL_EIGHTH]},
-  {"JPGXAbove16", &g_jpg_scale_x_above[SCL_16TH]},
-  {"JPGYAbove2", &g_jpg_scale_y_above[SCL_HALF]},
-  {"JPGYAbove4", &g_jpg_scale_y_above[SCL_QUARTER]},
-  {"JPGYAbove8", &g_jpg_scale_y_above[SCL_EIGHTH]},
-  {"JPGYAbove16", &g_jpg_scale_y_above[SCL_16TH]},
+  {"PNGScale", &g_PNGScale},
+  {"ScaleXAbove2", &g_jpg_scale_x_above[SCL_HALF]},
+  {"ScaleXAbove4", &g_jpg_scale_x_above[SCL_QUARTER]},
+  {"ScaleXAbove8", &g_jpg_scale_x_above[SCL_EIGHTH]},
+  {"ScaleXAbove16", &g_jpg_scale_x_above[SCL_16TH]},
+  {"ScaleYAbove2", &g_jpg_scale_y_above[SCL_HALF]},
+  {"ScaleYAbove4", &g_jpg_scale_y_above[SCL_QUARTER]},
+  {"ScaleYAbove8", &g_jpg_scale_y_above[SCL_EIGHTH]},
+  {"ScaleYAbove16", &g_jpg_scale_y_above[SCL_16TH]},
   {"Center", &g_center_image},
   {"ImageTimeMS", &g_display_image_time}
 };
@@ -321,6 +334,18 @@ bool ProcessOptionsFile(File &optfile) {
 
   return true;
 }
+
+void ShowAllOptionValues() {
+  Serial.println("\n----------------------------------");
+  Serial.printf("Sketch uses Option file: %s at the root of SD Card\n", options_file_name);
+  Serial.println("\t<All key names>=<current key value");
+  for (uint8_t key_index = 0; key_index < (sizeof(keyNameValues)/sizeof(keyNameValues[0])); key_index++) {
+    Serial.printf("\t%s=%d\n", keyNameValues[key_index].key_name,*(keyNameValues[key_index].key_value_addr));
+  }
+  Serial.println("----------------------------------\n");
+}
+
+
 
 //=============================================================================
 // BMP support 
@@ -485,6 +510,47 @@ void myClose(void *handle) {
 #endif
 
 //=============================================================================
+// TFT Helper functions to work on ILI9341_t3
+// which doe snot have offset/clipping support
+//=============================================================================
+
+#ifdef  _ILI9341_t3NH_
+inline void writeClippedRect(int16_t x, int16_t y, int16_t cx, int16_t cy, uint16_t *pixels) {
+  tft.writeRect(x + image_offset_x, y + image_offset_y, cx, cy, pixels);
+}
+#else
+void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels) 
+{
+  x += image_offset_x;
+  y += image_offset_y;
+  int end_x = x + cx;
+  int end_y = y + cy;
+
+  if ((x >= 0) && (y >= 0) && (end_x <= tft.width()) && (end_y <= tft.height())) {
+    tft.writeRect(x, y, cx, cy, pixels);
+    if (g_debug_output) Serial.printf("\t(%d, %d, %d, %d)\n", x, y, cx, cy);
+  } else {
+    int width = cx;
+    if (end_x > tft.width()) width -= (end_x - tft.width()); 
+    if (x < 0) width += x; 
+    uint16_t *ppixLine = pixels;
+    for (int yt = y; yt < (y + cy); yt++) {
+      if (yt < 0) continue;
+      if (yt >= tft.height()) break;
+      if (x >=0) {
+        tft.writeRect(x, yt, width, 1, ppixLine);
+        if (g_debug_output)Serial.printf("\t(%d, %d, %d, %d)\n", x, y, width, 1);
+      } else {
+        tft.writeRect(0, yt, width, 1, ppixLine - x);
+        if (g_debug_output)Serial.printf("\t(%d, %d, %d, %d ++)\n", 0, y, width, 1);
+      }
+      ppixLine += cx;
+    }
+  }  
+} 
+#endif
+
+//=============================================================================
 // JPeg support 
 //=============================================================================
 //used for jpeg files primarily
@@ -556,42 +622,6 @@ int32_t mySeekJPG(JPEGFILE *handle, int32_t position) {
   if (!myfile) return 0;
   return myfile.seek(position);
 }
-// Function to draw pixels to the display
-#ifdef  _ILI9341_t3NH_
-inline void writeClippedRect(int16_t x, int16_t y, int16_t cx, int16_t cy, uint16_t *pixels) {
-  tft.writeRect(x + image_offset_x, y + image_offset_y, cx, cy, pixels);
-}
-#else
-void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels) 
-{
-  x += image_offset_x;
-  y += image_offset_y;
-  int end_x = x + cx;
-  int end_y = y + cy;
-
-  if ((x >= 0) && (y >= 0) && (end_x <= tft.width()) && (end_y <= tft.height())) {
-    tft.writeRect(x, y, cx, cy, pixels);
-    if (g_debug_output) Serial.printf("\t(%d, %d, %d, %d)\n", x, y, cx, cy);
-  } else {
-    int width = cx;
-    if (end_x > tft.width()) width -= (end_x - tft.width()); 
-    if (x < 0) width += x; 
-    uint16_t *ppixLine = pixels;
-    for (int yt = y; yt < (y + cy); yt++) {
-      if (yt < 0) continue;
-      if (yt >= tft.height()) break;
-      if (x >=0) {
-        tft.writeRect(x, yt, width, 1, ppixLine);
-        if (g_debug_output)Serial.printf("\t(%d, %d, %d, %d)\n", x, y, width, 1);
-      } else {
-        tft.writeRect(0, yt, width, 1, ppixLine - x);
-        if (g_debug_output)Serial.printf("\t(%d, %d, %d, %d ++)\n", 0, y, width, 1);
-      }
-      ppixLine += cx;
-    }
-  }  
-} 
-#endif
 
 int JPEGDraw(JPEGDRAW *pDraw) {
   if (g_debug_output) Serial.printf("jpeg draw: x,y=%d,%d, cx,cy = %d,%d\n",
@@ -609,6 +639,9 @@ int JPEGDraw(JPEGDRAW *pDraw) {
 #ifdef __PNGDEC__
 PNG png;
 uint16_t *usPixels = nullptr;  //may have to incresse this based on the max x-valid of your image.
+uint16_t pngWidth;
+uint8_t pngScale = 1;
+
 void processPNGFile(const char *name, bool fErase)
 {
   int rc;  
@@ -619,21 +652,43 @@ void processPNGFile(const char *name, bool fErase)
   Serial.println('\'');
   rc = png.open((const char *)name, myOpen, myClose, myReadPNG, mySeekPNG, PNGDraw);
   if (rc == PNG_SUCCESS) {
-    usPixels = (uint16_t*)malloc(png.getWidth() * 2);
-    Serial.printf("image specs: (%d x %d), %d bpp, pixel type: %d\n", png.getWidth(), png.getHeight(), png.getBpp(), png.getPixelType());
-    if (fErase && ((png.getWidth() < tft.width()) || (png.getHeight() < tft.height()))) {
+    int image_width = png.getWidth();
+    int image_height = png.getHeight();
+    Serial.printf("image specs: (%d x %d), %d bpp, pixel type: %d\n", image_width, image_height, png.getBpp(), png.getPixelType());
+    switch(g_PNGScale) {
+      case 1: pngScale = 1; break;
+      case 2: pngScale = 2; break;
+      case 4: pngScale = 4; break;
+      case 8: pngScale = 8; break;
+      default: 
+      {
+        if ((image_width > g_jpg_scale_x_above[SCL_16TH]) || (image_height >  g_jpg_scale_y_above[SCL_16TH])) {
+          pngScale = 16;
+        } else if ((image_width > g_jpg_scale_x_above[SCL_EIGHTH]) || (image_height >  g_jpg_scale_y_above[SCL_EIGHTH])) {
+          pngScale = 8;
+        } else if ((image_width > g_jpg_scale_x_above[SCL_QUARTER]) || (image_height >  g_jpg_scale_y_above[SCL_QUARTER])) {
+          pngScale = 4;
+        } else if ((image_width > g_jpg_scale_x_above[SCL_HALF]) || (image_height >  g_jpg_scale_y_above[SCL_HALF])) {
+          pngScale = 2;
+        }        
+      }
+    }
+    Serial.printf("Scale: 1/%d\n", pngScale);
+
+    if (fErase && (((image_width/pngScale) < tft.width()) || ((image_height/pngScale) < image_height))) {
       tft.fillScreen(ILI9341_BLACK);
     }
 
     if (g_center_image) {
-      image_offset_x = (tft.width() - png.getWidth()) / 2;
-      image_offset_y = (tft.height() - png.getHeight()) / 2;
+      image_offset_x = (tft.width() - (png.getWidth() / pngScale)) / 2;
+      image_offset_y = (tft.height() - (png.getHeight() / pngScale)) / 2;
       Serial.printf("\tImage Offsets (%d, %d)\n", image_offset_x, image_offset_y);
     } else {
       image_offset_x = 0;
       image_offset_y = 0;
     }
 
+    usPixels = (uint16_t*)malloc(png.getWidth() * pngScale * sizeof(uint16_t));
     if (usPixels) {
       rc = png.decode(NULL, 0);
       png.close();
@@ -655,8 +710,35 @@ int32_t mySeekPNG(PNGFILE *handle, int32_t position) {
 
 // Function to draw pixels to the display
 void PNGDraw(PNGDRAW *pDraw) {
-  png.getLineAsRGB565(pDraw, usPixels, PNG_RGB565_LITTLE_ENDIAN, 0xffffffff);
-  writeClippedRect(0,  pDraw->y + 24, pDraw->iWidth, 1, usPixels);
+  if(pngScale == 1) {
+    png.getLineAsRGB565(pDraw, usPixels, PNG_RGB565_LITTLE_ENDIAN, 0xffffffff);
+    writeClippedRect(0, pDraw->y, pDraw->iWidth, 1, usPixels);
+  } else if( pngScale > 1) {
+    // read it directly into proper row location...
+    // bugbug does not handle all the pixels if not multiple of pngScale...
+    uint16_t *pusRow = usPixels + pngWidth * (pDraw->y % pngScale);  
+    png.getLineAsRGB565(pDraw, pusRow, PNG_RGB565_LITTLE_ENDIAN, 0xffffffff);
+
+    if ((pDraw->y % pngScale) == (pngScale -1)) {
+      uint16_t newx = 0;
+      for(uint16_t pix_cnt=0; pix_cnt < pDraw->iWidth; pix_cnt += pngScale) {
+        uint8_t red = 0; uint8_t green = 0; uint8_t blue = 0;
+        float r =0; float g = 0; float b = 0;
+        for (uint8_t i = 0; i < pngScale; i++) {
+          for (uint8_t j = 0; j < pngScale; j++) {
+            tft.color565toRGB(usPixels[pix_cnt + i + (j*pngWidth)], red, green, blue); 
+            // Sum the squares of components instead 
+            r += red * red;
+            g += green * green;
+            b += blue * blue;
+          }
+        }
+        // overwrite the start of our buffer with 
+        usPixels[newx++] = tft.color565((uint8_t) sqrt(r/(pngScale*pngScale)), (uint8_t)sqrt(g/(pngScale*pngScale)), (uint8_t)sqrt(b/(pngScale*pngScale)));
+      }
+      writeClippedRect(0, pDraw->y/pngScale, pDraw->iWidth/pngScale, 1, usPixels);
+    }
+  }
 }
 
 #endif
