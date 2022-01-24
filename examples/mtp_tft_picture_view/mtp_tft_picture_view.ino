@@ -102,6 +102,7 @@ int g_JPGScale = 0;
 int g_PNGScale = -1;
 int g_center_image = 0;
 int g_display_image_time = 2500;
+int g_background_color = BLACK;
 
 
 // scale boundaries {2, 4, 8, 16<maybe>}
@@ -213,7 +214,7 @@ void loop() {
     if (stricmp(name, options_file_name) == 0) ProcessOptionsFile(imageFile);
     if ( bmp_file || jpg_file || png_file) break;
   }
-//  tft.fillScreen(BLACK);
+//  tft.fillScreen((uint16_t)g_background_color);
   if (imageFile && bmp_file) {
     bmpDraw(imageFile, imageFile.name(), true);
 
@@ -270,6 +271,7 @@ typedef struct {
 } key_name_value_t;
 
 static const PROGMEM key_name_value_t keyNameValues[] = {
+  {"Background", &g_background_color},
   {"debug", &g_debug_output},
   {"Step", &g_stepMode},
   {"BMPScale", &g_BMPScale},
@@ -321,6 +323,19 @@ bool ReadOptionsLine(File &optFile, char *key_name, uint8_t sizeof_key, int &key
   }
   // should probably check for other stuff, but...
   key_value *= sign_value;
+
+  // total hacky but allow hex value
+  if ((key_value == 0) && ((ch=='x') || (ch=='X'))) {
+    ch = optFile.read();  
+    for(;;) {
+      if ((ch >= '0') && (ch <= '9'))key_value = key_value * 16 + ch - '0';
+      else if ((ch >= 'a') && (ch <= 'f'))key_value = key_value * 16 + 10 + ch - 'a';
+      else if ((ch >= 'A') && (ch <= 'F'))key_value = key_value * 16 + 10 + ch - 'A';
+      else break;
+      ch = optFile.read();  
+    }    
+  } 
+  
   return true;
 }
 
@@ -461,7 +476,7 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
         }
 
         if (fErase && (((image_width/g_image_scale) < tft.width()) || ((image_height/g_image_scale) < image_height))) {
-          tft.fillScreen(BLACK);
+          tft.fillScreen((uint16_t)g_background_color);
         }
 
         // now we will allocate large buffer for SCALE*width
@@ -662,7 +677,7 @@ void processJPGFile(const char *name, bool fErase)
     }
     Serial.printf("Scale: 1/%d\n", scale);
     if (fErase && ((image_width/scale < tft.width()) || (image_height/scale < tft.height()))) {
-      tft.fillScreen(BLACK);
+      tft.fillScreen((uint16_t)g_background_color);
     }
 
     if (g_center_image) {
@@ -742,7 +757,7 @@ void processPNGFile(const char *name, bool fErase)
     Serial.printf("Scale: 1/%d\n", g_image_scale);
 
     if (fErase && (((image_width/g_image_scale) < tft.width()) || ((image_height/g_image_scale) < image_height))) {
-      tft.fillScreen(BLACK);
+      tft.fillScreen((uint16_t)g_background_color);
     }
 
     if (g_center_image) {
