@@ -22,9 +22,12 @@
 #include <ILI9341_t3n.h>
 // optional support for ILI9488_t3 - that adds additional features
 //#include <ILI9488_t3.h>
+//Optional support for ST7735/ST7789 graphic dislplays
+//#include <ST7735_t3.h> // Hardware-specific library
+//#include <ST7789_t3.h> // Hardware-specific library
 
 // If ILI9341_t3n is not included include ILI9341_t3 which is installed by Teensyduino
-#if !defined(_ILI9341_t3NH_) && !defined(_ILI9488_t3H_)
+#if !defined(_ILI9341_t3NH_) && !defined(_ILI9488_t3H_) && !defined(__ST7735_t3_H_)
 #include <ILI9341_t3.h>
 #endif
 
@@ -70,11 +73,44 @@ ILI9488_t3 tft = ILI9488_t3(&SPI, TFT_CS, TFT_DC, TFT_RST);
 #define SCREEN_WIDTH ILI9488_TFTHEIGHT
 #define SCREEN_HEIGHT ILI9488_TFTWIDTH
 #undef TOUCH_CS // may need additional support to work...
+#elif defined(__ST7735_t3_H_) || defined(__ST7789_t3_H_)
+// Option 1: use any pins but a little slower
+// Note: code will detect if specified pins are the hardware SPI pins
+//       and will use hardware SPI if appropriate
+// For 1.44" and 1.8" TFT with ST7735 use
+//ST7789_t3 tft = ST7789_t3(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCK, TFT_RST);
+
+// For 1.54" or other TFT with ST7789, This has worked with some ST7789
+// displays without CS pins, for those you can pass in -1 or 0xff for CS
+// More notes by the tft.init call
+//ST7789_t3 tft = ST7789_t3(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK, TFT_RST);
+
+// Option 2: must use the hardware SPI pins
+// (for UNO thats sclk = 13 and sid = 11) and pin 10 must be
+// an output. This is much faster - also required if you want
+// to use the microSD card (see the image drawing example)
+// For 1.44" and 1.8" TFT with ST7735 use
+//ST7735_t3 tft = ST7735_t3(TFT_CS, TFT_DC, TFT_RST);
+
+// For 1.54" TFT with ST7789
+ST7789_t3 tft = ST7789_t3(TFT_CS,  TFT_DC, TFT_RST);
+
+// If you are intializing to custom display resolutions
+#define SCREEN_HEIGHT   240
+#define SCREEN_WIDTH    320
+// Uncomment appropriate defines for your display
+//#define SCREEN_HEIGHT ST7735_TFTWIDTH
+//#define SCREEN_HEIGHT ST7735_TFTWIDTH_80 // for mini
+// for 1.44" display
+//#define SCREEN_WIDTH_TFTHEIGHT_144
+// for 1.8" display and mini
+//#define SCREEN_WIDTH_TFTHEIGHT_160 // for 1.8" and mini display
 #else
 ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC, TFT_RST);
 #define SCREEN_WIDTH ILI9341_TFTHEIGHT
 #define SCREEN_HEIGHT ILI9341_TFTWIDTH
 #endif
+
 
 #define BLUE  0x001F
 #define BLACK 0x0000
@@ -99,7 +135,7 @@ int g_debug_output = 0;
 int g_stepMode = 0;
 int g_BMPScale = -1;
 int g_JPGScale = 0;
-int g_PNGScale = -1;
+int g_PNGScale = 0;
 int g_center_image = 0;
 int g_display_image_time = 2500;
 int g_background_color = BLACK;
@@ -133,7 +169,33 @@ void setup(void) {
   !ts.begin();
   #endif
 
+#if defined(__ST7735_t3_H) || defined(__ST7789_t3_H_)
+  // Use this initializer if you're using a 1.8" TFT 128x160 displays
+  //tft.initR(INITR_BLACKTAB);
+
+  // Or use this initializer (uncomment) if you're using a 1.44" TFT (128x128)
+  //tft.initR(INITR_144GREENTAB);
+
+  // Or use this initializer (uncomment) if you're using a .96" TFT(160x80)
+  //tft.initR(INITR_MINI160x80);
+
+  // Or use this initializer (uncomment) for Some 1.44" displays use different memory offsets
+  // Try it if yours is not working properly
+  // May need to tweek the offsets
+  //tft.setRowColStart(32,0);
+
+  // Or use this initializer (uncomment) if you're using a 1.54" 240x240 TFT
+  //tft.init(240, 240);   // initialize a ST7789 chip, 240x240 pixels
+
+  // OR use this initializer (uncomment) if using a 2.0" 320x240 TFT:
+  tft.init(240, 320);           // Init ST7789 320x240
+
+  // OR use this initializer (uncomment) if using a 240x240 clone 
+  // that does not have a CS pin2.0" 320x240 TFT:
+  //tft.init(240, 240, SPI_MODE2);           // Init ST7789 240x240 no CS
+#else
   tft.begin();
+#endif
   tft.fillScreen(BLUE);
 
   //Serial.print(F("Initializing SD card..."));
@@ -511,7 +573,11 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
               b = sdbuffer[buffidx++];
               g = sdbuffer[buffidx++];
               r = sdbuffer[buffidx++];
-              pusRow[col] = tft.color565(r,g,b);
+              #if defined(__ST7735_t3_H_) || defined(__ST7789_t3_H_)
+          pusRow[col] = tft.Color565(r,g,b);
+        #else
+        pusRow[col] = tft.color565(r,g,b);
+        #endif
             } // end pixel
             if (g_image_scale == 1) {
               writeClippedRect(0, row, image_width, 1, pusRow);
@@ -572,7 +638,7 @@ void myClose(void *handle) {
 // which doe snot have offset/clipping support
 //=============================================================================
 
-#ifdef  _ILI9341_t3NH_
+#if  defined(_ILI9341_t3NH_) || defined(_ILI9488_t3H_) || defined(__ST7735_t3_H) || defined(__ST7789_t3_H_)
 inline void writeClippedRect(int16_t x, int16_t y, int16_t cx, int16_t cy, uint16_t *pixels) {
   tft.writeRect(x + g_image_offset_x, y + g_image_offset_y, cx, cy, pixels);
 }
@@ -608,6 +674,15 @@ void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels)
 } 
 #endif
 
+#if defined(__ST7735_t3_H_) || defined(__ST7789_t3_H_)
+  //color565toRGB   - converts 565 format 16 bit color to RGB
+  void Color565toRGB(uint16_t color, uint8_t &r, uint8_t &g, uint8_t &b) {
+    r = (color>>8)&0x00F8;
+    g = (color>>3)&0x00FC;
+    b = (color<<3)&0x00F8;
+  }
+#endif
+
 // Function to draw pixels to the display
 void ScaleWriteClippedRect(int row, int image_width, uint16_t *usPixels) {
   // this methos assumes you are writing the data into the proper spots in Image_width*CLIP_LINES rectangle
@@ -618,7 +693,11 @@ void ScaleWriteClippedRect(int row, int image_width, uint16_t *usPixels) {
       float r =0; float g = 0; float b = 0;
       for (uint8_t i = 0; i < g_image_scale; i++) {
         for (uint8_t j = 0; j < g_image_scale; j++) {
-          tft.color565toRGB(usPixels[pix_cnt + i + (j*image_width)], red, green, blue); 
+        #if defined(__ST7735_t3_H_) || defined(__ST7789_t3_H_)
+          Color565toRGB(usPixels[pix_cnt + i + (j*image_width)], red, green, blue);
+        #else 
+          tft.color565toRGB(usPixels[pix_cnt + i + (j*image_width)], red, green, blue);
+        #endif
           // Sum the squares of components instead 
           r += red * red;
           g += green * green;
@@ -626,7 +705,11 @@ void ScaleWriteClippedRect(int row, int image_width, uint16_t *usPixels) {
         }
       }
       // overwrite the start of our buffer with 
-      usPixels[newx++] = tft.color565((uint8_t) sqrt(r/(g_image_scale*g_image_scale)), (uint8_t)sqrt(g/(g_image_scale*g_image_scale)), (uint8_t)sqrt(b/(g_image_scale*g_image_scale)));
+      #if defined(__ST7735_t3_H_) || defined(__ST7789_t3_H_)
+        usPixels[newx++] = tft.Color565((uint8_t) sqrt(r/(g_image_scale*g_image_scale)), (uint8_t)sqrt(g/(g_image_scale*g_image_scale)), (uint8_t)sqrt(b/(g_image_scale*g_image_scale)));
+      #else
+        usPixels[newx++] = tft.color565((uint8_t) sqrt(r/(g_image_scale*g_image_scale)), (uint8_t)sqrt(g/(g_image_scale*g_image_scale)), (uint8_t)sqrt(b/(g_image_scale*g_image_scale)));
+      #endif
     }
     writeClippedRect(0, row/g_image_scale, image_width/g_image_scale, 1, usPixels);
   }
