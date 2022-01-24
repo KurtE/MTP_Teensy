@@ -655,23 +655,24 @@ void processPNGFile(const char *name, bool fErase)
     int image_width = png.getWidth();
     int image_height = png.getHeight();
     Serial.printf("image specs: (%d x %d), %d bpp, pixel type: %d\n", image_width, image_height, png.getBpp(), png.getPixelType());
-    switch(g_PNGScale) {
-      case 1: pngScale = 1; break;
-      case 2: pngScale = 2; break;
-      case 4: pngScale = 4; break;
-      case 8: pngScale = 8; break;
-      default: 
-      {
-        if ((image_width > g_jpg_scale_x_above[SCL_16TH]) || (image_height >  g_jpg_scale_y_above[SCL_16TH])) {
-          pngScale = 16;
-        } else if ((image_width > g_jpg_scale_x_above[SCL_EIGHTH]) || (image_height >  g_jpg_scale_y_above[SCL_EIGHTH])) {
-          pngScale = 8;
-        } else if ((image_width > g_jpg_scale_x_above[SCL_QUARTER]) || (image_height >  g_jpg_scale_y_above[SCL_QUARTER])) {
-          pngScale = 4;
-        } else if ((image_width > g_jpg_scale_x_above[SCL_HALF]) || (image_height >  g_jpg_scale_y_above[SCL_HALF])) {
-          pngScale = 2;
-        }        
+    if (g_PNGScale > 0) {
+      pngScale = g_PNGScale; // use what they passed in
+    } else if (g_PNGScale < 0) {
+      if (image_width > tft.width()) pngScale = (image_width + tft.width() - 1) / tft.width();
+      if (image_height > tft.height()) {
+        int yscale = (image_height + tft.height() - 1) / tft.height();
+        if (yscale > pngScale) pngScale = yscale;
       }
+    } else {  
+      if ((image_width > g_jpg_scale_x_above[SCL_16TH]) || (image_height >  g_jpg_scale_y_above[SCL_16TH])) {
+        pngScale = 16;
+      } else if ((image_width > g_jpg_scale_x_above[SCL_EIGHTH]) || (image_height >  g_jpg_scale_y_above[SCL_EIGHTH])) {
+        pngScale = 8;
+      } else if ((image_width > g_jpg_scale_x_above[SCL_QUARTER]) || (image_height >  g_jpg_scale_y_above[SCL_QUARTER])) {
+        pngScale = 4;
+      } else if ((image_width > g_jpg_scale_x_above[SCL_HALF]) || (image_height >  g_jpg_scale_y_above[SCL_HALF])) {
+        pngScale = 2;
+      }        
     }
     Serial.printf("Scale: 1/%d\n", pngScale);
 
