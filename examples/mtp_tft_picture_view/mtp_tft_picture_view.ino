@@ -25,9 +25,12 @@
 //Optional support for ST7735/ST7789 graphic dislplays
 //#include <ST7735_t3.h> // Hardware-specific library
 //#include <ST7789_t3.h> // Hardware-specific library
+//Optional support for RA8875
+//#include <SPI.h>
+//#include <RA8875.h>
 
 // If ILI9341_t3n is not included include ILI9341_t3 which is installed by Teensyduino
-#if !defined(_ILI9341_t3NH_) && !defined(_ILI9488_t3H_) && !defined(__ST7735_t3_H_)
+#if !defined(_ILI9341_t3NH_) && !defined(_ILI9488_t3H_) && !defined(__ST7735_t3_H_)  && !defined(_RA8875MC_H_)
 #include <ILI9341_t3.h>
 #endif
 
@@ -66,12 +69,9 @@
 
 #ifdef  _ILI9341_t3NH_
 ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST);
-#define SCREEN_WIDTH ILI9341_TFTHEIGHT
-#define SCREEN_HEIGHT ILI9341_TFTWIDTH
+
 #elif defined(_ILI9488_t3H_)
 ILI9488_t3 tft = ILI9488_t3(&SPI, TFT_CS, TFT_DC, TFT_RST);
-#define SCREEN_WIDTH ILI9488_TFTHEIGHT
-#define SCREEN_HEIGHT ILI9488_TFTWIDTH
 #undef TOUCH_CS // may need additional support to work...
 #elif defined(__ST7735_t3_H_) || defined(__ST7789_t3_H_)
 // Option 1: use any pins but a little slower
@@ -95,22 +95,18 @@ ILI9488_t3 tft = ILI9488_t3(&SPI, TFT_CS, TFT_DC, TFT_RST);
 // For 1.54" TFT with ST7789
 ST7789_t3 tft = ST7789_t3(TFT_CS,  TFT_DC, TFT_RST);
 
-// If you are intializing to custom display resolutions
-#define SCREEN_HEIGHT   240
-#define SCREEN_WIDTH    320
-// Uncomment appropriate defines for your display
-//#define SCREEN_HEIGHT ST7735_TFTWIDTH
-//#define SCREEN_HEIGHT ST7735_TFTWIDTH_80 // for mini
-// for 1.44" display
 //#define SCREEN_WIDTH_TFTHEIGHT_144
 // for 1.8" display and mini
 //#define SCREEN_WIDTH_TFTHEIGHT_160 // for 1.8" and mini display
+#elif defined(_RA8875MC_H_)
+#undef TFT_RST
+#define TFT_RST 9
+#undef TOUCH_CS // may need additional support to work...
+RA8875 tft = RA8875(TFT_CS, TFT_RST);
+
 #else
 ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC, TFT_RST);
-#define SCREEN_WIDTH ILI9341_TFTHEIGHT
-#define SCREEN_HEIGHT ILI9341_TFTWIDTH
 #endif
-
 
 #define BLUE  0x001F
 #define BLACK 0x0000
@@ -135,7 +131,7 @@ int g_debug_output = 0;
 int g_stepMode = 0;
 int g_BMPScale = -1;
 int g_JPGScale = 0;
-int g_PNGScale = 0;
+int g_PNGScale = -1;
 int g_center_image = 0;
 int g_display_image_time = 2500;
 int g_background_color = BLACK;
@@ -143,13 +139,14 @@ int g_background_color = BLACK;
 
 // scale boundaries {2, 4, 8, 16<maybe>}
 enum {SCL_HALF=0, SCL_QUARTER, SCL_EIGHTH, SCL_16TH};
-int g_jpg_scale_x_above[] = {(SCREEN_WIDTH*3)/2, SCREEN_WIDTH*3, SCREEN_WIDTH*6, SCREEN_WIDTH * 12};
-int g_jpg_scale_y_above[] = {(SCREEN_HEIGHT*3)/2, SCREEN_HEIGHT*3, SCREEN_HEIGHT*6, SCREEN_HEIGHT * 12};
+int g_jpg_scale_x_above[4];
+int g_jpg_scale_y_above[4];
 
 // variables used in some of the display output functions
 int g_image_offset_x = 0;
 int g_image_offset_y = 0;
 uint8_t g_image_scale = 1;
+
 
 
 
@@ -166,7 +163,7 @@ void setup(void) {
   #ifdef TOUCH_CS
   pinMode(TOUCH_CS, OUTPUT); digitalWriteFast(TOUCH_CS, HIGH);
   pinMode(TFT_CS, OUTPUT); digitalWriteFast(TFT_CS, HIGH);
-  !ts.begin();
+  ts.begin();
   #endif
 
 #if defined(__ST7735_t3_H) || defined(__ST7789_t3_H_)
@@ -193,10 +190,28 @@ void setup(void) {
   // OR use this initializer (uncomment) if using a 240x240 clone 
   // that does not have a CS pin2.0" 320x240 TFT:
   //tft.init(240, 240, SPI_MODE2);           // Init ST7789 240x240 no CS
+  tft.setRotation(1);
+ #elif defined(_RA8875MC_H_)
+  //  begin display: Choose from: RA8875_480x272, RA8875_800x480, RA8875_800x480ALT, Adafruit_480x272, Adafruit_800x480
+  tft.begin(RA8875_800x480, 16, 12000000);
+  tft.setRotation(0);
+ 
 #else
   tft.begin();
+  tft.setRotation(1);
 #endif
-  tft.fillScreen(BLUE);
+  FillScreen(BLUE);
+
+  g_jpg_scale_x_above[0] = (tft.width()*3)/2;
+  g_jpg_scale_x_above[1] = tft.width()*3;
+  g_jpg_scale_x_above[2] = tft.width()*6;
+  g_jpg_scale_x_above[3] = tft.width()*12;
+
+  g_jpg_scale_y_above[0] = (tft.height()*3)/2;
+  g_jpg_scale_y_above[1] = tft.height()*3;
+  g_jpg_scale_y_above[2] = tft.height()*6;
+  g_jpg_scale_y_above[3] = tft.height()*12;
+
 
   //Serial.print(F("Initializing SD card..."));
   tft.println(F("Init SD card..."));
@@ -211,7 +226,6 @@ void setup(void) {
   //Serial.begin(9600);
   tft.setTextColor(WHITE);
   tft.setTextSize(2);
-  tft.setRotation(1);
   tft.println(F("Waiting for Arduino Serial Monitor..."));
   while (!Serial) {
     if (millis() > 3000) break;
@@ -276,7 +290,7 @@ void loop() {
     if (stricmp(name, options_file_name) == 0) ProcessOptionsFile(imageFile);
     if ( bmp_file || jpg_file || png_file) break;
   }
-//  tft.fillScreen((uint16_t)g_background_color);
+//  FillScreen((uint16_t)g_background_color);
   if (imageFile && bmp_file) {
     bmpDraw(imageFile, imageFile.name(), true);
 
@@ -292,7 +306,7 @@ void loop() {
     imageFile.close();
   #endif
   } else {
-    tft.fillScreen(GREEN);
+    FillScreen(GREEN);
     tft.setTextColor(WHITE);
     tft.setTextSize(2);
     tft.println(F("No Files Found"));
@@ -441,7 +455,25 @@ void ShowAllOptionValues() {
   Serial.println("----------------------------------\n");
 }
 
+#if defined(_RA8875MC_H_)
+inline void FillScreen(uint16_t color) {tft.fillWindow(color);}
+inline uint16_t Color565(uint8_t r,uint8_t g,uint8_t b) {return tft.Color565(r, g, b);}
+inline void   Color565ToRGB(uint16_t color, uint8_t &r, uint8_t &g, uint8_t &b) {tft.Color565ToRGB(color, r, g, b);}
 
+#elif defined(__ST7735_t3_H_) || defined(__ST7789_t3_H_)
+inline void FillScreen(uint16_t color) {tft.fillScreen(color);}
+inline uint16_t Color565(uint8_t r,uint8_t g,uint8_t b) {return tft.Color565(r, g, b);}
+inline void   Color565ToRGB(uint16_t color, uint8_t &r, uint8_t &g, uint8_t &b) {
+ //color565toRGB   - converts 565 format 16 bit color to RGB
+    r = (color>>8)&0x00F8;
+    g = (color>>3)&0x00FC;
+    b = (color<<3)&0x00F8;
+  }
+#else
+inline void FillScreen(uint16_t color) {tft.fillScreen(color);}
+inline uint16_t Color565(uint8_t r,uint8_t g,uint8_t b) {return tft.color565(r, g, b);}
+inline void   Color565ToRGB(uint16_t color, uint8_t &r, uint8_t &g, uint8_t &b) {tft.color565toRGB(color, r, g, b);}
+#endif
 
 //=============================================================================
 // BMP support 
@@ -538,7 +570,7 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
         }
 
         if (fErase && (((image_width/g_image_scale) < tft.width()) || ((image_height/g_image_scale) < image_height))) {
-          tft.fillScreen((uint16_t)g_background_color);
+          FillScreen((uint16_t)g_background_color);
         }
 
         // now we will allocate large buffer for SCALE*width
@@ -573,11 +605,7 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
               b = sdbuffer[buffidx++];
               g = sdbuffer[buffidx++];
               r = sdbuffer[buffidx++];
-              #if defined(__ST7735_t3_H_) || defined(__ST7789_t3_H_)
-          pusRow[col] = tft.Color565(r,g,b);
-        #else
-        pusRow[col] = tft.color565(r,g,b);
-        #endif
+              pusRow[col] = Color565(r,g,b);
             } // end pixel
             if (g_image_scale == 1) {
               writeClippedRect(0, row, image_width, 1, pusRow);
@@ -674,15 +702,6 @@ void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels)
 } 
 #endif
 
-#if defined(__ST7735_t3_H_) || defined(__ST7789_t3_H_)
-  //color565toRGB   - converts 565 format 16 bit color to RGB
-  void Color565toRGB(uint16_t color, uint8_t &r, uint8_t &g, uint8_t &b) {
-    r = (color>>8)&0x00F8;
-    g = (color>>3)&0x00FC;
-    b = (color<<3)&0x00F8;
-  }
-#endif
-
 // Function to draw pixels to the display
 void ScaleWriteClippedRect(int row, int image_width, uint16_t *usPixels) {
   // this methos assumes you are writing the data into the proper spots in Image_width*CLIP_LINES rectangle
@@ -693,11 +712,7 @@ void ScaleWriteClippedRect(int row, int image_width, uint16_t *usPixels) {
       float r =0; float g = 0; float b = 0;
       for (uint8_t i = 0; i < g_image_scale; i++) {
         for (uint8_t j = 0; j < g_image_scale; j++) {
-        #if defined(__ST7735_t3_H_) || defined(__ST7789_t3_H_)
-          Color565toRGB(usPixels[pix_cnt + i + (j*image_width)], red, green, blue);
-        #else 
-          tft.color565toRGB(usPixels[pix_cnt + i + (j*image_width)], red, green, blue);
-        #endif
+          Color565ToRGB(usPixels[pix_cnt + i + (j*image_width)], red, green, blue); 
           // Sum the squares of components instead 
           r += red * red;
           g += green * green;
@@ -705,11 +720,7 @@ void ScaleWriteClippedRect(int row, int image_width, uint16_t *usPixels) {
         }
       }
       // overwrite the start of our buffer with 
-      #if defined(__ST7735_t3_H_) || defined(__ST7789_t3_H_)
-        usPixels[newx++] = tft.Color565((uint8_t) sqrt(r/(g_image_scale*g_image_scale)), (uint8_t)sqrt(g/(g_image_scale*g_image_scale)), (uint8_t)sqrt(b/(g_image_scale*g_image_scale)));
-      #else
-        usPixels[newx++] = tft.color565((uint8_t) sqrt(r/(g_image_scale*g_image_scale)), (uint8_t)sqrt(g/(g_image_scale*g_image_scale)), (uint8_t)sqrt(b/(g_image_scale*g_image_scale)));
-      #endif
+      usPixels[newx++] = Color565((uint8_t) sqrt(r/(g_image_scale*g_image_scale)), (uint8_t)sqrt(g/(g_image_scale*g_image_scale)), (uint8_t)sqrt(b/(g_image_scale*g_image_scale)));
     }
     writeClippedRect(0, row/g_image_scale, image_width/g_image_scale, 1, usPixels);
   }
@@ -760,7 +771,7 @@ void processJPGFile(const char *name, bool fErase)
     }
     Serial.printf("Scale: 1/%d\n", scale);
     if (fErase && ((image_width/scale < tft.width()) || (image_height/scale < tft.height()))) {
-      tft.fillScreen((uint16_t)g_background_color);
+      FillScreen((uint16_t)g_background_color);
     }
 
     if (g_center_image) {
@@ -840,7 +851,7 @@ void processPNGFile(const char *name, bool fErase)
     Serial.printf("Scale: 1/%d\n", g_image_scale);
 
     if (fErase && (((image_width/g_image_scale) < tft.width()) || ((image_height/g_image_scale) < image_height))) {
-      tft.fillScreen((uint16_t)g_background_color);
+      FillScreen((uint16_t)g_background_color);
     }
 
     if (g_center_image) {
