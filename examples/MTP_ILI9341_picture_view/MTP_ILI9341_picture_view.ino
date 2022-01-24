@@ -20,13 +20,14 @@
 
 // optional support for ILI9341_t3n - that adds additional features
 #include <ILI9341_t3n.h>
+// optional support for ILI9488_t3 - that adds additional features
+//#include <ILI9488_t3.h>
 
 // If ILI9341_t3n is not included include ILI9341_t3 which is installed by Teensyduino
-#ifndef  _ILI9341_t3NH_
+#if !defined(_ILI9341_t3NH_) && !defined(_ILI9488_t3H_)
 #include <ILI9341_t3.h>
 #endif
 
-#include <XPT2046_Touchscreen.h>
 #include <SPI.h>
 #include <SD.h>
 #include <MTP_Teensy.h>
@@ -60,15 +61,28 @@
 #define SD_CS BUILTIN_SDCARD  // Works on T_3.6 and T_4.1 ...
 //#define SD_CS 6  // Works on SPI with this CS pin
 
-
-
 #ifdef  _ILI9341_t3NH_
 ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST);
+#define SCREEN_WIDTH ILI9341_TFTHEIGHT
+#define SCREEN_HEIGHT ILI9341_TFTWIDTH
+#elif defined(_ILI9488_t3H_)
+ILI9488_t3 tft = ILI9488_t3(&SPI, TFT_CS, TFT_DC, TFT_RST);
+#define SCREEN_WIDTH ILI9488_TFTHEIGHT
+#define SCREEN_HEIGHT ILI9488_TFTWIDTH
+#undef TOUCH_CS // may need additional support to work...
 #else
 ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC, TFT_RST);
+#define SCREEN_WIDTH ILI9341_TFTHEIGHT
+#define SCREEN_HEIGHT ILI9341_TFTWIDTH
 #endif
 
+#define BLUE  0x001F
+#define BLACK 0x0000
+#define WHITE 0xFFFF
+#define GREEN 0x07E0
+
 #ifdef TOUCH_CS
+#include <XPT2046_Touchscreen.h>
 XPT2046_Touchscreen ts(TOUCH_CS, TOUCH_TIRQ);
 #endif
 
@@ -83,18 +97,22 @@ elapsedMillis emDisplayed;
 static const PROGMEM char options_file_name[] = "PictureViewOptions.ini";
 int g_debug_output = 0;
 int g_stepMode = 0;
+int g_BMPScale = -1;
 int g_JPGScale = 0;
-int g_PNGScale = 0;
+int g_PNGScale = -1;
 int g_center_image = 0;
 int g_display_image_time = 2500;
 
+
 // scale boundaries {2, 4, 8, 16<maybe>}
 enum {SCL_HALF=0, SCL_QUARTER, SCL_EIGHTH, SCL_16TH};
-int g_jpg_scale_x_above[] = {(320*3)/2, 320*3, 320*6, 320 * 12};
-int g_jpg_scale_y_above[] = {(240*3)/2, 240*3, 240*6, 240 * 12};
+int g_jpg_scale_x_above[] = {(SCREEN_WIDTH*3)/2, SCREEN_WIDTH*3, SCREEN_WIDTH*6, SCREEN_WIDTH * 12};
+int g_jpg_scale_y_above[] = {(SCREEN_HEIGHT*3)/2, SCREEN_HEIGHT*3, SCREEN_HEIGHT*6, SCREEN_HEIGHT * 12};
 
-int image_offset_x = 0;
-int image_offset_y = 0;
+// variables used in some of the display output functions
+int g_image_offset_x = 0;
+int g_image_offset_y = 0;
+uint8_t g_image_scale = 1;
 
 
 
@@ -115,7 +133,7 @@ void setup(void) {
   #endif
 
   tft.begin();
-  tft.fillScreen(ILI9341_BLUE);
+  tft.fillScreen(BLUE);
 
   //Serial.print(F("Initializing SD card..."));
   tft.println(F("Init SD card..."));
@@ -128,7 +146,7 @@ void setup(void) {
 
 
   //Serial.begin(9600);
-  tft.setTextColor(ILI9341_WHITE);
+  tft.setTextColor(WHITE);
   tft.setTextSize(2);
   tft.setRotation(1);
   tft.println(F("Waiting for Arduino Serial Monitor..."));
@@ -148,7 +166,7 @@ void setup(void) {
   }
   ShowAllOptionValues();
 
-#ifdef  _ILI9341_t3NH_
+#if defined( _ILI9341_t3NH_) || defined(_ILI9488_t3H_)
   tft.useFrameBuffer(true);
 #endif
 }
@@ -195,9 +213,9 @@ void loop() {
     if (stricmp(name, options_file_name) == 0) ProcessOptionsFile(imageFile);
     if ( bmp_file || jpg_file || png_file) break;
   }
-//  tft.fillScreen(ILI9341_BLACK);
+//  tft.fillScreen(BLACK);
   if (imageFile && bmp_file) {
-    bmpDraw(imageFile, imageFile.name(), 0, 0, true);
+    bmpDraw(imageFile, imageFile.name(), true);
 
   #ifdef  __JPEGDEC__
   } else if(imageFile && jpg_file) {
@@ -211,12 +229,12 @@ void loop() {
     imageFile.close();
   #endif
   } else {
-    tft.fillScreen(ILI9341_GREEN);
-    tft.setTextColor(ILI9341_WHITE);
+    tft.fillScreen(GREEN);
+    tft.setTextColor(WHITE);
     tft.setTextSize(2);
     tft.println(F("No Files Found"));
   }
-  #ifdef  _ILI9341_t3NH_
+  #if defined( _ILI9341_t3NH_) || defined(_ILI9488_t3H_)
   tft.updateScreen();
   #endif
   if (g_stepMode) {
@@ -254,6 +272,7 @@ typedef struct {
 static const PROGMEM key_name_value_t keyNameValues[] = {
   {"debug", &g_debug_output},
   {"Step", &g_stepMode},
+  {"BMPScale", &g_BMPScale},
   {"JPGScale", &g_JPGScale},
   {"PNGScale", &g_PNGScale},
   {"ScaleXAbove2", &g_jpg_scale_x_above[SCL_HALF]},
@@ -358,31 +377,22 @@ void ShowAllOptionValues() {
 // makes loading a little faster.  20 pixels seems a
 // good balance for tiny AVR chips.
 
-// Larger buffers are slightly more efficient, but if
-// the buffer is too large, extra data is read unnecessarily.
-// For example, if the image is 240 pixels wide, a 100
-// pixel buffer will read 3 groups of 100 pixels.  The
-// last 60 pixels from the 3rd read may not be used.
-
 #define BUFFPIXEL 80
-void bmpDraw(File &bmpFile, const char *filename, uint8_t x, uint16_t y, bool fErase) {
+void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
 
 //  File     bmpFile;
-  int      bmpWidth, bmpHeight;   // W+H in pixels
+  int      image_width, image_height;   // W+H in pixels
   uint8_t  bmpDepth;              // Bit depth (currently must be 24)
   uint32_t bmpImageoffset;        // Start of image data in file
-  uint32_t rowSize;               // Not always = bmpWidth; may have padding
+  uint32_t rowSize;               // Not always = image_width; may have padding
   uint8_t  sdbuffer[3*BUFFPIXEL]; // pixel buffer (R+G+B per pixel)
   uint16_t buffidx = sizeof(sdbuffer); // Current position in sdbuffer
   boolean  goodBmp = false;       // Set to true on valid header parse
   boolean  flip    = true;        // BMP is stored bottom-to-top
-  int      w, h, row, col;
+  int      row, col;
   uint8_t  r, g, b;
   uint32_t pos = 0, startTime = millis();
 
-  uint16_t awColors[320];  // hold colors for one row at a time...
-
-  if((x >= tft.width()) || (y >= tft.height())) return;
 
   Serial.println();
   Serial.print(F("Loading image '"));
@@ -397,8 +407,8 @@ void bmpDraw(File &bmpFile, const char *filename, uint8_t x, uint16_t y, bool fE
     Serial.print(F("Image Offset: ")); Serial.println(bmpImageoffset, DEC);
     // Read DIB header
     Serial.print(F("Header size: ")); Serial.println(read32(bmpFile));
-    bmpWidth  = read32(bmpFile);
-    bmpHeight = read32(bmpFile);
+    image_width  = read32(bmpFile);
+    image_height = read32(bmpFile);
     if(read16(bmpFile) == 1) { // # planes -- must be '1'
       bmpDepth = read16(bmpFile); // bits per pixel
       Serial.print(F("Bit Depth: ")); Serial.println(bmpDepth);
@@ -406,63 +416,98 @@ void bmpDraw(File &bmpFile, const char *filename, uint8_t x, uint16_t y, bool fE
 
         goodBmp = true; // Supported BMP format -- proceed!
         Serial.print(F("Image size: "));
-        Serial.print(bmpWidth);
+        Serial.print(image_width);
         Serial.print('x');
-        Serial.println(bmpHeight);
+        Serial.println(image_height);
 
         // BMP rows are padded (if needed) to 4-byte boundary
-        rowSize = (bmpWidth * 3 + 3) & ~3;
+        rowSize = (image_width * 3 + 3) & ~3;
 
-        // If bmpHeight is negative, image is in top-down order.
+        // If image_height is negative, image is in top-down order.
         // This is not canon but has been observed in the wild.
-        if(bmpHeight < 0) {
-          bmpHeight = -bmpHeight;
+        if(image_height < 0) {
+          image_height = -image_height;
           flip      = false;
         }
 
-        // Crop area to be loaded
-        w = bmpWidth;
-        h = bmpHeight;
-        if((x+w-1) >= tft.width())  w = tft.width()  - x;
-        if((y+h-1) >= tft.height()) h = tft.height() - y;
-
-        if (fErase && (x || y || (w != tft.width()) || (h != tft.height()))) {
-          // Maybe update to only fill unused or maybe fill on each line
-          tft.fillScreen(ILI9341_BLACK);
+        g_image_scale = 1;
+        if (g_BMPScale > 0) {
+          g_image_scale = g_BMPScale; // use what they passed in
+        } else if (g_BMPScale < 0) {
+          if (image_width > tft.width()) g_image_scale = (image_width + tft.width() - 1) / tft.width();
+          if (image_height > tft.height()) {
+            int yscale = (image_height + tft.height() - 1) / tft.height();
+            if (yscale > g_image_scale) g_image_scale = yscale;
+          }
+        } else {  
+          if ((image_width > g_jpg_scale_x_above[SCL_16TH]) || (image_height >  g_jpg_scale_y_above[SCL_16TH])) {
+            g_image_scale = 16;
+          } else if ((image_width > g_jpg_scale_x_above[SCL_EIGHTH]) || (image_height >  g_jpg_scale_y_above[SCL_EIGHTH])) {
+            g_image_scale = 8;
+          } else if ((image_width > g_jpg_scale_x_above[SCL_QUARTER]) || (image_height >  g_jpg_scale_y_above[SCL_QUARTER])) {
+            g_image_scale = 4;
+          } else if ((image_width > g_jpg_scale_x_above[SCL_HALF]) || (image_height >  g_jpg_scale_y_above[SCL_HALF])) {
+            g_image_scale = 2;
+          }        
+        }
+        Serial.printf("Scale: 1/%d\n", g_image_scale);
+        if (g_center_image) {
+          g_image_offset_x = (tft.width() - (image_width / g_image_scale)) / 2;
+          g_image_offset_y = (tft.height() - (image_height / g_image_scale)) / 2;
+          Serial.printf("\tImage Offsets (%d, %d)\n", g_image_offset_x, g_image_offset_y);
+        } else {
+          g_image_offset_x = 0;
+          g_image_offset_y = 0;
         }
 
-        for (row=0; row<h; row++) { // For each scanline...
+        if (fErase && (((image_width/g_image_scale) < tft.width()) || ((image_height/g_image_scale) < image_height))) {
+          tft.fillScreen(BLACK);
+        }
 
-          // Seek to start of scan line.  It might seem labor-
-          // intensive to be doing this on every line, but this
-          // method covers a lot of gritty details like cropping
-          // and scanline padding.  Also, the seek only takes
-          // place if the file position actually needs to change
-          // (avoids a lot of cluster math in SD library).
-          if(flip) // Bitmap is stored bottom-to-top order (normal BMP)
-            pos = bmpImageoffset + (bmpHeight - 1 - row) * rowSize;
-          else     // Bitmap is stored top-to-bottom
-            pos = bmpImageoffset + row * rowSize;
-          if(bmpFile.position() != pos) { // Need seek?
-            bmpFile.seek(pos);
-            buffidx = sizeof(sdbuffer); // Force buffer reload
-          }
+        // now we will allocate large buffer for SCALE*width
+        uint16_t *usPixels = (uint16_t*)malloc(image_width * g_image_scale * sizeof(uint16_t));
+        if (usPixels) {
+          for (row=0; row<image_height; row++) { // For each scanline...
 
-          for (col=0; col<w; col++) { // For each pixel...
-            // Time to read more pixel data?
-            if (buffidx >= sizeof(sdbuffer)) { // Indeed
-              bmpFile.read(sdbuffer, sizeof(sdbuffer));
-              buffidx = 0; // Set index to beginning
+            // Seek to start of scan line.  It might seem labor-
+            // intensive to be doing this on every line, but this
+            // method covers a lot of gritty details like cropping
+            // and scanline padding.  Also, the seek only takes
+            // place if the file position actually needs to change
+            // (avoids a lot of cluster math in SD library).
+            if(flip) // Bitmap is stored bottom-to-top order (normal BMP)
+              pos = bmpImageoffset + (image_height - 1 - row) * rowSize;
+            else     // Bitmap is stored top-to-bottom
+              pos = bmpImageoffset + row * rowSize;
+            if(bmpFile.position() != pos) { // Need seek?
+              bmpFile.seek(pos);
+              buffidx = sizeof(sdbuffer); // Force buffer reload
             }
+            
+            uint16_t *pusRow = usPixels + image_width * (row % g_image_scale);  
+            for (col=0; col<image_width; col++) { // For each pixel...
+              // Time to read more pixel data?
+              if (buffidx >= sizeof(sdbuffer)) { // Indeed
+                bmpFile.read(sdbuffer, sizeof(sdbuffer));
+                buffidx = 0; // Set index to beginning
+              }
 
-            // Convert pixel from BMP to TFT format, push to display
-            b = sdbuffer[buffidx++];
-            g = sdbuffer[buffidx++];
-            r = sdbuffer[buffidx++];
-            awColors[col] = tft.color565(r,g,b);
-          } // end pixel
-          tft.writeRect(0, row, w, 1, awColors);
-        } // end scanline
+              // Convert pixel from BMP to TFT format, push to display
+              b = sdbuffer[buffidx++];
+              g = sdbuffer[buffidx++];
+              r = sdbuffer[buffidx++];
+              pusRow[col] = tft.color565(r,g,b);
+            } // end pixel
+            if (g_image_scale == 1) {
+              writeClippedRect(0, row, image_width, 1, pusRow);
+            } else {
+              ScaleWriteClippedRect(row, image_width, usPixels);
+            }
+          } // end scanline
+          free(usPixels); // free it after we are done
+          usPixels = nullptr;
+        } // malloc succeeded
+
         Serial.print(F("Loaded in "));
         Serial.print(millis() - startTime);
         Serial.println(" ms");
@@ -473,8 +518,6 @@ void bmpDraw(File &bmpFile, const char *filename, uint8_t x, uint16_t y, bool fE
   bmpFile.close();
   if(!goodBmp) Serial.println(F("BMP format not recognized."));
 }
-
-
 
 // These read 16- and 32-bit types from the SD card file.
 // BMP data is stored little-endian, Arduino is little-endian too.
@@ -516,13 +559,13 @@ void myClose(void *handle) {
 
 #ifdef  _ILI9341_t3NH_
 inline void writeClippedRect(int16_t x, int16_t y, int16_t cx, int16_t cy, uint16_t *pixels) {
-  tft.writeRect(x + image_offset_x, y + image_offset_y, cx, cy, pixels);
+  tft.writeRect(x + g_image_offset_x, y + g_image_offset_y, cx, cy, pixels);
 }
 #else
 void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels) 
 {
-  x += image_offset_x;
-  y += image_offset_y;
+  x += g_image_offset_x;
+  y += g_image_offset_y;
   int end_x = x + cx;
   int end_y = y + cy;
 
@@ -549,6 +592,31 @@ void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels)
   }  
 } 
 #endif
+
+// Function to draw pixels to the display
+void ScaleWriteClippedRect(int row, int image_width, uint16_t *usPixels) {
+  // this methos assumes you are writing the data into the proper spots in Image_width*CLIP_LINES rectangle
+  if ((row % g_image_scale) == (g_image_scale -1)) {
+    uint16_t newx = 0;
+    for(uint16_t pix_cnt=0; pix_cnt < image_width; pix_cnt += g_image_scale) {
+      uint8_t red = 0; uint8_t green = 0; uint8_t blue = 0;
+      float r =0; float g = 0; float b = 0;
+      for (uint8_t i = 0; i < g_image_scale; i++) {
+        for (uint8_t j = 0; j < g_image_scale; j++) {
+          tft.color565toRGB(usPixels[pix_cnt + i + (j*image_width)], red, green, blue); 
+          // Sum the squares of components instead 
+          r += red * red;
+          g += green * green;
+          b += blue * blue;
+        }
+      }
+      // overwrite the start of our buffer with 
+      usPixels[newx++] = tft.color565((uint8_t) sqrt(r/(g_image_scale*g_image_scale)), (uint8_t)sqrt(g/(g_image_scale*g_image_scale)), (uint8_t)sqrt(b/(g_image_scale*g_image_scale)));
+    }
+    writeClippedRect(0, row/g_image_scale, image_width/g_image_scale, 1, usPixels);
+  }
+}
+
 
 //=============================================================================
 // JPeg support 
@@ -594,16 +662,16 @@ void processJPGFile(const char *name, bool fErase)
     }
     Serial.printf("Scale: 1/%d\n", scale);
     if (fErase && ((image_width/scale < tft.width()) || (image_height/scale < tft.height()))) {
-      tft.fillScreen(ILI9341_BLACK);
+      tft.fillScreen(BLACK);
     }
 
     if (g_center_image) {
-      image_offset_x = (tft.width() - image_width/scale) / 2;
-      image_offset_y = (tft.height() - image_height/scale) / 2;
-      Serial.printf("\tImage Offsets (%d, %d)\n", image_offset_x, image_offset_y);
+      g_image_offset_x = (tft.width() - image_width/scale) / 2;
+      g_image_offset_y = (tft.height() - image_height/scale) / 2;
+      Serial.printf("\tImage Offsets (%d, %d)\n", g_image_offset_x, g_image_offset_y);
     } else {
-      image_offset_x = 0;
-      image_offset_y = 0;
+      g_image_offset_x = 0;
+      g_image_offset_y = 0;
     }
 
     jpeg.decode(0, 0, decode_options);
@@ -638,9 +706,6 @@ int JPEGDraw(JPEGDRAW *pDraw) {
 //used for png files primarily
 #ifdef __PNGDEC__
 PNG png;
-uint16_t *usPixels = nullptr;  //may have to incresse this based on the max x-valid of your image.
-uint16_t pngWidth;
-uint8_t pngScale = 1;
 
 void processPNGFile(const char *name, bool fErase)
 {
@@ -656,42 +721,42 @@ void processPNGFile(const char *name, bool fErase)
     int image_height = png.getHeight();
     Serial.printf("image specs: (%d x %d), %d bpp, pixel type: %d\n", image_width, image_height, png.getBpp(), png.getPixelType());
     if (g_PNGScale > 0) {
-      pngScale = g_PNGScale; // use what they passed in
+      g_image_scale = g_PNGScale; // use what they passed in
     } else if (g_PNGScale < 0) {
-      if (image_width > tft.width()) pngScale = (image_width + tft.width() - 1) / tft.width();
+      if (image_width > tft.width()) g_image_scale = (image_width + tft.width() - 1) / tft.width();
       if (image_height > tft.height()) {
         int yscale = (image_height + tft.height() - 1) / tft.height();
-        if (yscale > pngScale) pngScale = yscale;
+        if (yscale > g_image_scale) g_image_scale = yscale;
       }
     } else {  
       if ((image_width > g_jpg_scale_x_above[SCL_16TH]) || (image_height >  g_jpg_scale_y_above[SCL_16TH])) {
-        pngScale = 16;
+        g_image_scale = 16;
       } else if ((image_width > g_jpg_scale_x_above[SCL_EIGHTH]) || (image_height >  g_jpg_scale_y_above[SCL_EIGHTH])) {
-        pngScale = 8;
+        g_image_scale = 8;
       } else if ((image_width > g_jpg_scale_x_above[SCL_QUARTER]) || (image_height >  g_jpg_scale_y_above[SCL_QUARTER])) {
-        pngScale = 4;
+        g_image_scale = 4;
       } else if ((image_width > g_jpg_scale_x_above[SCL_HALF]) || (image_height >  g_jpg_scale_y_above[SCL_HALF])) {
-        pngScale = 2;
+        g_image_scale = 2;
       }        
     }
-    Serial.printf("Scale: 1/%d\n", pngScale);
+    Serial.printf("Scale: 1/%d\n", g_image_scale);
 
-    if (fErase && (((image_width/pngScale) < tft.width()) || ((image_height/pngScale) < image_height))) {
-      tft.fillScreen(ILI9341_BLACK);
+    if (fErase && (((image_width/g_image_scale) < tft.width()) || ((image_height/g_image_scale) < image_height))) {
+      tft.fillScreen(BLACK);
     }
 
     if (g_center_image) {
-      image_offset_x = (tft.width() - (png.getWidth() / pngScale)) / 2;
-      image_offset_y = (tft.height() - (png.getHeight() / pngScale)) / 2;
-      Serial.printf("\tImage Offsets (%d, %d)\n", image_offset_x, image_offset_y);
+      g_image_offset_x = (tft.width() - (png.getWidth() / g_image_scale)) / 2;
+      g_image_offset_y = (tft.height() - (png.getHeight() / g_image_scale)) / 2;
+      Serial.printf("\tImage Offsets (%d, %d)\n", g_image_offset_x, g_image_offset_y);
     } else {
-      image_offset_x = 0;
-      image_offset_y = 0;
+      g_image_offset_x = 0;
+      g_image_offset_y = 0;
     }
 
-    usPixels = (uint16_t*)malloc(png.getWidth() * pngScale * sizeof(uint16_t));
+    uint16_t *usPixels = (uint16_t*)malloc(image_width * g_image_scale * sizeof(uint16_t));
     if (usPixels) {
-      rc = png.decode(NULL, 0);
+      rc = png.decode(usPixels, 0);
       png.close();
       free(usPixels);
     } else Serial.println("Error could not allocate line buffer");
@@ -711,42 +776,24 @@ int32_t mySeekPNG(PNGFILE *handle, int32_t position) {
 
 // Function to draw pixels to the display
 void PNGDraw(PNGDRAW *pDraw) {
-  if(pngScale == 1) {
+  uint16_t *usPixels = (uint16_t*)pDraw->pUser;
+  if(g_image_scale == 1) {
     png.getLineAsRGB565(pDraw, usPixels, PNG_RGB565_LITTLE_ENDIAN, 0xffffffff);
     writeClippedRect(0, pDraw->y, pDraw->iWidth, 1, usPixels);
-  } else if( pngScale > 1) {
-    // read it directly into proper row location...
-    // bugbug does not handle all the pixels if not multiple of pngScale...
-    uint16_t *pusRow = usPixels + pngWidth * (pDraw->y % pngScale);  
+  } else {
+    uint16_t *pusRow = usPixels + pDraw->iWidth * (pDraw->y % g_image_scale);  
     png.getLineAsRGB565(pDraw, pusRow, PNG_RGB565_LITTLE_ENDIAN, 0xffffffff);
-
-    if ((pDraw->y % pngScale) == (pngScale -1)) {
-      uint16_t newx = 0;
-      for(uint16_t pix_cnt=0; pix_cnt < pDraw->iWidth; pix_cnt += pngScale) {
-        uint8_t red = 0; uint8_t green = 0; uint8_t blue = 0;
-        float r =0; float g = 0; float b = 0;
-        for (uint8_t i = 0; i < pngScale; i++) {
-          for (uint8_t j = 0; j < pngScale; j++) {
-            tft.color565toRGB(usPixels[pix_cnt + i + (j*pngWidth)], red, green, blue); 
-            // Sum the squares of components instead 
-            r += red * red;
-            g += green * green;
-            b += blue * blue;
-          }
-        }
-        // overwrite the start of our buffer with 
-        usPixels[newx++] = tft.color565((uint8_t) sqrt(r/(pngScale*pngScale)), (uint8_t)sqrt(g/(pngScale*pngScale)), (uint8_t)sqrt(b/(pngScale*pngScale)));
-      }
-      writeClippedRect(0, pDraw->y/pngScale, pDraw->iWidth/pngScale, 1, usPixels);
-    }
+    ScaleWriteClippedRect(pDraw->y, pDraw->iWidth, usPixels);
   }
 }
+
 
 #endif
 
 //=============================================================================
 // Touch screen support 
 //=============================================================================
+#ifdef TOUCH_CS
 void ProcessTouchScreen()
 {
   // See if there's any  touch data for us
@@ -788,3 +835,4 @@ void ProcessTouchScreen()
     Serial.println(")");
 
 }
+#endif
