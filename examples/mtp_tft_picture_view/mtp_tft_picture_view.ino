@@ -61,9 +61,15 @@
 //****************************************************************************
 // Settings and objects
 //****************************************************************************
+#if USE_SF_IOCarrier == 1
 #define TFT_DC  5
 #define TFT_CS 4
 #define TFT_RST -1
+#else
+#define TFT_DC  9
+#define TFT_CS 10
+#define TFT_RST -1
+#endif
 
 #define TOUCH_CS 27
 #define TOUCH_TIRQ 26
