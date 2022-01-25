@@ -18,6 +18,10 @@
 // JPGDEC - https://github.com/bitbank2/JPEGDEC (also on arduino library manager)
 // PNGdec - https://github.com/bitbank2/PNGdec (also on arduino library manager)
 
+// If using the Sparkfun IO Carrier board uncomment this line and
+// and using one of the ILI9341 libraries
+//#define USE_SF_IOCarrier 1
+
 // optional support for ILI9341_t3n - that adds additional features
 #include <ILI9341_t3n.h>
 // optional support for ILI9488_t3 - that adds additional features
@@ -57,15 +61,15 @@
 //****************************************************************************
 // Settings and objects
 //****************************************************************************
-#define TFT_DC  9
-#define TFT_CS 10
+#define TFT_DC  5
+#define TFT_CS 4
 #define TFT_RST -1
 
 #define TOUCH_CS 27
 #define TOUCH_TIRQ 26
 
-#define SD_CS BUILTIN_SDCARD  // Works on T_3.6 and T_4.1 ...
-//#define SD_CS 6  // Works on SPI with this CS pin
+//#define SD_CS BUILTIN_SDCARD  // Works on T_3.6 and T_4.1 ...
+#define SD_CS 10  // Works on SPI with this CS pin
 
 #ifdef  _ILI9341_t3NH_
 ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST);
@@ -131,7 +135,7 @@ int g_debug_output = 0;
 int g_stepMode = 0;
 int g_BMPScale = -1;
 int g_JPGScale = 0;
-int g_PNGScale = -1;
+int g_PNGScale = 1;
 int g_center_image = 0;
 int g_display_image_time = 2500;
 int g_background_color = BLACK;
@@ -198,6 +202,9 @@ void setup(void) {
  
 #else
   tft.begin();
+  #if USE_SF_IOCarrier == 1
+    tft.invertDisplay(true);
+  #endif
   tft.setRotation(1);
 #endif
   FillScreen(BLUE);
