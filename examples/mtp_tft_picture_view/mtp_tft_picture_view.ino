@@ -29,12 +29,17 @@
 //Optional support for ST7735/ST7789 graphic dislplays
 //#include <ST7735_t3.h> // Hardware-specific library
 //#include <ST7789_t3.h> // Hardware-specific library
+//#define USE_KURTE_MMOD1
 //Optional support for RA8875
 //#include <SPI.h>
 //#include <RA8875.h>
+//Optional support for RA8876
+//#include <FT5206.h>
+//#include <RA8876_t3.h>
 
 // If ILI9341_t3n is not included include ILI9341_t3 which is installed by Teensyduino
-#if !defined(_ILI9341_t3NH_) && !defined(_ILI9488_t3H_) && !defined(__ST7735_t3_H_)  && !defined(_RA8875MC_H_)
+#if !defined(_ILI9341_t3NH_) && !defined(_ILI9488_t3H_) && !defined(__ST7735_t3_H_) \
+ && !defined(_RA8875MC_H_) && !defined(_RA8876_T3)
 #include <ILI9341_t3.h>
 #endif
 
@@ -71,18 +76,33 @@
 #define TFT_RST -1
 #endif
 
+// used for XPT2046
 #define TOUCH_CS 27
 #define TOUCH_TIRQ 26
 
-//#define SD_CS BUILTIN_SDCARD  // Works on T_3.6 and T_4.1 ...
-#define SD_CS 10  // Works on SPI with this CS pin
+// RA8875 capacitive IRQ
+#define RA8875_INT 6
+
+#define MAXTOUCHLIMIT     1//1...5
+
+// RA8875 capacitive IRQ
+#define RA8876_INT 6
+#define MAXTOUCHLIMIT     1//1...5
+
+
+#define SD_CS BUILTIN_SDCARD  // Works on T_3.6 and T_4.1 ...
+//#define SD_CS 10  // Works on SPI with this CS pin
 
 #ifdef  _ILI9341_t3NH_
 ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST);
+// setup for PJRC/EBAY boards 
+#define SUPPORTS_XPT2046_TOUCH
 
 #elif defined(_ILI9488_t3H_)
 ILI9488_t3 tft = ILI9488_t3(&SPI, TFT_CS, TFT_DC, TFT_RST);
-#undef TOUCH_CS // may need additional support to work...
+// Note: board may support but may require MISO buffer chip
+//#define SUPPORTS_XPT2046_TOUCH
+
 #elif defined(__ST7735_t3_H_) || defined(__ST7789_t3_H_)
 // Option 1: use any pins but a little slower
 // Note: code will detect if specified pins are the hardware SPI pins
@@ -102,8 +122,17 @@ ILI9488_t3 tft = ILI9488_t3(&SPI, TFT_CS, TFT_DC, TFT_RST);
 // For 1.44" and 1.8" TFT with ST7735 use
 //ST7735_t3 tft = ST7735_t3(TFT_CS, TFT_DC, TFT_RST);
 
+#ifdef USE_KURTE_MMOD1
+#undef TFT_DC
+#undef TFT_CS
+#undef TFT_RST
+#define TFT_DC 4
+#define TFT_CS 10
+#define TFT_RST 2
+#endif
 // For 1.54" TFT with ST7789
 ST7789_t3 tft = ST7789_t3(TFT_CS,  TFT_DC, TFT_RST);
+#undef TOUCH_CS
 
 //#define SCREEN_WIDTH_TFTHEIGHT_144
 // for 1.8" display and mini
@@ -111,19 +140,27 @@ ST7789_t3 tft = ST7789_t3(TFT_CS,  TFT_DC, TFT_RST);
 #elif defined(_RA8875MC_H_)
 #undef TFT_RST
 #define TFT_RST 9
-#undef TOUCH_CS // may need additional support to work...
 RA8875 tft = RA8875(TFT_CS, TFT_RST);
 
+#elif defined(_RA8876_T3)
+#undef TFT_RST
+#define TFT_RST 9
+RA8876_t3 tft = RA8876_t3(TFT_CS, TFT_RST);
+#ifdef RA8876_INT
+FT5206 cts = FT5206(RA8876_INT);
+#endif
 #else
 ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC, TFT_RST);
+#define SUPPORTS_XPT2046_TOUCH
 #endif
 
+#ifndef BLUE 
 #define BLUE  0x001F
 #define BLACK 0x0000
 #define WHITE 0xFFFF
 #define GREEN 0x07E0
-
-#ifdef TOUCH_CS
+#endif
+#if defined(TOUCH_CS) && defined(SUPPORTS_XPT2046_TOUCH)
 #include <XPT2046_Touchscreen.h>
 XPT2046_Touchscreen ts(TOUCH_CS, TOUCH_TIRQ);
 #endif
@@ -170,7 +207,7 @@ void setup(void) {
   // Keep the SD card inactive while working the display.
   pinMode(SD_CS, INPUT_PULLUP);
   delay(20);
-  #ifdef TOUCH_CS
+  #if defined(TOUCH_CS) && defined(SUPPORTS_XPT2046_TOUCH)
   pinMode(TOUCH_CS, OUTPUT); digitalWriteFast(TOUCH_CS, HIGH);
   pinMode(TFT_CS, OUTPUT); digitalWriteFast(TFT_CS, HIGH);
   ts.begin();
@@ -205,16 +242,50 @@ void setup(void) {
   //  begin display: Choose from: RA8875_480x272, RA8875_800x480, RA8875_800x480ALT, Adafruit_480x272, Adafruit_800x480
   tft.begin(RA8875_800x480, 16, 12000000);
   tft.setRotation(0);
+
+  #if defined(RA8875_INT) && defined(USE_FT5206_TOUCH)
+  tft.useCapINT(RA8875_INT);//we use the capacitive chip Interrupt out!
+  //the following set the max touches (max 5)
+  //it can be placed inside loop but BEFORE touched()
+  //to limit dinamically the touches (for example to 1)
+  tft.setTouchLimit(MAXTOUCHLIMIT);
+  tft.enableCapISR(true);//capacitive touch screen interrupt it's armed
+  Serial.println("** RA8875 FT5026 touch enabled **");
+  #else
+  tft.print("you should open RA8875UserSettings.h file and uncomment USE_FT5206_TOUCH!");
+  #endif
  
-#else
+ #elif defined(_RA8875MC_H_)
+  //  begin display: Choose from: RA8875_480x272, RA8875_800x480, RA8875_800x480ALT, Adafruit_480x272, Adafruit_800x480
+  tft.begin(RA8875_800x480, 16, 12000000);
+  tft.setRotation(0);
+
+  #if defined(RA8875_INT) && defined(USE_FT5206_TOUCH)
+  tft.useCapINT(RA8875_INT);//we use the capacitive chip Interrupt out!
+  //the following set the max touches (max 5)
+  //it can be placed inside loop but BEFORE touched()
+  //to limit dinamically the touches (for example to 1)
+  tft.setTouchLimit(MAXTOUCHLIMIT);
+  tft.enableCapISR(true);//capacitive touch screen interrupt it's armed
+  Serial.println("** RA8875 FT5026 touch enabled **");
+  #else
+  tft.print("you should open RA8875UserSettings.h file and uncomment USE_FT5206_TOUCH!");
+  #endif
+ #elif defined(_RA8876_T3)
+  tft.begin();
+   #ifdef RA8876_INT
+   cts.begin();
+   #endif
+   tft.backlight(true);
+  tft.setRotation(0);
+ #else
   tft.begin();
   #if USE_SF_IOCarrier == 1
     tft.invertDisplay(true);
   #endif
   tft.setRotation(1);
-#endif
+ #endif
   FillScreen(BLUE);
-
   g_jpg_scale_x_above[0] = (tft.width()*3)/2;
   g_jpg_scale_x_above[1] = tft.width()*3;
   g_jpg_scale_x_above[2] = tft.width()*6;
@@ -243,6 +314,7 @@ void setup(void) {
   while (!Serial) {
     if (millis() > 3000) break;
   }
+  Serial.printf("\nScreen Width: %u Height: %d\n", tft.width(), tft.height());
 
   rootFile = SD.open("/");
 
@@ -266,9 +338,7 @@ void setup(void) {
 //****************************************************************************
 void loop() {
   MTP.loop();
-  #ifdef TOUCH_CS
   ProcessTouchScreen();
-  #endif
   // don't process unless time elapsed or fast_mode 
   if (!fast_mode && !g_stepMode && (emDisplayed < (uint32_t)g_display_image_time)) return; 
   bool did_rewind = false;
@@ -472,6 +542,16 @@ void ShowAllOptionValues() {
 inline void FillScreen(uint16_t color) {tft.fillWindow(color);}
 inline uint16_t Color565(uint8_t r,uint8_t g,uint8_t b) {return tft.Color565(r, g, b);}
 inline void   Color565ToRGB(uint16_t color, uint8_t &r, uint8_t &g, uint8_t &b) {tft.Color565ToRGB(color, r, g, b);}
+
+#elif defined(_RA8876_T3)
+inline void FillScreen(uint16_t color) {tft.fillScreen(color);}
+inline uint16_t Color565(uint8_t r,uint8_t g,uint8_t b) { return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3); }
+inline void   Color565ToRGB(uint16_t color, uint8_t &r, uint8_t &g, uint8_t &b) {
+ //color565toRGB   - converts 565 format 16 bit color to RGB
+    r = (color>>8)&0x00F8;
+    g = (color>>3)&0x00FC;
+    b = (color<<3)&0x00F8;
+  }
 
 #elif defined(__ST7735_t3_H_) || defined(__ST7789_t3_H_)
 inline void FillScreen(uint16_t color) {tft.fillScreen(color);}
@@ -915,7 +995,7 @@ void PNGDraw(PNGDRAW *pDraw) {
 //=============================================================================
 // Touch screen support 
 //=============================================================================
-#ifdef TOUCH_CS
+#if defined(TOUCH_CS) && defined(SUPPORTS_XPT2046_TOUCH)
 void ProcessTouchScreen()
 {
   // See if there's any  touch data for us
@@ -956,5 +1036,61 @@ void ProcessTouchScreen()
     Serial.print(", "); Serial.print(p.y);
     Serial.println(")");
 
+}
+#elif defined(_RA8875MC_H_) && defined(RA8875_INT) && defined(USE_FT5206_TOUCH)
+void ProcessTouchScreen()
+{
+  if (tft.touched()){//if touched(true) detach isr
+  //at this point we need to fill the FT5206 registers...
+    tft.updateTS();//now we have the data inside library
+    Serial.print(">> touches:");
+    Serial.print(tft.getTouches());
+    Serial.print(" | gesture:");
+    Serial.print(tft.getGesture(),HEX);
+    Serial.print(" | state:");
+    Serial.print(tft.getTouchState(),HEX);
+    uint16_t coordinates[MAXTOUCHLIMIT][2];//to hold coordinates
+    tft.getTScoordinates(coordinates);//done
+    //now coordinates has the x,y of all touches
+    for (uint8_t i=0;i<=tft.getTouches();i++){
+      Serial.printf(" (%d,%d)", coordinates[i][0],coordinates[i][1]);
+    }
+    tft.enableCapISR();//rearm ISR if needed (touched(true))
+    Serial.println();
+    //otherwise it doesn't do nothing...
+    fast_mode = true;
+  } else {
+    fast_mode = false;
+  }
+}
+#elif defined(_RA8876_T3) && defined(RA8876_INT)
+void ProcessTouchScreen()
+{
+  uint8_t registers[FT5206_REGISTERS];
+  uint8_t current_touches = 0;
+  if (cts.touched()) {
+    uint8_t i;
+    cts.getTSregisters(registers);
+    uint16_t coordinates[MAXTOUCHLIMIT][2];//to hold coordinates
+    current_touches = cts.getTScoordinates(coordinates, registers);
+    if (current_touches < 1) return;
+
+    Serial.print(current_touches);
+    Serial.print(" touches: ");
+
+    for (i = 1; i <= current_touches; i++) { // mark touches on screen
+      Serial.printf(" (%d,%d)", coordinates[i][0],coordinates[i][1]);
+    }
+    Serial.println();
+    //otherwise it doesn't do nothing...
+    fast_mode = true;
+  } else {
+    fast_mode = false;
+  }
+
+} 
+#else
+void ProcessTouchScreen()
+{
 }
 #endif
