@@ -23,7 +23,7 @@
 //#define USE_SF_IOCarrier 1
 
 // optional support for ILI9341_t3n - that adds additional features
-#include <ILI9341_t3n.h>
+//#include <ILI9341_t3n.h>
 // optional support for ILI9488_t3 - that adds additional features
 //#include <ILI9488_t3.h>
 //Optional support for ST7735/ST7789 graphic dislplays
@@ -34,8 +34,8 @@
 //#include <SPI.h>
 //#include <RA8875.h>
 //Optional support for RA8876
-//#include <FT5206.h>
-//#include <RA8876_t3.h>
+#include <FT5206.h>
+ #include <RA8876_t3.h>
 
 // If ILI9341_t3n is not included include ILI9341_t3 which is installed by Teensyduino
 #if !defined(_ILI9341_t3NH_) && !defined(_ILI9488_t3H_) && !defined(__ST7735_t3_H_) \
@@ -159,6 +159,7 @@ ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC, TFT_RST);
 #define BLACK 0x0000
 #define WHITE 0xFFFF
 #define GREEN 0x07E0
+#define RED   0xf800
 #endif
 #if defined(TOUCH_CS) && defined(SUPPORTS_XPT2046_TOUCH)
 #include <XPT2046_Touchscreen.h>
@@ -260,7 +261,7 @@ void setup(void) {
   tft.begin(RA8875_800x480, 16, 12000000);
   tft.setRotation(0);
 
-  #if defined(RA8875_INT) && defined(USE_FT5206_TOUCH)
+  #if defined(RA8875_INT)
   tft.useCapINT(RA8875_INT);//we use the capacitive chip Interrupt out!
   //the following set the max touches (max 5)
   //it can be placed inside loop but BEFORE touched()
@@ -299,10 +300,14 @@ void setup(void) {
 
   //Serial.print(F("Initializing SD card..."));
   tft.println(F("Init SD card..."));
-  while (!SD.begin(SD_CS)) {
-    //Serial.println(F("failed to access SD card!"));
-    tft.println(F("failed to access SD card!"));
-    delay(2000);
+  if (!SD.begin(SD_CS)) {
+    tft.setTextSize(2);
+    FillScreen(RED);
+    while (!SD.begin(SD_CS)) {
+      //Serial.println(F("failed to access SD card!"));
+      tft.printf("failed to access SD card on cs:%u!\n", SD_CS);
+      delay(2000);
+    }
   }
   MTP.addFilesystem(SD, "SD Card");
 
@@ -773,26 +778,37 @@ void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels)
 
   if ((x >= 0) && (y >= 0) && (end_x <= tft.width()) && (end_y <= tft.height())) {
     tft.writeRect(x, y, cx, cy, pixels);
-    if (g_debug_output) Serial.printf("\t(%d, %d, %d, %d)\n", x, y, cx, cy);
+    if (g_debug_output) Serial.printf("\t(%d, %d, %d, %d) %p\n", x, y, cx, cy, pixels);
+    WaitforWRComplete();
   } else {
     int width = cx;
     if (end_x > tft.width()) width -= (end_x - tft.width()); 
     if (x < 0) width += x; 
     uint16_t *ppixLine = pixels;
-    for (int yt = y; yt < (y + cy); yt++) {
-      if (yt < 0) continue;
+    for (int yt = y; yt < end_y; yt++) {
       if (yt >= tft.height()) break;
-      if (x >=0) {
-        tft.writeRect(x, yt, width, 1, ppixLine);
-        if (g_debug_output)Serial.printf("\t(%d, %d, %d, %d)\n", x, y, width, 1);
-      } else {
-        tft.writeRect(0, yt, width, 1, ppixLine - x);
-        if (g_debug_output)Serial.printf("\t(%d, %d, %d, %d ++)\n", 0, y, width, 1);
+      if (yt >= 0) {
+        if (x >=0) {
+          tft.writeRect(x, yt, width, 1, ppixLine);
+          if (g_debug_output)Serial.printf("\t(%d, %d, %d, %d) %p\n", x, yt, width, 1, ppixLine);
+        } else {
+          tft.writeRect(0, yt, width, 1, ppixLine - x);
+          if (g_debug_output)Serial.printf("\t(%d, %d, %d, %d ++) %p\n", 0, yt, width, 1, ppixLine - x);
+        }
+        WaitforWRComplete();
       }
       ppixLine += cx;
     }
-  }  
+  }    
 } 
+void WaitforWRComplete() {
+  #if defined(_RA8876_T3)
+  // bugbug: ra8876 may use dma code, and since some of our decoders
+  // want to reuse the same memory we wait for these to complete
+  while(!tft.DMAFinished()) ;
+  #endif
+
+}
 #endif
 
 // Function to draw pixels to the display
@@ -921,6 +937,7 @@ void processPNGFile(const char *name, bool fErase)
   if (rc == PNG_SUCCESS) {
     int image_width = png.getWidth();
     int image_height = png.getHeight();
+    g_image_scale = 1; // default...
     Serial.printf("image specs: (%d x %d), %d bpp, pixel type: %d\n", image_width, image_height, png.getBpp(), png.getPixelType());
     if (g_PNGScale > 0) {
       g_image_scale = g_PNGScale; // use what they passed in
@@ -1069,6 +1086,7 @@ void ProcessTouchScreen()
   uint8_t registers[FT5206_REGISTERS];
   uint8_t current_touches = 0;
   if (cts.touched()) {
+    Serial.println("@@@ Process Touch Screen");
     uint8_t i;
     cts.getTSregisters(registers);
     uint16_t coordinates[MAXTOUCHLIMIT][2];//to hold coordinates
