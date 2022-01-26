@@ -194,6 +194,7 @@ int g_jpg_scale_y_above[4];
 int g_image_offset_x = 0;
 int g_image_offset_y = 0;
 uint8_t g_image_scale = 1;
+uint32_t g_WRCount = 0;  // debug count how many time writeRect called
 
 
 
@@ -353,7 +354,7 @@ void loop() {
   bool jpg_file = false;
   bool png_file = false;
   
-  Serial.println("Loop looking for image file");
+  Serial.println("\nLoop looking for image file");
   
   File imageFile;
   
@@ -378,21 +379,28 @@ void loop() {
     if (stricmp(name, options_file_name) == 0) ProcessOptionsFile(imageFile);
     if ( bmp_file || jpg_file || png_file) break;
   }
-//  FillScreen((uint16_t)g_background_color);
-  if (imageFile && bmp_file) {
-    bmpDraw(imageFile, imageFile.name(), true);
 
-  #ifdef  __JPEGDEC__
-  } else if(imageFile && jpg_file) {
-    processJPGFile(name, true);
-    imageFile.close();
-  #endif  
+  if (imageFile) {
+    elapsedMillis emDraw = 0;
+    char file_name[MTP_MAX_FILENAME_LEN];
+    strncpy(file_name, name, sizeof(file_name));
+    g_WRCount = 0;
+    if (bmp_file) {
+      bmpDraw(imageFile, imageFile.name(), true);
 
-  #ifdef __PNGDEC__
-  } else if(imageFile && png_file) {
-    processPNGFile(name, true);
-    imageFile.close();
-  #endif
+    #ifdef  __JPEGDEC__
+    } else if(jpg_file) {
+      processJPGFile(name, true);
+      imageFile.close();
+    #endif  
+
+    #ifdef __PNGDEC__
+    } else if(png_file) {
+      processPNGFile(name, true);
+      imageFile.close();
+    #endif
+    }
+    Serial.printf("!!File:%s Time:%u writeRect calls:%u\n", file_name, (uint32_t)emDraw, g_WRCount);
   } else {
     FillScreen(GREEN);
     tft.setTextColor(WHITE);
@@ -598,7 +606,7 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
   boolean  flip    = true;        // BMP is stored bottom-to-top
   int      row, col;
   uint8_t  r, g, b;
-  uint32_t pos = 0, startTime = millis();
+  uint32_t pos = 0;
 
 
   Serial.println();
@@ -608,25 +616,23 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
 
   // Parse BMP header
   if(read16(bmpFile) == 0x4D42) { // BMP signature
-    Serial.print(F("File size: ")); Serial.println(read32(bmpFile));
+    uint32_t bmpFileSize  __attribute__((unused)) = read32(bmpFile); // Read & ignore creator bytes
+    //Serial.print(F("File size: ")); Serial.println(bmpFileSize);
     (void)read32(bmpFile); // Read & ignore creator bytes
     bmpImageoffset = read32(bmpFile); // Start of image data
-    Serial.print(F("Image Offset: ")); Serial.println(bmpImageoffset, DEC);
+    //Serial.print(F("Image Offset: ")); Serial.println(bmpImageoffset, DEC);
     // Read DIB header
-    Serial.print(F("Header size: ")); Serial.println(read32(bmpFile));
+    uint32_t bmpHdrSize  __attribute__((unused)) = read32(bmpFile);
+    //Serial.print(F("Header size: ")); Serial.println(bmpHdrSize);
     image_width  = read32(bmpFile);
     image_height = read32(bmpFile);
     if(read16(bmpFile) == 1) { // # planes -- must be '1'
       bmpDepth = read16(bmpFile); // bits per pixel
-      Serial.print(F("Bit Depth: ")); Serial.println(bmpDepth);
+      //Serial.print(F("Bit Depth: ")); Serial.println(bmpDepth);
       if((bmpDepth == 24) && (read32(bmpFile) == 0)) { // 0 = uncompressed
 
         goodBmp = true; // Supported BMP format -- proceed!
-        Serial.print(F("Image size: "));
-        Serial.print(image_width);
-        Serial.print('x');
-        Serial.println(image_height);
-
+        Serial.printf("Image size: %dx%d depth:%u", image_width, image_height, bmpDepth);
         // BMP rows are padded (if needed) to 4-byte boundary
         rowSize = (image_width * 3 + 3) & ~3;
 
@@ -657,15 +663,14 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
             g_image_scale = 2;
           }        
         }
-        Serial.printf("Scale: 1/%d\n", g_image_scale);
         if (g_center_image) {
           g_image_offset_x = (tft.width() - (image_width / g_image_scale)) / 2;
           g_image_offset_y = (tft.height() - (image_height / g_image_scale)) / 2;
-          Serial.printf("\tImage Offsets (%d, %d)\n", g_image_offset_x, g_image_offset_y);
         } else {
           g_image_offset_x = 0;
           g_image_offset_y = 0;
         }
+        Serial.printf("Scale: 1/%d Image Offsets (%d, %d)\n", g_image_scale, g_image_offset_x, g_image_offset_y);
 
         if (fErase && (((image_width/g_image_scale) < tft.width()) || ((image_height/g_image_scale) < image_height))) {
           FillScreen((uint16_t)g_background_color);
@@ -715,9 +720,6 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
           usPixels = nullptr;
         } // malloc succeeded
 
-        Serial.print(F("Loaded in "));
-        Serial.print(millis() - startTime);
-        Serial.println(" ms");
       } // end goodBmp
     }
   }
@@ -778,6 +780,7 @@ void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels)
 
   if ((x >= 0) && (y >= 0) && (end_x <= tft.width()) && (end_y <= tft.height())) {
     tft.writeRect(x, y, cx, cy, pixels);
+    g_WRCount++;
     if (g_debug_output) Serial.printf("\t(%d, %d, %d, %d) %p\n", x, y, cx, cy, pixels);
     WaitforWRComplete();
   } else {
@@ -795,6 +798,7 @@ void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels)
           tft.writeRect(0, yt, width, 1, ppixLine - x);
           if (g_debug_output)Serial.printf("\t(%d, %d, %d, %d ++) %p\n", 0, yt, width, 1, ppixLine - x);
         }
+        g_WRCount++;
         WaitforWRComplete();
       }
       ppixLine += cx;
@@ -878,7 +882,6 @@ void processJPGFile(const char *name, bool fErase)
         }        
       }
     }
-    Serial.printf("Scale: 1/%d\n", scale);
     if (fErase && ((image_width/scale < tft.width()) || (image_height/scale < tft.height()))) {
       FillScreen((uint16_t)g_background_color);
     }
@@ -886,11 +889,11 @@ void processJPGFile(const char *name, bool fErase)
     if (g_center_image) {
       g_image_offset_x = (tft.width() - image_width/scale) / 2;
       g_image_offset_y = (tft.height() - image_height/scale) / 2;
-      Serial.printf("\tImage Offsets (%d, %d)\n", g_image_offset_x, g_image_offset_y);
     } else {
       g_image_offset_x = 0;
       g_image_offset_y = 0;
     }
+    Serial.printf("Scale: 1/%d Image Offsets (%d, %d)\n", g_image_scale, g_image_offset_x, g_image_offset_y);
 
     jpeg.decode(0, 0, decode_options);
     jpeg.close();
@@ -958,7 +961,6 @@ void processPNGFile(const char *name, bool fErase)
         g_image_scale = 2;
       }        
     }
-    Serial.printf("Scale: 1/%d\n", g_image_scale);
 
     if (fErase && (((image_width/g_image_scale) < tft.width()) || ((image_height/g_image_scale) < image_height))) {
       FillScreen((uint16_t)g_background_color);
@@ -967,12 +969,12 @@ void processPNGFile(const char *name, bool fErase)
     if (g_center_image) {
       g_image_offset_x = (tft.width() - (png.getWidth() / g_image_scale)) / 2;
       g_image_offset_y = (tft.height() - (png.getHeight() / g_image_scale)) / 2;
-      Serial.printf("\tImage Offsets (%d, %d)\n", g_image_offset_x, g_image_offset_y);
     } else {
       g_image_offset_x = 0;
       g_image_offset_y = 0;
     }
 
+    Serial.printf("Scale: 1/%d Image Offsets (%d, %d)\n", g_image_scale, g_image_offset_x, g_image_offset_y);
     uint16_t *usPixels = (uint16_t*)malloc(image_width * g_image_scale * sizeof(uint16_t));
     if (usPixels) {
       rc = png.decode(usPixels, 0);
