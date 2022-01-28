@@ -34,8 +34,8 @@
 //#include <SPI.h>
 //#include <RA8875.h>
 //Optional support for RA8876
-#include <FT5206.h>
- #include <RA8876_t3.h>
+//#include <FT5206.h>
+//#include <RA8876_t3.h>
 
 // If ILI9341_t3n is not included include ILI9341_t3 which is installed by Teensyduino
 #if !defined(_ILI9341_t3NH_) && !defined(_ILI9488_t3H_) && !defined(__ST7735_t3_H_) \
@@ -414,17 +414,21 @@ void loop() {
     int ch;
     Serial.printf("Step Mode: enter anything to continue");
     while((ch = Serial.read()) == -1) MTP.loop();  // in case at startup...
-    if (ch == 'd') g_debug_output = !g_debug_output;
-    if (ch == 's') g_stepMode = !g_stepMode;
-    while(Serial.read() != -1) ;
+    while (ch != -1) {
+      if (ch == 'd') g_debug_output = !g_debug_output;
+      if (ch == 's') g_stepMode = !g_stepMode;
+      ch = Serial.read();
+    }
   } else if (Serial.available()) {
     int ch;
     while(Serial.read() != -1) ;
     Serial.printf("Paused: enter anything to continue");
     while((ch = Serial.read()) == -1) MTP.loop();
-    if (ch == 'd') g_debug_output = !g_debug_output;
-    if (ch == 's') g_stepMode = !g_stepMode;
-    while(Serial.read() != -1) ;
+    while (ch != -1) {
+      if (ch == 'd') g_debug_output = !g_debug_output;
+      if (ch == 's') g_stepMode = !g_stepMode;
+      ch = Serial.read();
+    }
 
   }
   emDisplayed = 0;
@@ -777,33 +781,52 @@ void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels)
   y += g_image_offset_y;
   int end_x = x + cx;
   int end_y = y + cy;
+  
+  if (g_debug_output) Serial.printf("\t(%d, %d, %d, %d) %p", x, y, cx, cy, pixels);
 
   if ((x >= 0) && (y >= 0) && (end_x <= tft.width()) && (end_y <= tft.height())) {
     tft.writeRect(x, y, cx, cy, pixels);
     g_WRCount++;
-    if (g_debug_output) Serial.printf("\t(%d, %d, %d, %d) %p\n", x, y, cx, cy, pixels);
+    if (g_debug_output) Serial.println(" Full");
     WaitforWRComplete();
-  } else {
-    int width = cx;
-    if (end_x > tft.width()) width -= (end_x - tft.width()); 
-    if (x < 0) width += x; 
-    uint16_t *ppixLine = pixels;
-    for (int yt = y; yt < end_y; yt++) {
-      if (yt >= tft.height()) break;
-      if (yt >= 0) {
-        if (x >=0) {
-          tft.writeRect(x, yt, width, 1, ppixLine);
-          if (g_debug_output)Serial.printf("\t(%d, %d, %d, %d) %p\n", x, yt, width, 1, ppixLine);
-        } else {
-          tft.writeRect(0, yt, width, 1, ppixLine - x);
-          if (g_debug_output)Serial.printf("\t(%d, %d, %d, %d ++) %p\n", 0, yt, width, 1, ppixLine - x);
-        }
-        g_WRCount++;
-        WaitforWRComplete();
-      }
-      ppixLine += cx;
+  // only process if something is visible.   
+  } else if ((end_x >= 0) && (end_y >= 0) && (x < tft.width()) && (y < tft.height())) {
+    int cx_out = cx;
+    int cy_out = cy;
+    if (x < 0) {
+      pixels += -x; // point to first word we will use. 
+      cx_out += x;
+      x = 0; 
     }
-  }    
+    if (end_x > tft.width()) cx_out -= (end_x - tft.width());
+    if (y < 0) {
+      pixels += -y*cx; // point to first word we will use. 
+      cy_out += y;
+      y = 0; 
+    }
+    if (end_y > tft.height()) cy_out -= (end_y - tft.height());
+    if (cx_out && cy_out) { 
+      if (cy_out > 1) {
+        //compress the buffer
+        uint16_t *pixels_out = pixels;
+        uint16_t *p = pixels;
+        end_y = cy_out; // reuse variable
+        while (--end_y) {
+          p += cx_out; // increment to where we will copy the pixels to
+          pixels_out += cx; // increment by one full row
+          memcpy(p, pixels_out, cx_out*sizeof(uint16_t));
+        }
+      }
+      tft.writeRect(x, y, cx_out, cy_out, pixels);
+      if (g_debug_output)Serial.printf(" -> (%d, %d, %d, %d)* %p\n", x, y, cx_out, cy_out, pixels);
+      g_WRCount++;
+      WaitforWRComplete();
+    } else {
+      if (g_debug_output)Serial.println(" Clipped");
+    }
+  } else {
+    if (g_debug_output)Serial.println(" Clipped");
+  }
 } 
 void WaitforWRComplete() {
   #if defined(_RA8876_T3)
