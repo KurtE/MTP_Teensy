@@ -35,7 +35,7 @@
 //#include <RA8875.h>
 //Optional support for RA8876
 //#include <FT5206.h>
-//#include <RA8876_t3.h>
+#include <RA8876_t3.h>
 
 // If ILI9341_t3n is not included include ILI9341_t3 which is installed by Teensyduino
 #if !defined(_ILI9341_t3NH_) && !defined(_ILI9488_t3H_) && !defined(__ST7735_t3_H_) \
@@ -87,6 +87,7 @@
 
 // RA8875 capacitive IRQ
 #define RA8876_INT 6
+#define RA8876_CTPRST 31
 #define MAXTOUCHLIMIT     1//1...5
 
 
@@ -137,6 +138,7 @@ ST7789_t3 tft = ST7789_t3(TFT_CS,  TFT_DC, TFT_RST);
 //#define SCREEN_WIDTH_TFTHEIGHT_144
 // for 1.8" display and mini
 //#define SCREEN_WIDTH_TFTHEIGHT_160 // for 1.8" and mini display
+
 #elif defined(_RA8875MC_H_)
 #undef TFT_RST
 #define TFT_RST 9
@@ -146,9 +148,7 @@ RA8875 tft = RA8875(TFT_CS, TFT_RST);
 #undef TFT_RST
 #define TFT_RST 9
 RA8876_t3 tft = RA8876_t3(TFT_CS, TFT_RST);
-#ifdef RA8876_INT
-FT5206 cts = FT5206(RA8876_INT);
-#endif
+
 #else
 ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC, TFT_RST);
 #define SUPPORTS_XPT2046_TOUCH
@@ -197,6 +197,16 @@ uint8_t g_image_scale = 1;
 uint32_t g_WRCount = 0;  // debug count how many time writeRect called
 
 
+//****************************************************************************
+// forward function definitions. 
+//****************************************************************************
+#if  defined(_ILI9341_t3NH_) || defined(_ILI9488_t3H_) || defined(__ST7735_t3_H) || defined(__ST7789_t3_H_)
+inline void writeClippedRect(int16_t x, int16_t y, int16_t cx, int16_t cy, uint16_t *pixels, bool waitForWRC = true ) {
+  tft.writeRect(x + g_image_offset_x, y + g_image_offset_y, cx, cy, pixels);
+}
+#else
+extern void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels, bool waitForWRC = true); 
+#endif
 
 
 //****************************************************************************
@@ -276,7 +286,13 @@ void setup(void) {
  #elif defined(_RA8876_T3)
   tft.begin();
    #ifdef RA8876_INT
-   cts.begin();
+  tft.useCapINT(RA8876_INT, RA8876_CTPRST);//we use the capacitive chip Interrupt out!
+  //the following set the max touches (max 5)
+  //it can be placed inside loop but BEFORE touched()
+  //to limit dinamically the touches (for example to 1)
+  tft.setTouchLimit(MAXTOUCHLIMIT);
+  tft.enableCapISR(true);//capacitive touch screen interrupt it's armed
+
    #endif
    tft.backlight(true);
   tft.setRotation(0);
@@ -320,6 +336,7 @@ void setup(void) {
   while (!Serial) {
     if (millis() > 3000) break;
   }
+  if (CrashReport) Serial.print(CrashReport);
   Serial.printf("\nScreen Width: %u Height: %d\n", tft.width(), tft.height());
 
   rootFile = SD.open("/");
@@ -337,6 +354,12 @@ void setup(void) {
 #if defined( _ILI9341_t3NH_) || defined(_ILI9488_t3H_)
   tft.useFrameBuffer(true);
 #endif
+   #ifdef RA8876_INT
+  tft.printTSRegisters(Serial, 0, 33);
+  tft.printTSRegisters(Serial, 0x80, 0xb5-0x80);
+
+   #endif
+
 }
 
 //****************************************************************************
@@ -381,6 +404,9 @@ void loop() {
   }
 
   if (imageFile) {
+    #if 0 //defined(_RA8876_T3)
+    tft.useCanvas();
+    #endif
     elapsedMillis emDraw = 0;
     char file_name[MTP_MAX_FILENAME_LEN];
     strncpy(file_name, name, sizeof(file_name));
@@ -407,7 +433,7 @@ void loop() {
     tft.setTextSize(2);
     tft.println(F("No Files Found"));
   }
-  #if defined( _ILI9341_t3NH_) || defined(_ILI9488_t3H_)
+  #if defined( _ILI9341_t3NH_) || defined(_ILI9488_t3H_) // || defined(_RA8876_T3)
   tft.updateScreen();
   #endif
   if (g_stepMode) {
@@ -770,12 +796,8 @@ void myClose(void *handle) {
 // which doe snot have offset/clipping support
 //=============================================================================
 
-#if  defined(_ILI9341_t3NH_) || defined(_ILI9488_t3H_) || defined(__ST7735_t3_H) || defined(__ST7789_t3_H_)
-inline void writeClippedRect(int16_t x, int16_t y, int16_t cx, int16_t cy, uint16_t *pixels) {
-  tft.writeRect(x + g_image_offset_x, y + g_image_offset_y, cx, cy, pixels);
-}
-#else
-void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels) 
+#if ! (defined(_ILI9341_t3NH_) || defined(_ILI9488_t3H_) || defined(__ST7735_t3_H) || defined(__ST7789_t3_H_))
+void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels, bool waitForWRC) 
 {
   x += g_image_offset_x;
   y += g_image_offset_y;
@@ -788,7 +810,7 @@ void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels)
     tft.writeRect(x, y, cx, cy, pixels);
     g_WRCount++;
     if (g_debug_output) Serial.println(" Full");
-    WaitforWRComplete();
+    if (waitForWRC)WaitforWRComplete();
   // only process if something is visible.   
   } else if ((end_x >= 0) && (end_y >= 0) && (x < tft.width()) && (y < tft.height())) {
     int cx_out = cx;
@@ -820,7 +842,7 @@ void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels)
       tft.writeRect(x, y, cx_out, cy_out, pixels);
       if (g_debug_output)Serial.printf(" -> (%d, %d, %d, %d)* %p\n", x, y, cx_out, cy_out, pixels);
       g_WRCount++;
-      WaitforWRComplete();
+      if (waitForWRC)WaitforWRComplete();
     } else {
       if (g_debug_output)Serial.println(" Clipped");
     }
@@ -950,6 +972,8 @@ int JPEGDraw(JPEGDRAW *pDraw) {
 //used for png files primarily
 #ifdef __PNGDEC__
 PNG png;
+int g_image_width;
+int g_image_height;
 
 void processPNGFile(const char *name, bool fErase)
 {
@@ -961,31 +985,31 @@ void processPNGFile(const char *name, bool fErase)
   Serial.println('\'');
   rc = png.open((const char *)name, myOpen, myClose, myReadPNG, mySeekPNG, PNGDraw);
   if (rc == PNG_SUCCESS) {
-    int image_width = png.getWidth();
-    int image_height = png.getHeight();
+    g_image_width = png.getWidth();
+    g_image_height = png.getHeight();
     g_image_scale = 1; // default...
-    Serial.printf("image specs: (%d x %d), %d bpp, pixel type: %d\n", image_width, image_height, png.getBpp(), png.getPixelType());
+    Serial.printf("image specs: (%d x %d), %d bpp, pixel type: %d\n", g_image_width, g_image_height, png.getBpp(), png.getPixelType());
     if (g_PNGScale > 0) {
       g_image_scale = g_PNGScale; // use what they passed in
     } else if (g_PNGScale < 0) {
-      if (image_width > tft.width()) g_image_scale = (image_width + tft.width() - 1) / tft.width();
-      if (image_height > tft.height()) {
-        int yscale = (image_height + tft.height() - 1) / tft.height();
+      if (g_image_width > tft.width()) g_image_scale = (g_image_width + tft.width() - 1) / tft.width();
+      if (g_image_height > tft.height()) {
+        int yscale = (g_image_height + tft.height() - 1) / tft.height();
         if (yscale > g_image_scale) g_image_scale = yscale;
       }
     } else {  
-      if ((image_width > g_jpg_scale_x_above[SCL_16TH]) || (image_height >  g_jpg_scale_y_above[SCL_16TH])) {
+      if ((g_image_width > g_jpg_scale_x_above[SCL_16TH]) || (g_image_height >  g_jpg_scale_y_above[SCL_16TH])) {
         g_image_scale = 16;
-      } else if ((image_width > g_jpg_scale_x_above[SCL_EIGHTH]) || (image_height >  g_jpg_scale_y_above[SCL_EIGHTH])) {
+      } else if ((g_image_width > g_jpg_scale_x_above[SCL_EIGHTH]) || (g_image_height >  g_jpg_scale_y_above[SCL_EIGHTH])) {
         g_image_scale = 8;
-      } else if ((image_width > g_jpg_scale_x_above[SCL_QUARTER]) || (image_height >  g_jpg_scale_y_above[SCL_QUARTER])) {
+      } else if ((g_image_width > g_jpg_scale_x_above[SCL_QUARTER]) || (g_image_height >  g_jpg_scale_y_above[SCL_QUARTER])) {
         g_image_scale = 4;
-      } else if ((image_width > g_jpg_scale_x_above[SCL_HALF]) || (image_height >  g_jpg_scale_y_above[SCL_HALF])) {
+      } else if ((g_image_width > g_jpg_scale_x_above[SCL_HALF]) || (g_image_height >  g_jpg_scale_y_above[SCL_HALF])) {
         g_image_scale = 2;
       }        
     }
 
-    if (fErase && (((image_width/g_image_scale) < tft.width()) || ((image_height/g_image_scale) < image_height))) {
+    if (fErase && (((g_image_width/g_image_scale) < tft.width()) || ((g_image_height/g_image_scale) < g_image_height))) {
       FillScreen((uint16_t)g_background_color);
     }
 
@@ -998,7 +1022,7 @@ void processPNGFile(const char *name, bool fErase)
     }
 
     Serial.printf("Scale: 1/%d Image Offsets (%d, %d)\n", g_image_scale, g_image_offset_x, g_image_offset_y);
-    uint16_t *usPixels = (uint16_t*)malloc(image_width * g_image_scale * sizeof(uint16_t));
+    uint16_t *usPixels = (uint16_t*)malloc(g_image_width * ((g_image_scale==1)? 16 : g_image_scale) * sizeof(uint16_t));
     if (usPixels) {
       rc = png.decode(usPixels, 0);
       png.close();
@@ -1022,8 +1046,14 @@ int32_t mySeekPNG(PNGFILE *handle, int32_t position) {
 void PNGDraw(PNGDRAW *pDraw) {
   uint16_t *usPixels = (uint16_t*)pDraw->pUser;
   if(g_image_scale == 1) {
-    png.getLineAsRGB565(pDraw, usPixels, PNG_RGB565_LITTLE_ENDIAN, 0xffffffff);
-    writeClippedRect(0, pDraw->y, pDraw->iWidth, 1, usPixels);
+    uint16_t *pusRow = usPixels + pDraw->iWidth * (pDraw->y & 0xf); // we have 16 lines to work with
+    png.getLineAsRGB565(pDraw, pusRow, PNG_RGB565_LITTLE_ENDIAN, 0xffffffff);
+    // but we will output 8 lines at time. 
+    if ((pDraw->y == g_image_height - 1) || ((pDraw->y & 0x7) == 0x7)) {
+      WaitforWRComplete(); // make sure previous writes are done
+      writeClippedRect(0, pDraw->y & 0xfff8, pDraw->iWidth, (pDraw->y & 0x7) + 1, 
+        usPixels + (pDraw->y & 0x8) * pDraw->iWidth, false);
+    }
   } else {
     uint16_t *pusRow = usPixels + pDraw->iWidth * (pDraw->y % g_image_scale);  
     png.getLineAsRGB565(pDraw, pusRow, PNG_RGB565_LITTLE_ENDIAN, 0xffffffff);
@@ -1108,22 +1138,22 @@ void ProcessTouchScreen()
 #elif defined(_RA8876_T3) && defined(RA8876_INT)
 void ProcessTouchScreen()
 {
-  uint8_t registers[FT5206_REGISTERS];
-  uint8_t current_touches = 0;
-  if (cts.touched()) {
-    Serial.println("@@@ Process Touch Screen");
-    uint8_t i;
-    cts.getTSregisters(registers);
+  if (tft.touched()){//if touched(true) detach isr
+  //at this point we need to fill the FT5206 registers...
+    tft.updateTS();//now we have the data inside library
+    Serial.print(">> touches:");
+    Serial.print(tft.getTouches());
+    Serial.print(" | gesture:");
+    Serial.print(tft.getGesture(),HEX);
+    Serial.print(" | state:");
+    Serial.print(tft.getTouchState(),HEX);
     uint16_t coordinates[MAXTOUCHLIMIT][2];//to hold coordinates
-    current_touches = cts.getTScoordinates(coordinates, registers);
-    if (current_touches < 1) return;
-
-    Serial.print(current_touches);
-    Serial.print(" touches: ");
-
-    for (i = 1; i <= current_touches; i++) { // mark touches on screen
+    tft.getTScoordinates(coordinates);//done
+    //now coordinates has the x,y of all touches
+    for (uint8_t i=0;i<=tft.getTouches();i++){
       Serial.printf(" (%d,%d)", coordinates[i][0],coordinates[i][1]);
     }
+    tft.enableCapISR();//rearm ISR if needed (touched(true))
     Serial.println();
     //otherwise it doesn't do nothing...
     fast_mode = true;
