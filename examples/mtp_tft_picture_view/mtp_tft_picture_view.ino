@@ -35,13 +35,25 @@
 //#include <RA8875.h>
 //Optional support for RA8876
 //#include <FT5206.h>
-#include <RA8876_t3.h>
+//#include <RA8876_t3.h>
 
-// If ILI9341_t3n is not included include ILI9341_t3 which is installed by Teensyduino
+// If user did not include any other driver will defalt to ILI9341_t3 which is installed by Teensyduino
 #if !defined(_ILI9341_t3NH_) && !defined(_ILI9488_t3H_) && !defined(__ST7735_t3_H_) \
  && !defined(_RA8875MC_H_) && !defined(_RA8876_T3)
 #include <ILI9341_t3.h>
 #endif
+
+#if defined(_ILI9341_t3NH_) || defined(_ILI9488_t3H_) || defined(__ST7735_t3_H) || defined(__ST7789_t3_H_) //|| defined(ILI9341_SUPPORTS_CLIPPING)
+#define TFT_CLIP_SUPPORT
+#if !defined(ILI9341_SUPPORTS_CLIPPING)
+#define TFT_SUPPORT_FB
+#endif
+#endif
+
+#ifdef _ILI9341_t3H_
+#define TFT_EMULATE_FB
+#endif
+
 
 #include <SPI.h>
 #include <SD.h>
@@ -166,6 +178,12 @@ ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC, TFT_RST);
 XPT2046_Touchscreen ts(TOUCH_CS, TOUCH_TIRQ);
 #endif
 
+uint16_t g_tft_width = 0;
+uint16_t g_tft_height = 0;
+#ifdef TFT_EMULATE_FB
+uint16_t *g_frame_buffer = nullptr;
+#endif
+
 File rootFile;
 File myfile;
 bool fast_mode = false;
@@ -200,7 +218,7 @@ uint32_t g_WRCount = 0;  // debug count how many time writeRect called
 //****************************************************************************
 // forward function definitions. 
 //****************************************************************************
-#if  defined(_ILI9341_t3NH_) || defined(_ILI9488_t3H_) || defined(__ST7735_t3_H) || defined(__ST7789_t3_H_)
+#ifdef TFT_CLIP_SUPPORT
 inline void writeClippedRect(int16_t x, int16_t y, int16_t cx, int16_t cy, uint16_t *pixels, bool waitForWRC = true ) {
   tft.writeRect(x + g_image_offset_x, y + g_image_offset_y, cx, cy, pixels);
 }
@@ -303,16 +321,26 @@ void setup(void) {
   #endif
   tft.setRotation(1);
  #endif
-  FillScreen(BLUE);
-  g_jpg_scale_x_above[0] = (tft.width()*3)/2;
-  g_jpg_scale_x_above[1] = tft.width()*3;
-  g_jpg_scale_x_above[2] = tft.width()*6;
-  g_jpg_scale_x_above[3] = tft.width()*12;
 
-  g_jpg_scale_y_above[0] = (tft.height()*3)/2;
-  g_jpg_scale_y_above[1] = tft.height()*3;
-  g_jpg_scale_y_above[2] = tft.height()*6;
-  g_jpg_scale_y_above[3] = tft.height()*12;
+  g_tft_width = tft.width();
+  g_tft_height = tft.height();
+
+  FillScreen(BLUE);
+  g_jpg_scale_x_above[0] = (g_tft_width*3)/2;
+  g_jpg_scale_x_above[1] = g_tft_width*3;
+  g_jpg_scale_x_above[2] = g_tft_width*6;
+  g_jpg_scale_x_above[3] = g_tft_width*12;
+
+  g_jpg_scale_y_above[0] = (g_tft_height*3)/2;
+  g_jpg_scale_y_above[1] = g_tft_height*3;
+  g_jpg_scale_y_above[2] = g_tft_height*6;
+  g_jpg_scale_y_above[3] = g_tft_height*12;
+
+
+
+#ifdef TFT_EMULATE_FB
+g_frame_buffer = (uint16_t *)malloc(g_tft_width * g_tft_height * sizeof(uint16_t));
+#endif
 
 
   //Serial.print(F("Initializing SD card..."));
@@ -337,7 +365,7 @@ void setup(void) {
     if (millis() > 3000) break;
   }
   if (CrashReport) Serial.print(CrashReport);
-  Serial.printf("\nScreen Width: %u Height: %d\n", tft.width(), tft.height());
+  Serial.printf("\nScreen Width: %u Height: %d\n", g_tft_width, g_tft_height);
 
   rootFile = SD.open("/");
 
@@ -354,7 +382,7 @@ void setup(void) {
 #if defined( _ILI9341_t3NH_) || defined(_ILI9488_t3H_)
   tft.useFrameBuffer(true);
 #endif
-   #ifdef RA8876_INT
+   #ifdef _RA8876_T3
   tft.printTSRegisters(Serial, 0, 33);
   tft.printTSRegisters(Serial, 0x80, 0xb5-0x80);
 
@@ -436,6 +464,12 @@ void loop() {
   #if defined( _ILI9341_t3NH_) || defined(_ILI9488_t3H_) // || defined(_RA8876_T3)
   tft.updateScreen();
   #endif
+  #ifdef TFT_EMULATE_FB
+  if (g_frame_buffer) {
+    tft.writeRect(0, 0, g_tft_width, g_tft_height, g_frame_buffer);
+  }
+  #endif
+
   if (g_stepMode) {
     int ch;
     Serial.printf("Step Mode: enter anything to continue");
@@ -606,7 +640,21 @@ inline void   Color565ToRGB(uint16_t color, uint8_t &r, uint8_t &g, uint8_t &b) 
     b = (color<<3)&0x00F8;
   }
 #else
+
+#ifdef TFT_EMULATE_FB
+void FillScreen(uint16_t color) {
+  if (g_frame_buffer) {
+    for (uint32_t i = 0; i < g_tft_width * g_tft_height; i++) {
+      g_frame_buffer[i] = color;
+    }
+  } else {
+    tft.fillScreen(color); 
+  }
+}  
+
+#else
 inline void FillScreen(uint16_t color) {tft.fillScreen(color);}
+#endif
 inline uint16_t Color565(uint8_t r,uint8_t g,uint8_t b) {return tft.color565(r, g, b);}
 inline void   Color565ToRGB(uint16_t color, uint8_t &r, uint8_t &g, uint8_t &b) {tft.color565toRGB(color, r, g, b);}
 #endif
@@ -677,9 +725,9 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
         if (g_BMPScale > 0) {
           g_image_scale = g_BMPScale; // use what they passed in
         } else if (g_BMPScale < 0) {
-          if (image_width > tft.width()) g_image_scale = (image_width + tft.width() - 1) / tft.width();
-          if (image_height > tft.height()) {
-            int yscale = (image_height + tft.height() - 1) / tft.height();
+          if (image_width > g_tft_width) g_image_scale = (image_width + g_tft_width - 1) / g_tft_width;
+          if (image_height > g_tft_height) {
+            int yscale = (image_height + g_tft_height - 1) / g_tft_height;
             if (yscale > g_image_scale) g_image_scale = yscale;
           }
         } else {  
@@ -694,15 +742,15 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
           }        
         }
         if (g_center_image) {
-          g_image_offset_x = (tft.width() - (image_width / g_image_scale)) / 2;
-          g_image_offset_y = (tft.height() - (image_height / g_image_scale)) / 2;
+          g_image_offset_x = (g_tft_width - (image_width / g_image_scale)) / 2;
+          g_image_offset_y = (g_tft_height - (image_height / g_image_scale)) / 2;
         } else {
           g_image_offset_x = 0;
           g_image_offset_y = 0;
         }
         Serial.printf("Scale: 1/%d Image Offsets (%d, %d)\n", g_image_scale, g_image_offset_x, g_image_offset_y);
 
-        if (fErase && (((image_width/g_image_scale) < tft.width()) || ((image_height/g_image_scale) < image_height))) {
+        if (fErase && (((image_width/g_image_scale) < g_tft_width) || ((image_height/g_image_scale) < image_height))) {
           FillScreen((uint16_t)g_background_color);
         }
 
@@ -796,7 +844,7 @@ void myClose(void *handle) {
 // which doe snot have offset/clipping support
 //=============================================================================
 
-#if ! (defined(_ILI9341_t3NH_) || defined(_ILI9488_t3H_) || defined(__ST7735_t3_H) || defined(__ST7789_t3_H_))
+#if !defined(TFT_CLIP_SUPPORT)
 void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels, bool waitForWRC) 
 {
   x += g_image_offset_x;
@@ -806,13 +854,26 @@ void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels, bool waitF
   
   if (g_debug_output) Serial.printf("\t(%d, %d, %d, %d) %p", x, y, cx, cy, pixels);
 
-  if ((x >= 0) && (y >= 0) && (end_x <= tft.width()) && (end_y <= tft.height())) {
-    tft.writeRect(x, y, cx, cy, pixels);
+  if ((x >= 0) && (y >= 0) && (end_x <= g_tft_width) && (end_y <= g_tft_height)) {
+    #ifdef TFT_EMULATE_FB
+    if (g_frame_buffer) {
+      uint16_t *pfb = &g_frame_buffer[y * g_tft_width + x];
+      while(cy--) {
+        memcpy(pfb, pixels, cx *2); // output one clipped rows worth
+        pfb += g_tft_width;
+        pixels += cx;
+      }
+    } else
+    #endif
+    {
+      tft.writeRect(x, y, cx, cy, pixels);
+    }
+  
     g_WRCount++;
     if (g_debug_output) Serial.println(" Full");
     if (waitForWRC)WaitforWRComplete();
   // only process if something is visible.   
-  } else if ((end_x >= 0) && (end_y >= 0) && (x < tft.width()) && (y < tft.height())) {
+  } else if ((end_x >= 0) && (end_y >= 0) && (x < g_tft_width) && (y < g_tft_height)) {
     int cx_out = cx;
     int cy_out = cy;
     if (x < 0) {
@@ -820,26 +881,38 @@ void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels, bool waitF
       cx_out += x;
       x = 0; 
     }
-    if (end_x > tft.width()) cx_out -= (end_x - tft.width());
+    if (end_x > g_tft_width) cx_out -= (end_x - g_tft_width);
     if (y < 0) {
       pixels += -y*cx; // point to first word we will use. 
       cy_out += y;
       y = 0; 
     }
-    if (end_y > tft.height()) cy_out -= (end_y - tft.height());
+    if (end_y > g_tft_height) cy_out -= (end_y - g_tft_height);
     if (cx_out && cy_out) { 
-      if (cy_out > 1) {
-        //compress the buffer
-        uint16_t *pixels_out = pixels;
-        uint16_t *p = pixels;
-        end_y = cy_out; // reuse variable
-        while (--end_y) {
-          p += cx_out; // increment to where we will copy the pixels to
-          pixels_out += cx; // increment by one full row
-          memcpy(p, pixels_out, cx_out*sizeof(uint16_t));
+      #ifdef TFT_EMULATE_FB
+      if (g_frame_buffer) {
+        uint16_t *pfb = &g_frame_buffer[y * g_tft_width + x];
+        while(cy_out--) {
+          memcpy(pfb, pixels, cx_out *2); // output one clipped rows worth
+          pfb += g_tft_width;
+          pixels += cx;
         }
+      } else
+      #endif
+      {
+        if (cy_out > 1) {
+          //compress the buffer
+          uint16_t *pixels_out = pixels;
+          uint16_t *p = pixels;
+          end_y = cy_out; // reuse variable
+          while (--end_y) {
+            p += cx_out; // increment to where we will copy the pixels to
+            pixels_out += cx; // increment by one full row
+            memcpy(p, pixels_out, cx_out*sizeof(uint16_t));
+          }
+        }
+        tft.writeRect(x, y, cx_out, cy_out, pixels);
       }
-      tft.writeRect(x, y, cx_out, cy_out, pixels);
       if (g_debug_output)Serial.printf(" -> (%d, %d, %d, %d)* %p\n", x, y, cx_out, cy_out, pixels);
       g_WRCount++;
       if (waitForWRC)WaitforWRComplete();
@@ -927,17 +1000,18 @@ void processJPGFile(const char *name, bool fErase)
         }        
       }
     }
-    if (fErase && ((image_width/scale < tft.width()) || (image_height/scale < tft.height()))) {
+    if (fErase && ((image_width/scale < g_tft_width) || (image_height/scale < g_tft_height))) {
       FillScreen((uint16_t)g_background_color);
     }
 
     if (g_center_image) {
-      g_image_offset_x = (tft.width() - image_width/scale) / 2;
-      g_image_offset_y = (tft.height() - image_height/scale) / 2;
+      g_image_offset_x = (g_tft_width - image_width/scale) / 2;
+      g_image_offset_y = (g_tft_height - image_height/scale) / 2;
     } else {
       g_image_offset_x = 0;
       g_image_offset_y = 0;
     }
+    g_image_scale = scale;
     Serial.printf("Scale: 1/%d Image Offsets (%d, %d)\n", g_image_scale, g_image_offset_x, g_image_offset_y);
 
     jpeg.decode(0, 0, decode_options);
@@ -992,9 +1066,9 @@ void processPNGFile(const char *name, bool fErase)
     if (g_PNGScale > 0) {
       g_image_scale = g_PNGScale; // use what they passed in
     } else if (g_PNGScale < 0) {
-      if (g_image_width > tft.width()) g_image_scale = (g_image_width + tft.width() - 1) / tft.width();
-      if (g_image_height > tft.height()) {
-        int yscale = (g_image_height + tft.height() - 1) / tft.height();
+      if (g_image_width > g_tft_width) g_image_scale = (g_image_width + g_tft_width - 1) / g_tft_width;
+      if (g_image_height > g_tft_height) {
+        int yscale = (g_image_height + g_tft_height - 1) / g_tft_height;
         if (yscale > g_image_scale) g_image_scale = yscale;
       }
     } else {  
@@ -1009,13 +1083,13 @@ void processPNGFile(const char *name, bool fErase)
       }        
     }
 
-    if (fErase && (((g_image_width/g_image_scale) < tft.width()) || ((g_image_height/g_image_scale) < g_image_height))) {
+    if (fErase && (((g_image_width/g_image_scale) < g_tft_width) || ((g_image_height/g_image_scale) < g_image_height))) {
       FillScreen((uint16_t)g_background_color);
     }
 
     if (g_center_image) {
-      g_image_offset_x = (tft.width() - (png.getWidth() / g_image_scale)) / 2;
-      g_image_offset_y = (tft.height() - (png.getHeight() / g_image_scale)) / 2;
+      g_image_offset_x = (g_tft_width - (png.getWidth() / g_image_scale)) / 2;
+      g_image_offset_y = (g_tft_height - (png.getHeight() / g_image_scale)) / 2;
     } else {
       g_image_offset_x = 0;
       g_image_offset_y = 0;
@@ -1050,7 +1124,7 @@ void PNGDraw(PNGDRAW *pDraw) {
     png.getLineAsRGB565(pDraw, pusRow, PNG_RGB565_LITTLE_ENDIAN, 0xffffffff);
     // but we will output 8 lines at time. 
     if ((pDraw->y == g_image_height - 1) || ((pDraw->y & 0x7) == 0x7)) {
-      WaitforWRComplete(); // make sure previous writes are done
+//      WaitforWRComplete(); // make sure previous writes are done
       writeClippedRect(0, pDraw->y & 0xfff8, pDraw->iWidth, (pDraw->y & 0x7) + 1, 
         usPixels + (pDraw->y & 0x8) * pDraw->iWidth, false);
     }
@@ -1096,12 +1170,12 @@ void ProcessTouchScreen()
 
   // Scale from ~0->4000 to tft.width using the calibration #'s
 #if 1 // SCREEN_ORIENTATION_1
-  p.x = map(p.x, TS_MINX, TS_MAXX, 0, tft.width());
-  p.y = map(p.y, TS_MINY, TS_MAXY, 0, tft.height());
+  p.x = map(p.x, TS_MINX, TS_MAXX, 0, g_tft_width);
+  p.y = map(p.y, TS_MINY, TS_MAXY, 0, g_tft_height);
 #else
   
-  uint16_t px = map(p.y, TS_MAXY, TS_MINY, 0, tft.width());
-  p.y = map(p.x, TS_MINX, TS_MAXX, 0, tft.height());
+  uint16_t px = map(p.y, TS_MAXY, TS_MINY, 0, g_tft_width);
+  p.y = map(p.x, TS_MINX, TS_MAXX, 0, g_tft_height);
   p.x = px;
 #endif  
     Serial.print(" ("); Serial.print(p.x);
