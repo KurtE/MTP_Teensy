@@ -31,11 +31,11 @@
 //#include <ST7789_t3.h> // Hardware-specific library
 //#define USE_KURTE_MMOD1
 //Optional support for RA8875
-//#include <SPI.h>
+#include <SPI.h>
 //#include <RA8875.h>
 //Optional support for RA8876
-//#include <FT5206.h>
-//#include <RA8876_t3.h>
+#include <FT5206.h>
+#include <RA8876_t3.h>
 
 // If user did not include any other driver will defalt to ILI9341_t3 which is installed by Teensyduino
 #if !defined(_ILI9341_t3NH_) && !defined(_ILI9488_t3H_) && !defined(__ST7735_t3_H_) \
@@ -65,6 +65,13 @@
 
 // optional PNG support requires external library
 #include <PNGdec.h>
+
+#ifdef ARDUINO_TEENSY41
+extern "C" {
+extern int8_t external_psram_size;
+}
+#endif
+
 
 //****************************************************************************
 // This is calibration data for the raw touch data to the screen coordinates
@@ -155,11 +162,18 @@ ST7789_t3 tft = ST7789_t3(TFT_CS,  TFT_DC, TFT_RST);
 #undef TFT_RST
 #define TFT_RST 9
 RA8875 tft = RA8875(TFT_CS, TFT_RST);
+#ifdef ARDUINO_TEENSY41
+#define TFT_EMULATE_FB
+#endif
+
 
 #elif defined(_RA8876_T3)
 #undef TFT_RST
 #define TFT_RST 9
 RA8876_t3 tft = RA8876_t3(TFT_CS, TFT_RST);
+#ifdef ARDUINO_TEENSY41
+#define TFT_EMULATE_FB
+#endif
 
 #else
 ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC, TFT_RST);
@@ -178,11 +192,12 @@ ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC, TFT_RST);
 XPT2046_Touchscreen ts(TOUCH_CS, TOUCH_TIRQ);
 #endif
 
-uint16_t g_tft_width = 0;
-uint16_t g_tft_height = 0;
+int g_tft_width = 0;
+int g_tft_height = 0;
 #ifdef TFT_EMULATE_FB
 uint16_t *g_frame_buffer = nullptr;
 #endif
+bool g_use_efb = true;
 
 File rootFile;
 File myfile;
@@ -301,6 +316,8 @@ void setup(void) {
   #else
   tft.print("you should open RA8875UserSettings.h file and uncomment USE_FT5206_TOUCH!");
   #endif
+
+
  #elif defined(_RA8876_T3)
   tft.begin();
    #ifdef RA8876_INT
@@ -339,7 +356,14 @@ void setup(void) {
 
 
 #ifdef TFT_EMULATE_FB
+#if defined(ARDUINO_TEENSY41) && (defined(_RA8875MC_H_) || defined(_RA8876_T3))
+  if (external_psram_size) {
+    g_frame_buffer = (uint16_t *)extmem_malloc(g_tft_width * g_tft_height * sizeof(uint16_t));
+    Serial.printf(">>> RA8875/6 and Extmem(%u) - extmem_malloc\n", external_psram_size);
+  }
+#else
 g_frame_buffer = (uint16_t *)malloc(g_tft_width * g_tft_height * sizeof(uint16_t));
+#endif
 #endif
 
 
@@ -465,8 +489,22 @@ void loop() {
   tft.updateScreen();
   #endif
   #ifdef TFT_EMULATE_FB
-  if (g_frame_buffer) {
+  if (g_frame_buffer && g_use_efb) {
+    elapsedMillis emOut;
+    #if defined(_RA8876_T3)
+    tft.useCanvas();
+    tft.putPicture_16bpp(0, 0, g_tft_width, g_tft_height);
+    tft.startSend();
+    SPI.transfer(RA8876_SPI_DATAWRITE);
+    SPI.transfer((uint8_t*)g_frame_buffer, NULL, g_tft_width*g_tft_height*2);
+    tft.endSend(true);
+
+    //tft.putPicture_16bppData8(0, 0, g_tft_width, g_tft_height, (uint8_t*)g_frame_buffer);
+    tft.updateScreen();
+    #else
     tft.writeRect(0, 0, g_tft_width, g_tft_height, g_frame_buffer);
+    #endif
+    Serial.printf("EFB writeRect(%u %u) %u\n", g_tft_width, g_tft_height, (uint32_t)emOut);
   }
   #endif
 
@@ -477,6 +515,8 @@ void loop() {
     while (ch != -1) {
       if (ch == 'd') g_debug_output = !g_debug_output;
       if (ch == 's') g_stepMode = !g_stepMode;
+      if (ch == 'f') g_use_efb = !g_use_efb;
+
       ch = Serial.read();
     }
   } else if (Serial.available()) {
@@ -487,6 +527,7 @@ void loop() {
     while (ch != -1) {
       if (ch == 'd') g_debug_output = !g_debug_output;
       if (ch == 's') g_stepMode = !g_stepMode;
+      if (ch == 'f') g_use_efb = !g_use_efb;
       ch = Serial.read();
     }
 
@@ -616,12 +657,36 @@ void ShowAllOptionValues() {
 }
 
 #if defined(_RA8875MC_H_)
+#ifdef TFT_EMULATE_FB
+void FillScreen(uint16_t color) {
+  if (g_frame_buffer && g_use_efb) {
+    for (uint32_t i = 0; i < g_tft_width * g_tft_height; i++) {
+      g_frame_buffer[i] = color;
+    }
+  } else {
+    tft.fillWindow(color); 
+  }
+} 
+#else 
 inline void FillScreen(uint16_t color) {tft.fillWindow(color);}
+#endif
 inline uint16_t Color565(uint8_t r,uint8_t g,uint8_t b) {return tft.Color565(r, g, b);}
 inline void   Color565ToRGB(uint16_t color, uint8_t &r, uint8_t &g, uint8_t &b) {tft.Color565ToRGB(color, r, g, b);}
 
 #elif defined(_RA8876_T3)
+#ifdef TFT_EMULATE_FB
+void FillScreen(uint16_t color) {
+  if (g_frame_buffer && g_use_efb) {
+    for (int i = 0; i < g_tft_width * g_tft_height; i++) {
+      g_frame_buffer[i] = color;
+    }
+  } else {
+    tft.fillScreen(color); 
+  }
+} 
+#else 
 inline void FillScreen(uint16_t color) {tft.fillScreen(color);}
+#endif
 inline uint16_t Color565(uint8_t r,uint8_t g,uint8_t b) { return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3); }
 inline void   Color565ToRGB(uint16_t color, uint8_t &r, uint8_t &g, uint8_t &b) {
  //color565toRGB   - converts 565 format 16 bit color to RGB
@@ -643,7 +708,7 @@ inline void   Color565ToRGB(uint16_t color, uint8_t &r, uint8_t &g, uint8_t &b) 
 
 #ifdef TFT_EMULATE_FB
 void FillScreen(uint16_t color) {
-  if (g_frame_buffer) {
+  if (g_frame_buffer && g_use_efb) {
     for (uint32_t i = 0; i < g_tft_width * g_tft_height; i++) {
       g_frame_buffer[i] = color;
     }
@@ -856,7 +921,7 @@ void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels, bool waitF
 
   if ((x >= 0) && (y >= 0) && (end_x <= g_tft_width) && (end_y <= g_tft_height)) {
     #ifdef TFT_EMULATE_FB
-    if (g_frame_buffer) {
+    if (g_frame_buffer && g_use_efb) {
       uint16_t *pfb = &g_frame_buffer[y * g_tft_width + x];
       while(cy--) {
         memcpy(pfb, pixels, cx *2); // output one clipped rows worth
@@ -890,7 +955,7 @@ void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels, bool waitF
     if (end_y > g_tft_height) cy_out -= (end_y - g_tft_height);
     if (cx_out && cy_out) { 
       #ifdef TFT_EMULATE_FB
-      if (g_frame_buffer) {
+      if (g_frame_buffer && g_use_efb) {
         uint16_t *pfb = &g_frame_buffer[y * g_tft_width + x];
         while(cy_out--) {
           memcpy(pfb, pixels, cx_out *2); // output one clipped rows worth
