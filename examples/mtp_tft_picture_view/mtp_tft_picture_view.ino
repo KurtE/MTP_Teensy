@@ -31,7 +31,7 @@
 //#include <ST7789_t3.h> // Hardware-specific library
 //#define USE_KURTE_MMOD1
 //Optional support for RA8875
-#include <SPI.h>
+//#include <SPI.h>
 //#include <RA8875.h>
 //Optional support for RA8876
 #include <FT5206.h>
@@ -172,7 +172,6 @@ RA8875 tft = RA8875(TFT_CS, TFT_RST);
 #define TFT_RST 9
 RA8876_t3 tft = RA8876_t3(TFT_CS, TFT_RST);
 #ifdef ARDUINO_TEENSY41
-#define TFT_EMULATE_FB
 #endif
 
 #else
@@ -356,7 +355,7 @@ void setup(void) {
 
 
 #ifdef TFT_EMULATE_FB
-#if defined(ARDUINO_TEENSY41) && (defined(_RA8875MC_H_) || defined(_RA8876_T3))
+#if defined(ARDUINO_TEENSY41) && defined(_RA8875MC_H_)
   if (external_psram_size) {
     g_frame_buffer = (uint16_t *)extmem_malloc(g_tft_width * g_tft_height * sizeof(uint16_t));
     Serial.printf(">>> RA8875/6 and Extmem(%u) - extmem_malloc\n", external_psram_size);
@@ -456,8 +455,9 @@ void loop() {
   }
 
   if (imageFile) {
-    #if 0 //defined(_RA8876_T3)
-    tft.useCanvas();
+    #if defined(_RA8876_T3)
+    //tft.useCanvas();
+    //tft.selectScreen(SCREEN_2);
     #endif
     elapsedMillis emDraw = 0;
     char file_name[MTP_MAX_FILENAME_LEN];
@@ -485,25 +485,14 @@ void loop() {
     tft.setTextSize(2);
     tft.println(F("No Files Found"));
   }
-  #if defined( _ILI9341_t3NH_) || defined(_ILI9488_t3H_) // || defined(_RA8876_T3)
+  #if defined( _ILI9341_t3NH_) || defined(_ILI9488_t3H_) || defined(_RA8876_T3)
   tft.updateScreen();
+
   #endif
   #ifdef TFT_EMULATE_FB
   if (g_frame_buffer && g_use_efb) {
     elapsedMillis emOut;
-    #if defined(_RA8876_T3)
-    tft.useCanvas();
-    tft.putPicture_16bpp(0, 0, g_tft_width, g_tft_height);
-    tft.startSend();
-    SPI.transfer(RA8876_SPI_DATAWRITE);
-    SPI.transfer((uint8_t*)g_frame_buffer, NULL, g_tft_width*g_tft_height*2);
-    tft.endSend(true);
-
-    //tft.putPicture_16bppData8(0, 0, g_tft_width, g_tft_height, (uint8_t*)g_frame_buffer);
-    tft.updateScreen();
-    #else
     tft.writeRect(0, 0, g_tft_width, g_tft_height, g_frame_buffer);
-    #endif
     Serial.printf("EFB writeRect(%u %u) %u\n", g_tft_width, g_tft_height, (uint32_t)emOut);
   }
   #endif
@@ -674,19 +663,10 @@ inline uint16_t Color565(uint8_t r,uint8_t g,uint8_t b) {return tft.Color565(r, 
 inline void   Color565ToRGB(uint16_t color, uint8_t &r, uint8_t &g, uint8_t &b) {tft.Color565ToRGB(color, r, g, b);}
 
 #elif defined(_RA8876_T3)
-#ifdef TFT_EMULATE_FB
 void FillScreen(uint16_t color) {
-  if (g_frame_buffer && g_use_efb) {
-    for (int i = 0; i < g_tft_width * g_tft_height; i++) {
-      g_frame_buffer[i] = color;
-    }
-  } else {
-    tft.fillScreen(color); 
-  }
-} 
-#else 
-inline void FillScreen(uint16_t color) {tft.fillScreen(color);}
-#endif
+  tft.useCanvas();
+  tft.fillScreen(color);
+}
 inline uint16_t Color565(uint8_t r,uint8_t g,uint8_t b) { return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3); }
 inline void   Color565ToRGB(uint16_t color, uint8_t &r, uint8_t &g, uint8_t &b) {
  //color565toRGB   - converts 565 format 16 bit color to RGB
@@ -910,6 +890,22 @@ void myClose(void *handle) {
 //=============================================================================
 
 #if !defined(TFT_CLIP_SUPPORT)
+
+// helper to helper...
+inline void writeRect(int x, int y, int cx, int cy, uint16_t *pixels)
+{
+#if defined(_RA8876_T3)
+  tft.useCanvas();
+  tft.putPicture_16bpp(x, y, cx, cy);
+  tft.startSend();
+  SPI.transfer(RA8876_SPI_DATAWRITE);
+  SPI.transfer(pixels, NULL, cx*cy*2);
+  tft.endSend(true);
+#else
+  tft.writeClippedRect(x, y, cx, cy, pixels);
+#endif
+}
+
 void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels, bool waitForWRC) 
 {
   x += g_image_offset_x;
@@ -931,7 +927,7 @@ void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels, bool waitF
     } else
     #endif
     {
-      tft.writeRect(x, y, cx, cy, pixels);
+      writeRect(x, y, cx, cy, pixels);
     }
   
     g_WRCount++;
@@ -976,7 +972,7 @@ void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels, bool waitF
             memcpy(p, pixels_out, cx_out*sizeof(uint16_t));
           }
         }
-        tft.writeRect(x, y, cx_out, cy_out, pixels);
+        writeRect(x, y, cx_out, cy_out, pixels);
       }
       if (g_debug_output)Serial.printf(" -> (%d, %d, %d, %d)* %p\n", x, y, cx_out, cy_out, pixels);
       g_WRCount++;
