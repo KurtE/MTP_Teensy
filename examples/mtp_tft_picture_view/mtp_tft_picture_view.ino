@@ -34,8 +34,8 @@
 //#include <SPI.h>
 //#include <RA8875.h>
 //Optional support for RA8876
-#include <FT5206.h>
-#include <RA8876_t3.h>
+//#include <FT5206.h>
+//#include <RA8876_t3.h>
 
 // If user did not include any other driver will defalt to ILI9341_t3 which is installed by Teensyduino
 #if !defined(_ILI9341_t3NH_) && !defined(_ILI9488_t3H_) && !defined(__ST7735_t3_H_) \
@@ -54,6 +54,10 @@
 #define TFT_EMULATE_FB
 #endif
 
+// don't try on tlc or 3.2
+#if !(defined(__MKL26Z64__) || defined(__MK20DX128__) || defined(__MK20DX256__))
+#define TFT_USE_FRAME_BUFFER
+#endif
 
 #include <SPI.h>
 #include <SD.h>
@@ -163,7 +167,6 @@ ST7789_t3 tft = ST7789_t3(TFT_CS,  TFT_DC, TFT_RST);
 #define TFT_RST 9
 RA8875 tft = RA8875(TFT_CS, TFT_RST);
 #ifdef ARDUINO_TEENSY41
-#define TFT_EMULATE_FB
 #endif
 
 
@@ -200,7 +203,9 @@ bool g_use_efb = true;
 
 File rootFile;
 File myfile;
-bool fast_mode = false;
+
+bool g_fast_mode = false;
+bool g_picture_loaded = false;
 
 elapsedMillis emDisplayed;
 #define DISPLAY_IMAGES_TIME 2500
@@ -402,8 +407,10 @@ g_frame_buffer = (uint16_t *)malloc(g_tft_width * g_tft_height * sizeof(uint16_t
   }
   ShowAllOptionValues();
 
-#if defined( _ILI9341_t3NH_) || defined(_ILI9488_t3H_)
+#if defined( _ILI9341_t3NH_) || defined(_ILI9488_t3H_) || defined(__ST7735_t3_H_) || defined(__ST7789_t3_H_)
+  #ifdef TFT_USE_FRAME_BUFFER
   tft.useFrameBuffer(true);
+#endif  
 #endif
    #ifdef _RA8876_T3
   tft.printTSRegisters(Serial, 0, 33);
@@ -419,109 +426,140 @@ g_frame_buffer = (uint16_t *)malloc(g_tft_width * g_tft_height * sizeof(uint16_t
 void loop() {
   MTP.loop();
   ProcessTouchScreen();
-  // don't process unless time elapsed or fast_mode 
-  if (!fast_mode && !g_stepMode && (emDisplayed < (uint32_t)g_display_image_time)) return; 
-  bool did_rewind = false;
-  const char *name = nullptr;
-  uint8_t name_len;
-  bool bmp_file = false;
-  bool jpg_file = false;
-  bool png_file = false;
-  
-  Serial.println("\nLoop looking for image file");
-  
-  File imageFile;
-  
-  for (;;) {
-    imageFile = rootFile.openNextFile();
-    if (!imageFile) {
-      if (did_rewind) break; // only go around once. 
-      rootFile.rewindDirectory();
+  // don't process unless time elapsed or g_fast_mode 
+  // Timing may depend on which type of display we are using... 
+  // if it has logical frame buffer, maybe as soon as we display an image, 
+  // try to load the next one, and then wait until the image time to 
+  // tell display to update...
+  #ifdef TFT_USE_FRAME_BUFFER
+  if (!g_fast_mode && !g_stepMode && (!g_picture_loaded) && (emDisplayed < (uint32_t)g_display_image_time)) return; 
+  #else
+  if (!g_fast_mode && !g_stepMode && (emDisplayed < (uint32_t)g_display_image_time)) return; 
+  #endif
+  //---------------------------------------------------------------------------
+  // Find the next file to read in. 
+  //---------------------------------------------------------------------------
+  if (!g_picture_loaded) {
+    bool did_rewind = false;
+    const char *name = nullptr;
+    uint8_t name_len;
+    bool bmp_file = false;
+    bool jpg_file = false;
+    bool png_file = false;
+    
+    Serial.println("\nLoop looking for image file");
+    
+    File imageFile;
+    
+    for (;;) {
       imageFile = rootFile.openNextFile();
-      did_rewind = true;
-    }
-    // maybe should check file name quick and dirty
-    name = imageFile.name();
-    name_len = strlen(name);
-    if (!name) continue;
+      if (!imageFile) {
+        if (did_rewind) break; // only go around once. 
+        rootFile.rewindDirectory();
+        imageFile = rootFile.openNextFile();
+        did_rewind = true;
+      }
+      // maybe should check file name quick and dirty
+      name = imageFile.name();
+      name_len = strlen(name);
+      if (!name) continue;
 
-    if((strcmp(&name[name_len-4], ".bmp") == 0) || (strcmp(&name[name_len-4], ".BMP") == 0)) bmp_file = true;
-    if((strcmp(&name[name_len-4], ".jpg") == 0) || (strcmp(&name[name_len-4], ".JPG") == 0)) jpg_file = true;
-    if(stricmp(&name[name_len-4], ".bmp") == 0) bmp_file = true;
-    if(stricmp(&name[name_len-4], ".jpg") == 0) jpg_file = true;
-    if(stricmp(&name[name_len-4], ".png") == 0) png_file = true;
-    if (stricmp(name, options_file_name) == 0) ProcessOptionsFile(imageFile);
-    if ( bmp_file || jpg_file || png_file) break;
+      if((strcmp(&name[name_len-4], ".bmp") == 0) || (strcmp(&name[name_len-4], ".BMP") == 0)) bmp_file = true;
+      if((strcmp(&name[name_len-4], ".jpg") == 0) || (strcmp(&name[name_len-4], ".JPG") == 0)) jpg_file = true;
+      if(stricmp(&name[name_len-4], ".bmp") == 0) bmp_file = true;
+      if(stricmp(&name[name_len-4], ".jpg") == 0) jpg_file = true;
+      if(stricmp(&name[name_len-4], ".png") == 0) png_file = true;
+      if (stricmp(name, options_file_name) == 0) ProcessOptionsFile(imageFile);
+      if ( bmp_file || jpg_file || png_file) break;
+    }
+
+    //---------------------------------------------------------------------------
+    // Found a file so try to process it. 
+    //---------------------------------------------------------------------------
+    if (imageFile) {
+      #if defined(_RA8876_T3)
+      //tft.useCanvas();
+      //tft.selectScreen(SCREEN_2);
+      #endif
+      elapsedMillis emDraw = 0;
+      char file_name[MTP_MAX_FILENAME_LEN];
+      strncpy(file_name, name, sizeof(file_name));
+      g_WRCount = 0;
+      if (bmp_file) {
+        bmpDraw(imageFile, imageFile.name(), true);
+
+      #ifdef  __JPEGDEC__
+      } else if(jpg_file) {
+        processJPGFile(name, true);
+        imageFile.close();
+      #endif  
+
+      #ifdef __PNGDEC__
+      } else if(png_file) {
+        processPNGFile(name, true);
+        imageFile.close();
+      #endif
+      }
+      Serial.printf("!!File:%s Time:%u writeRect calls:%u\n", file_name, (uint32_t)emDraw, g_WRCount);
+    } else {
+      FillScreen(GREEN);
+      tft.setTextColor(WHITE);
+      tft.setTextSize(2);
+      tft.println(F("No Files Found"));
+    }
+    g_picture_loaded = true;
   }
 
-  if (imageFile) {
-    #if defined(_RA8876_T3)
-    //tft.useCanvas();
-    //tft.selectScreen(SCREEN_2);
-    #endif
-    elapsedMillis emDraw = 0;
-    char file_name[MTP_MAX_FILENAME_LEN];
-    strncpy(file_name, name, sizeof(file_name));
-    g_WRCount = 0;
-    if (bmp_file) {
-      bmpDraw(imageFile, imageFile.name(), true);
-
-    #ifdef  __JPEGDEC__
-    } else if(jpg_file) {
-      processJPGFile(name, true);
-      imageFile.close();
+  //---------------------------------------------------------------------------
+  // If the display has a command to update the screen now, see if we should
+  // do now or wait until proper time 
+  //---------------------------------------------------------------------------
+  #ifdef TFT_USE_FRAME_BUFFER
+  if (g_fast_mode || g_stepMode || (emDisplayed >= (uint32_t)g_display_image_time)) {
+    if (g_picture_loaded) {
+      #if defined( _ILI9341_t3NH_) || defined(_ILI9488_t3H_) || defined(_RA8876_T3) || defined(__ST7735_t3_H_) || defined(__ST7789_t3_H_)
+      tft.updateScreen();
+      #endif
+      #ifdef TFT_EMULATE_FB
+      if (g_frame_buffer && g_use_efb) {
+        elapsedMillis emOut;
+        tft.writeRect(0, 0, g_tft_width, g_tft_height, g_frame_buffer);
+        Serial.printf("EFB writeRect(%u %u) %u\n", g_tft_width, g_tft_height, (uint32_t)emOut);
+      }
+      #endif
+    }
     #endif  
+    //---------------------------------------------------------------------------
+    // Process any keyboard input.  
+    //---------------------------------------------------------------------------
+    if (g_stepMode) {
+      int ch;
+      Serial.printf("Step Mode: enter anything to continue");
+      while((ch = Serial.read()) == -1) MTP.loop();  // in case at startup...
+      while (ch != -1) {
+        if (ch == 'd') g_debug_output = !g_debug_output;
+        if (ch == 's') g_stepMode = !g_stepMode;
+        if (ch == 'f') g_use_efb = !g_use_efb;
 
-    #ifdef __PNGDEC__
-    } else if(png_file) {
-      processPNGFile(name, true);
-      imageFile.close();
-    #endif
+        ch = Serial.read();
+      }
+    } else if (Serial.available()) {
+      int ch;
+      while(Serial.read() != -1) ;
+      Serial.printf("Paused: enter anything to continue");
+      while((ch = Serial.read()) == -1) MTP.loop();
+      while (ch != -1) {
+        if (ch == 'd') g_debug_output = !g_debug_output;
+        if (ch == 's') g_stepMode = !g_stepMode;
+        if (ch == 'f') g_use_efb = !g_use_efb;
+        ch = Serial.read();
+      }
     }
-    Serial.printf("!!File:%s Time:%u writeRect calls:%u\n", file_name, (uint32_t)emDraw, g_WRCount);
-  } else {
-    FillScreen(GREEN);
-    tft.setTextColor(WHITE);
-    tft.setTextSize(2);
-    tft.println(F("No Files Found"));
+    emDisplayed = 0;
+    g_picture_loaded = false;
+  #ifdef TFT_USE_FRAME_BUFFER
   }
-  #if defined( _ILI9341_t3NH_) || defined(_ILI9488_t3H_) || defined(_RA8876_T3)
-  tft.updateScreen();
-
   #endif
-  #ifdef TFT_EMULATE_FB
-  if (g_frame_buffer && g_use_efb) {
-    elapsedMillis emOut;
-    tft.writeRect(0, 0, g_tft_width, g_tft_height, g_frame_buffer);
-    Serial.printf("EFB writeRect(%u %u) %u\n", g_tft_width, g_tft_height, (uint32_t)emOut);
-  }
-  #endif
-
-  if (g_stepMode) {
-    int ch;
-    Serial.printf("Step Mode: enter anything to continue");
-    while((ch = Serial.read()) == -1) MTP.loop();  // in case at startup...
-    while (ch != -1) {
-      if (ch == 'd') g_debug_output = !g_debug_output;
-      if (ch == 's') g_stepMode = !g_stepMode;
-      if (ch == 'f') g_use_efb = !g_use_efb;
-
-      ch = Serial.read();
-    }
-  } else if (Serial.available()) {
-    int ch;
-    while(Serial.read() != -1) ;
-    Serial.printf("Paused: enter anything to continue");
-    while((ch = Serial.read()) == -1) MTP.loop();
-    while (ch != -1) {
-      if (ch == 'd') g_debug_output = !g_debug_output;
-      if (ch == 's') g_stepMode = !g_stepMode;
-      if (ch == 'f') g_use_efb = !g_use_efb;
-      ch = Serial.read();
-    }
-
-  }
-  emDisplayed = 0;
 }
 
 //=============================================================================
@@ -689,7 +727,7 @@ inline void   Color565ToRGB(uint16_t color, uint8_t &r, uint8_t &g, uint8_t &b) 
 #ifdef TFT_EMULATE_FB
 void FillScreen(uint16_t color) {
   if (g_frame_buffer && g_use_efb) {
-    for (uint32_t i = 0; i < g_tft_width * g_tft_height; i++) {
+    for (int i = 0; i < g_tft_width * g_tft_height; i++) {
       g_frame_buffer[i] = color;
     }
   } else {
@@ -902,7 +940,7 @@ inline void writeRect(int x, int y, int cx, int cy, uint16_t *pixels)
   SPI.transfer(pixels, NULL, cx*cy*2);
   tft.endSend(true);
 #else
-  tft.writeClippedRect(x, y, cx, cy, pixels);
+  tft.writeRect(x, y, cx, cy, pixels);
 #endif
 }
 
@@ -1212,12 +1250,12 @@ void ProcessTouchScreen()
 
   // You can also wait for a touch
   if (! ts.touched()) {
-    fast_mode = false;
+    g_fast_mode = false;
     return;
   }
 
   // first hack, if screen pressed go very fast
-  fast_mode = true;
+  g_fast_mode = true;
 
   // Retrieve a point
   TS_Point p = ts.getPoint();
@@ -1265,9 +1303,9 @@ void ProcessTouchScreen()
     tft.enableCapISR();//rearm ISR if needed (touched(true))
     Serial.println();
     //otherwise it doesn't do nothing...
-    fast_mode = true;
+    g_fast_mode = true;
   } else {
-    fast_mode = false;
+    g_fast_mode = false;
   }
 }
 #elif defined(_RA8876_T3) && defined(RA8876_INT)
@@ -1291,9 +1329,9 @@ void ProcessTouchScreen()
     tft.enableCapISR();//rearm ISR if needed (touched(true))
     Serial.println();
     //otherwise it doesn't do nothing...
-    fast_mode = true;
+    g_fast_mode = true;
   } else {
-    fast_mode = false;
+    g_fast_mode = false;
   }
 
 } 
