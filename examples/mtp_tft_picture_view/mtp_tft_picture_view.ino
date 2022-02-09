@@ -1,6 +1,9 @@
 //=============================================================================
 // Simple image (BMP optional JPEG and PNG) display program with MTP support added.
 //=============================================================================
+#include <SPI.h>
+#include <SD.h>
+#include <MTP_Teensy.h>
 
 /***************************************************
   Some of this code originated with the spitftbitmap.ino sketch
@@ -18,51 +21,6 @@
 // JPGDEC - https://github.com/bitbank2/JPEGDEC (also on arduino library manager)
 // PNGdec - https://github.com/bitbank2/PNGdec (also on arduino library manager)
 
-// If using the Sparkfun IO Carrier board uncomment this line and
-// and using one of the ILI9341 libraries
-//#define USE_SF_IOCarrier 1
-
-// optional support for ILI9341_t3n - that adds additional features
-//#include <ILI9341_t3n.h>
-// optional support for ILI9488_t3 - that adds additional features
-//#include <ILI9488_t3.h>
-//Optional support for ST7735/ST7789 graphic dislplays
-//#include <ST7735_t3.h> // Hardware-specific library
-//#include <ST7789_t3.h> // Hardware-specific library
-//#define USE_KURTE_MMOD1
-//Optional support for RA8875
-//#include <SPI.h>
-//#include <RA8875.h>
-//Optional support for RA8876
-//#include <FT5206.h>
-//#include <RA8876_t3.h>
-
-// If user did not include any other driver will defalt to ILI9341_t3 which is installed by Teensyduino
-#if !defined(_ILI9341_t3NH_) && !defined(_ILI9488_t3H_) && !defined(__ST7735_t3_H_) \
- && !defined(_RA8875MC_H_) && !defined(_RA8876_T3)
-#include <ILI9341_t3.h>
-#endif
-
-#if defined(_ILI9341_t3NH_) || defined(_ILI9488_t3H_) || defined(__ST7735_t3_H) || defined(__ST7789_t3_H_) //|| defined(ILI9341_SUPPORTS_CLIPPING)
-#define TFT_CLIP_SUPPORT
-#if !defined(ILI9341_SUPPORTS_CLIPPING)
-#define TFT_SUPPORT_FB
-#endif
-#endif
-
-#ifdef _ILI9341_t3H_
-#define TFT_EMULATE_FB
-#endif
-
-// don't try on tlc or 3.2
-#if !(defined(__MKL26Z64__) || defined(__MK20DX128__) || defined(__MK20DX256__))
-#define TFT_USE_FRAME_BUFFER
-#endif
-
-#include <SPI.h>
-#include <SD.h>
-#include <MTP_Teensy.h>
-
 // optional JPEG support requires external library
 // uncomment if you wish to use. 
 #include <JPEGDEC.h>
@@ -70,32 +28,67 @@
 // optional PNG support requires external library
 #include <PNGdec.h>
 
-#ifdef ARDUINO_TEENSY41
-extern "C" {
-extern int8_t external_psram_size;
-}
+
+// If using the Sparkfun IO Carrier board uncomment this line and
+// and using one of the ILI9341 libraries
+//#define USE_SF_IOCarrier 1
+
+// optional support for ILI9341_t3n - that adds additional features
+//#include <ILI9341_t3n.h>
+
+// optional support for ILI9488_t3 - that adds additional features
+//#include <ILI9488_t3.h>
+
+//Optional support for ST7735/ST7789 graphic dislplays
+//#include <ST7735_t3.h> // Hardware-specific library
+//#include <ST7789_t3.h> // Hardware-specific library
+//#define USE_KURTE_MMOD1
+
+//Optional support for RA8875
+#include <RA8875.h>
+
+//Optional support for RA8876
+//#include <FT5206.h>
+//#include <RA8876_t3.h>
+
+
+//-----------------------------------------------------------------------------
+// common settings for most setups
+//-----------------------------------------------------------------------------
+#define TFT_DC  9
+#define TFT_CS 10
+#define TFT_RST -1
+
+#define SD_CS BUILTIN_SDCARD  // Works on T_3.6 and T_4.1 ...
+//#define SD_CS 10  // Works on SPI with this CS pin
+
+//-----------------------------------------------------------------------------
+// ILI9341 displays - default
+// If user did not include any other driver will defalt to ILI9341_t3 which is installed by Teensyduino
+//-----------------------------------------------------------------------------
+#if !defined(_ILI9341_t3NH_) && !defined(_ILI9488_t3H_) && !defined(__ST7735_t3_H_) \
+ && !defined(_RA8875MC_H_) && !defined(_RA8876_T3)
+
+// version that ships with Teensyduino
+#include <ILI9341_t3.h>
 #endif
 
+#if defined(_ILI9341_t3H_) || defined(_ILI9341_t3NH_)
+#define TFT_EMULATE_FB  // emulate the frame buffer support
 
-//****************************************************************************
 // This is calibration data for the raw touch data to the screen coordinates
-//****************************************************************************
-// Warning, These are
+// Warning, These may need to be tweeked.
 #define TS_MINX 337
 #define TS_MINY 529
 #define TS_MAXX 3729
 #define TS_MAXY 3711
 
-//****************************************************************************
-// Settings and objects
-//****************************************************************************
 #if USE_SF_IOCarrier == 1
+#undef TFT_DC
+#undef TFT_CS
+#undef TFT_RST
 #define TFT_DC  5
 #define TFT_CS 4
-#define TFT_RST -1
-#else
-#define TFT_DC  9
-#define TFT_CS 10
 #define TFT_RST -1
 #endif
 
@@ -103,31 +96,46 @@ extern int8_t external_psram_size;
 #define TOUCH_CS 27
 #define TOUCH_TIRQ 26
 
-// RA8875 capacitive IRQ
-#define RA8875_INT 6
-
-#define MAXTOUCHLIMIT     1//1...5
-
-// RA8875 capacitive IRQ
-#define RA8876_INT 6
-#define RA8876_CTPRST 31
-#define MAXTOUCHLIMIT     1//1...5
-
-
-#define SD_CS BUILTIN_SDCARD  // Works on T_3.6 and T_4.1 ...
-//#define SD_CS 10  // Works on SPI with this CS pin
-
-#ifdef  _ILI9341_t3NH_
+#if defined(_ILI9341_t3H_)
+#pragma message "Display: ILI9341_t3"
+ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC, TFT_RST);
+#else  //_ILI9341_t3NH_
 ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST);
+#pragma message "Display: ILI9341_t3n"
+#endif
 // setup for PJRC/EBAY boards 
 #define SUPPORTS_XPT2046_TOUCH
 
-#elif defined(_ILI9488_t3H_)
+#endif
+
+//-----------------------------------------------------------------------------
+// ILI9488 displays
+//-----------------------------------------------------------------------------
+#if defined(_ILI9488_t3H_)
 ILI9488_t3 tft = ILI9488_t3(&SPI, TFT_CS, TFT_DC, TFT_RST);
 // Note: board may support but may require MISO buffer chip
 //#define SUPPORTS_XPT2046_TOUCH
+#pragma message "Display: ILI9488_t3"
+#endif
 
-#elif defined(__ST7735_t3_H_) || defined(__ST7789_t3_H_)
+//-----------------------------------------------------------------------------
+// ST7735/ST7789
+//-----------------------------------------------------------------------------
+#if defined(__ST7735_t3_H_) || defined(__ST7789_t3_H_)
+
+#ifdef USE_KURTE_MMOD1
+#undef TFT_DC
+#undef TFT_CS
+#undef TFT_RST
+#define TFT_DC 4
+#define TFT_CS 10
+#define TFT_RST 2
+#endif
+#undef TOUCH_CS
+
+// For 1.54" TFT with ST7789
+ST7789_t3 tft = ST7789_t3(TFT_CS,  TFT_DC, TFT_RST);
+
 // Option 1: use any pins but a little slower
 // Note: code will detect if specified pins are the hardware SPI pins
 //       and will use hardware SPI if appropriate
@@ -146,40 +154,75 @@ ILI9488_t3 tft = ILI9488_t3(&SPI, TFT_CS, TFT_DC, TFT_RST);
 // For 1.44" and 1.8" TFT with ST7735 use
 //ST7735_t3 tft = ST7735_t3(TFT_CS, TFT_DC, TFT_RST);
 
-#ifdef USE_KURTE_MMOD1
-#undef TFT_DC
-#undef TFT_CS
-#undef TFT_RST
-#define TFT_DC 4
-#define TFT_CS 10
-#define TFT_RST 2
-#endif
-// For 1.54" TFT with ST7789
-ST7789_t3 tft = ST7789_t3(TFT_CS,  TFT_DC, TFT_RST);
-#undef TOUCH_CS
-
 //#define SCREEN_WIDTH_TFTHEIGHT_144
 // for 1.8" display and mini
 //#define SCREEN_WIDTH_TFTHEIGHT_160 // for 1.8" and mini display
+#pragma message "Display: ST7735_t3 or ST7789_t3"
+#endif
 
-#elif defined(_RA8875MC_H_)
+//-----------------------------------------------------------------------------
+// RA8875
+//-----------------------------------------------------------------------------
+#if defined(_RA8875MC_H_)
 #undef TFT_RST
 #define TFT_RST 9
+// RA8875 capacitive IRQ
+#define RA8875_INT 6
+#define MAXTOUCHLIMIT     1//1...5
+
+// define begin options  
+//  begin display: Choose from: RA8875_480x272, RA8875_800x480, RA8875_800x480ALT, Adafruit_480x272, Adafruit_800x480
+#define TFT_RA8875_BEGIN_MODE  RA8875_800x480
+#define TFT_RA8875_BEGIN_COLORS_BPP 16
+#define TFT_RA8875_BEGIN_SPI_SPEED 12000000
+
+#if (TFT_RA8875_BEGIN_MODE == RA8875_480x272) || (TFT_RA8875_BEGIN_MODE == RA8875_480x272) || (TFT_RA8875_BEGIN_COLORS_BPP == 8)
+#define RA8875_USE_LAYERS
+#endif
+
 RA8875 tft = RA8875(TFT_CS, TFT_RST);
-#ifdef ARDUINO_TEENSY41
+#pragma message "Display: RA8875"
+uint8_t g_ra8875_layer_active = 0; // 
 #endif
 
-
-#elif defined(_RA8876_T3)
+//-----------------------------------------------------------------------------
+// RA8876
+//-----------------------------------------------------------------------------
+// RA8876 capacitive IRQ
+#if defined(_RA8876_T3)
 #undef TFT_RST
 #define TFT_RST 9
+
+#define RA8876_INT 6
+#define RA8876_CTPRST 31
+#define MAXTOUCHLIMIT     1//1...5
+
 RA8876_t3 tft = RA8876_t3(TFT_CS, TFT_RST);
-#ifdef ARDUINO_TEENSY41
+#pragma message "Display: RA8876_t3"
 #endif
 
-#else
-ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC, TFT_RST);
-#define SUPPORTS_XPT2046_TOUCH
+//-----------------------------------------------------------------------------
+// XPT Touch screen
+//-----------------------------------------------------------------------------
+#if defined(TOUCH_CS) && defined(SUPPORTS_XPT2046_TOUCH)
+#include <XPT2046_Touchscreen.h>
+XPT2046_Touchscreen ts(TOUCH_CS, TOUCH_TIRQ);
+#endif
+
+//-----------------------------------------------------------------------------
+// Some common things.
+//-----------------------------------------------------------------------------
+#if defined(_ILI9341_t3NH_) || defined(_ILI9488_t3H_) || defined(__ST7735_t3_H) || defined(__ST7789_t3_H_) //|| defined(ILI9341_SUPPORTS_CLIPPING)
+#define TFT_CLIP_SUPPORT
+#if !defined(ILI9341_SUPPORTS_CLIPPING)
+#define TFT_SUPPORT_FB
+#endif
+#endif
+
+
+// don't try on tlc or 3.2
+#if !(defined(__MKL26Z64__) || defined(__MK20DX128__) || defined(__MK20DX256__))
+#define TFT_USE_FRAME_BUFFER
 #endif
 
 #ifndef BLUE 
@@ -189,11 +232,11 @@ ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC, TFT_RST);
 #define GREEN 0x07E0
 #define RED   0xf800
 #endif
-#if defined(TOUCH_CS) && defined(SUPPORTS_XPT2046_TOUCH)
-#include <XPT2046_Touchscreen.h>
-XPT2046_Touchscreen ts(TOUCH_CS, TOUCH_TIRQ);
-#endif
 
+
+//-----------------------------------------------------------------------------
+// Other globals
+//-----------------------------------------------------------------------------
 int g_tft_width = 0;
 int g_tft_height = 0;
 #ifdef TFT_EMULATE_FB
@@ -235,18 +278,6 @@ uint32_t g_WRCount = 0;  // debug count how many time writeRect called
 
 
 //****************************************************************************
-// forward function definitions. 
-//****************************************************************************
-#ifdef TFT_CLIP_SUPPORT
-inline void writeClippedRect(int16_t x, int16_t y, int16_t cx, int16_t cy, uint16_t *pixels, bool waitForWRC = true ) {
-  tft.writeRect(x + g_image_offset_x, y + g_image_offset_y, cx, cy, pixels);
-}
-#else
-extern void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels, bool waitForWRC = true); 
-#endif
-
-
-//****************************************************************************
 // Setup
 //****************************************************************************
 void setup(void) {
@@ -256,13 +287,27 @@ void setup(void) {
   // Keep the SD card inactive while working the display.
   pinMode(SD_CS, INPUT_PULLUP);
   delay(20);
+
+//-----------------------------------------------------------------------------
+// initialize display
+//-----------------------------------------------------------------------------
   #if defined(TOUCH_CS) && defined(SUPPORTS_XPT2046_TOUCH)
   pinMode(TOUCH_CS, OUTPUT); digitalWriteFast(TOUCH_CS, HIGH);
   pinMode(TFT_CS, OUTPUT); digitalWriteFast(TFT_CS, HIGH);
   ts.begin();
   #endif
+#if defined(_ILI9341_t3H_) || defined(_ILI9341_t3NH_)
+  tft.begin();
+  #if USE_SF_IOCarrier == 1
+    tft.invertDisplay(true);
+  #endif
+  tft.setRotation(1);
 
-#if defined(__ST7735_t3_H) || defined(__ST7789_t3_H_)
+#elif defined(_ILI9488_t3H_)
+  tft.begin();
+  tft.setRotation(1);
+
+#elif defined(__ST7735_t3_H) || defined(__ST7789_t3_H_)
   // Use this initializer if you're using a 1.8" TFT 128x160 displays
   //tft.initR(INITR_BLACKTAB);
 
@@ -287,10 +332,17 @@ void setup(void) {
   // that does not have a CS pin2.0" 320x240 TFT:
   //tft.init(240, 240, SPI_MODE2);           // Init ST7789 240x240 no CS
   tft.setRotation(1);
+
  #elif defined(_RA8875MC_H_)
   //  begin display: Choose from: RA8875_480x272, RA8875_800x480, RA8875_800x480ALT, Adafruit_480x272, Adafruit_800x480
-  tft.begin(RA8875_800x480, 16, 12000000);
+  tft.begin(TFT_RA8875_BEGIN_MODE, TFT_RA8875_BEGIN_COLORS_BPP, TFT_RA8875_BEGIN_SPI_SPEED);
   tft.setRotation(0);
+
+  #if defined(RA8875_USE_LAYERS)
+  #endif
+  //tft.GPIOX(true);      // Enable TFT - display enable tied to GPIOX
+  //tft.PWM1config(true, RA8875_PWM_CLK_DIV1024); // PWM output for backlight
+  //tft.PWM1out(255);
 
   #if defined(RA8875_INT) && defined(USE_FT5206_TOUCH)
   tft.useCapINT(RA8875_INT);//we use the capacitive chip Interrupt out!
@@ -303,74 +355,40 @@ void setup(void) {
   #else
   tft.print("you should open RA8875UserSettings.h file and uncomment USE_FT5206_TOUCH!");
   #endif
- 
- #elif defined(_RA8875MC_H_)
-  //  begin display: Choose from: RA8875_480x272, RA8875_800x480, RA8875_800x480ALT, Adafruit_480x272, Adafruit_800x480
-  tft.begin(RA8875_800x480, 16, 12000000);
-  tft.setRotation(0);
-
-  #if defined(RA8875_INT)
-  tft.useCapINT(RA8875_INT);//we use the capacitive chip Interrupt out!
-  //the following set the max touches (max 5)
-  //it can be placed inside loop but BEFORE touched()
-  //to limit dinamically the touches (for example to 1)
-  tft.setTouchLimit(MAXTOUCHLIMIT);
-  tft.enableCapISR(true);//capacitive touch screen interrupt it's armed
-  Serial.println("** RA8875 FT5026 touch enabled **");
-  #else
-  tft.print("you should open RA8875UserSettings.h file and uncomment USE_FT5206_TOUCH!");
-  #endif
-
 
  #elif defined(_RA8876_T3)
   tft.begin();
-   #ifdef RA8876_INT
-  tft.useCapINT(RA8876_INT, RA8876_CTPRST);//we use the capacitive chip Interrupt out!
-  //the following set the max touches (max 5)
-  //it can be placed inside loop but BEFORE touched()
-  //to limit dinamically the touches (for example to 1)
-  tft.setTouchLimit(MAXTOUCHLIMIT);
-  tft.enableCapISR(true);//capacitive touch screen interrupt it's armed
 
+   #ifdef RA8876_INT
+    tft.useCapINT(RA8876_INT, RA8876_CTPRST);//we use the capacitive chip Interrupt out!
+    //the following set the max touches (max 5)
+    //it can be placed inside loop but BEFORE touched()
+    //to limit dinamically the touches (for example to 1)
+    tft.setTouchLimit(MAXTOUCHLIMIT);
+    tft.enableCapISR(true);//capacitive touch screen interrupt it's armed
+    // debug touch code
+    tft.printTSRegisters(Serial, 0, 33);
+    tft.printTSRegisters(Serial, 0x80, 0xb5-0x80);
    #endif
-   tft.backlight(true);
+  tft.backlight(true);
+
   tft.setRotation(0);
+
  #else
-  tft.begin();
-  #if USE_SF_IOCarrier == 1
-    tft.invertDisplay(true);
-  #endif
-  tft.setRotation(1);
+ #error - did not specify init for display 
  #endif
 
   g_tft_width = tft.width();
   g_tft_height = tft.height();
+#ifdef TFT_EMULATE_FB
+  g_frame_buffer = (uint16_t *)malloc(g_tft_width * g_tft_height * sizeof(uint16_t));
+#endif
 
   FillScreen(BLUE);
-  g_jpg_scale_x_above[0] = (g_tft_width*3)/2;
-  g_jpg_scale_x_above[1] = g_tft_width*3;
-  g_jpg_scale_x_above[2] = g_tft_width*6;
-  g_jpg_scale_x_above[3] = g_tft_width*12;
 
-  g_jpg_scale_y_above[0] = (g_tft_height*3)/2;
-  g_jpg_scale_y_above[1] = g_tft_height*3;
-  g_jpg_scale_y_above[2] = g_tft_height*6;
-  g_jpg_scale_y_above[3] = g_tft_height*12;
-
-
-
-#ifdef TFT_EMULATE_FB
-#if defined(ARDUINO_TEENSY41) && defined(_RA8875MC_H_)
-  if (external_psram_size) {
-    g_frame_buffer = (uint16_t *)extmem_malloc(g_tft_width * g_tft_height * sizeof(uint16_t));
-    Serial.printf(">>> RA8875/6 and Extmem(%u) - extmem_malloc\n", external_psram_size);
-  }
-#else
-g_frame_buffer = (uint16_t *)malloc(g_tft_width * g_tft_height * sizeof(uint16_t));
-#endif
-#endif
-
-
+//-----------------------------------------------------------------------------
+// Initialize MTP storages - in this case SD
+//-----------------------------------------------------------------------------
   //Serial.print(F("Initializing SD card..."));
   tft.println(F("Init SD card..."));
   if (!SD.begin(SD_CS)) {
@@ -400,6 +418,18 @@ g_frame_buffer = (uint16_t *)malloc(g_tft_width * g_tft_height * sizeof(uint16_t
   Serial.println("OK!");
   emDisplayed = g_display_image_time; 
 
+  //-----------------------------------------------------------------------------
+  // Initialize options and then read optional config file
+  //-----------------------------------------------------------------------------
+  g_jpg_scale_x_above[0] = (g_tft_width*3)/2;
+  g_jpg_scale_x_above[1] = g_tft_width*3;
+  g_jpg_scale_x_above[2] = g_tft_width*6;
+  g_jpg_scale_x_above[3] = g_tft_width*12;
+
+  g_jpg_scale_y_above[0] = (g_tft_height*3)/2;
+  g_jpg_scale_y_above[1] = g_tft_height*3;
+  g_jpg_scale_y_above[2] = g_tft_height*6;
+  g_jpg_scale_y_above[3] = g_tft_height*12;
   File optionsFile = SD.open(options_file_name);
   if (optionsFile) {
     ProcessOptionsFile(optionsFile);
@@ -410,13 +440,13 @@ g_frame_buffer = (uint16_t *)malloc(g_tft_width * g_tft_height * sizeof(uint16_t
 #if defined( _ILI9341_t3NH_) || defined(_ILI9488_t3H_) || defined(__ST7735_t3_H_) || defined(__ST7789_t3_H_)
   #ifdef TFT_USE_FRAME_BUFFER
   tft.useFrameBuffer(true);
-#endif  
+  #endif  
 #endif
-   #ifdef _RA8876_T3
-  tft.printTSRegisters(Serial, 0, 33);
-  tft.printTSRegisters(Serial, 0x80, 0xb5-0x80);
-
-   #endif
+  #if defined(RA8875_USE_LAYERS)
+  tft.useLayers(true);
+  if (tft.getCurrentLayer() != 255) Serial.println("RA8875 - Using layers");
+  else Serial.println("RA8875 - Failed to use layers");
+  #endif
 
 }
 
@@ -431,7 +461,7 @@ void loop() {
   // if it has logical frame buffer, maybe as soon as we display an image, 
   // try to load the next one, and then wait until the image time to 
   // tell display to update...
-  #ifdef TFT_USE_FRAME_BUFFER
+  #if defined(TFT_USE_FRAME_BUFFER) || defined(RA8875_USE_LAYERS)
   if (!g_fast_mode && !g_stepMode && (!g_picture_loaded) && (emDisplayed < (uint32_t)g_display_image_time)) return; 
   #else
   if (!g_fast_mode && !g_stepMode && (emDisplayed < (uint32_t)g_display_image_time)) return; 
@@ -481,6 +511,11 @@ void loop() {
       //tft.useCanvas();
       //tft.selectScreen(SCREEN_2);
       #endif
+      #if defined(RA8875_USE_LAYERS)
+      g_ra8875_layer_active = (g_ra8875_layer_active + 1) & 1; // 
+      tft.writeTo(g_ra8875_layer_active? L1 : L2);
+      #endif
+
       elapsedMillis emDraw = 0;
       char file_name[MTP_MAX_FILENAME_LEN];
       strncpy(file_name, name, sizeof(file_name));
@@ -514,18 +549,19 @@ void loop() {
   // If the display has a command to update the screen now, see if we should
   // do now or wait until proper time 
   //---------------------------------------------------------------------------
-  #ifdef TFT_USE_FRAME_BUFFER
+  #if defined(TFT_USE_FRAME_BUFFER) || defined(RA8875_USE_LAYERS)
   if (g_fast_mode || g_stepMode || (emDisplayed >= (uint32_t)g_display_image_time)) {
     if (g_picture_loaded) {
       #if defined( _ILI9341_t3NH_) || defined(_ILI9488_t3H_) || defined(_RA8876_T3) || defined(__ST7735_t3_H_) || defined(__ST7789_t3_H_)
       tft.updateScreen();
-      #endif
-      #ifdef TFT_EMULATE_FB
+      #elif defined(TFT_EMULATE_FB)
       if (g_frame_buffer && g_use_efb) {
         elapsedMillis emOut;
         tft.writeRect(0, 0, g_tft_width, g_tft_height, g_frame_buffer);
         Serial.printf("EFB writeRect(%u %u) %u\n", g_tft_width, g_tft_height, (uint32_t)emOut);
       }
+      #elif defined(RA8875_USE_LAYERS)
+      tft.layerEffect(g_ra8875_layer_active? LAYER1 : LAYER1);
       #endif
     }
     #endif  
@@ -561,6 +597,18 @@ void loop() {
   }
   #endif
 }
+
+//****************************************************************************
+// forward function definitions. 
+//****************************************************************************
+#ifdef TFT_CLIP_SUPPORT
+inline void writeClippedRect(int16_t x, int16_t y, int16_t cx, int16_t cy, uint16_t *pixels, bool waitForWRC = true ) {
+  tft.writeRect(x + g_image_offset_x, y + g_image_offset_y, cx, cy, pixels);
+}
+#else
+extern void writeClippedRect(int x, int y, int cx, int cy, uint16_t *pixels, bool waitForWRC = true); 
+#endif
+
 
 //=============================================================================
 // Options file support - process only if file changed dates (Or first time) 
@@ -684,19 +732,7 @@ void ShowAllOptionValues() {
 }
 
 #if defined(_RA8875MC_H_)
-#ifdef TFT_EMULATE_FB
-void FillScreen(uint16_t color) {
-  if (g_frame_buffer && g_use_efb) {
-    for (uint32_t i = 0; i < g_tft_width * g_tft_height; i++) {
-      g_frame_buffer[i] = color;
-    }
-  } else {
-    tft.fillWindow(color); 
-  }
-} 
-#else 
 inline void FillScreen(uint16_t color) {tft.fillWindow(color);}
-#endif
 inline uint16_t Color565(uint8_t r,uint8_t g,uint8_t b) {return tft.Color565(r, g, b);}
 inline void   Color565ToRGB(uint16_t color, uint8_t &r, uint8_t &g, uint8_t &b) {tft.Color565ToRGB(color, r, g, b);}
 
