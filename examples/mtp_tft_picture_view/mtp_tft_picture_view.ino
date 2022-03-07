@@ -5,6 +5,12 @@
 #include <SD.h>
 #include <MTP_Teensy.h>
 
+//#define USE_SPI_LITTLEFS
+
+#if defined(USE_SPI_LITTLEFS)
+#include <LittleFS.h>
+#endif
+
 /***************************************************
   Some of this code originated with the spitftbitmap.ino sketch
   that is part of the Adafruit_ILI9341 library. 
@@ -43,13 +49,15 @@
 //#include <ST7735_t3.h> // Hardware-specific library
 //#include <ST7789_t3.h> // Hardware-specific library
 //#define USE_KURTE_MMOD1
+//#define USE_KURTE_MMOD2
 
 //Optional support for RA8875
-#include <RA8875.h>
+//#include <RA8875.h>
 
 //Optional support for RA8876
-//#include <FT5206.h>
-//#include <RA8876_t3.h>
+#define USE_KURTS_2ND_BOARD
+#include <FT5206.h>
+#include <RA8876_t3.h>
 
 
 //-----------------------------------------------------------------------------
@@ -59,8 +67,13 @@
 #define TFT_CS 10
 #define TFT_RST -1
 
+
 #define SD_CS BUILTIN_SDCARD  // Works on T_3.6 and T_4.1 ...
 //#define SD_CS 10  // Works on SPI with this CS pin
+
+#if defined(USE_SPI_LITTLEFS)
+LittleFS_SPI lfs_spi_list[] = {{3}, {4}, {5}};
+#endif
 
 //-----------------------------------------------------------------------------
 // ILI9341 displays - default
@@ -74,7 +87,6 @@
 #endif
 
 #if defined(_ILI9341_t3H_) || defined(_ILI9341_t3NH_)
-#define TFT_EMULATE_FB  // emulate the frame buffer support
 
 // This is calibration data for the raw touch data to the screen coordinates
 // Warning, These may need to be tweeked.
@@ -96,9 +108,25 @@
 #define TOUCH_CS 27
 #define TOUCH_TIRQ 26
 
+#ifdef USE_KURTE_MMOD2
+#undef TFT_DC
+#undef TFT_CS
+#undef TFT_RST
+#define TFT_DC 9
+#define TFT_CS 32
+#define TFT_RST 31
+// used for XPT2046
+#undef TOUCH_CS 
+#undef TOUCH_TIRQ 
+#define TOUCH_CS 26
+#define TOUCH_TIRQ 27
+#endif
+
+
 #if defined(_ILI9341_t3H_)
 #pragma message "Display: ILI9341_t3"
 ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC, TFT_RST);
+#define TFT_EMULATE_FB  // emulate the frame buffer support
 #else  //_ILI9341_t3NH_
 ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST);
 #pragma message "Display: ILI9341_t3n"
@@ -130,6 +158,14 @@ ILI9488_t3 tft = ILI9488_t3(&SPI, TFT_CS, TFT_DC, TFT_RST);
 #define TFT_DC 4
 #define TFT_CS 10
 #define TFT_RST 2
+#endif
+#ifdef USE_KURTE_MMOD2
+#undef TFT_DC
+#undef TFT_CS
+#undef TFT_RST
+#define TFT_DC 9
+#define TFT_CS 32
+#define TFT_RST 31
 #endif
 #undef TOUCH_CS
 
@@ -190,11 +226,23 @@ uint8_t g_ra8875_layer_active = 0; //
 //-----------------------------------------------------------------------------
 // RA8876 capacitive IRQ
 #if defined(_RA8876_T3)
+#if defined(USE_KURTS_2ND_BOARD)
+#undef TFT_DC
+#undef TFT_CS
+#undef TFT_RST
+//#define TFT_DC 30
+#define TFT_CS 30
+#define TFT_RST 28
+#define TFT_BL 29
+#define RA8876_INT 31
+#define RA8876_CTPRST 32
+#else
 #undef TFT_RST
 #define TFT_RST 9
 
 #define RA8876_INT 6
 #define RA8876_CTPRST 31
+#endif
 #define MAXTOUCHLIMIT     1//1...5
 
 RA8876_t3 tft = RA8876_t3(TFT_CS, TFT_RST);
@@ -260,7 +308,7 @@ int g_stepMode = 0;
 int g_BMPScale = -1;
 int g_JPGScale = 0;
 int g_PNGScale = 1;
-int g_center_image = 0;
+int g_center_image = 1;
 int g_display_image_time = 2500;
 int g_background_color = BLACK;
 
@@ -271,9 +319,12 @@ int g_jpg_scale_x_above[4];
 int g_jpg_scale_y_above[4];
 
 // variables used in some of the display output functions
+int g_image_width;
+int g_image_height;
 int g_image_offset_x = 0;
 int g_image_offset_y = 0;
 uint8_t g_image_scale = 1;
+uint8_t g_image_scale_up = 0;
 uint32_t g_WRCount = 0;  // debug count how many time writeRect called
 
 
@@ -288,20 +339,39 @@ void setup(void) {
   pinMode(SD_CS, INPUT_PULLUP);
   delay(20);
 
+  #if defined(USE_SPI_LITTLEFS)
+  for (uint8_t i = 0; i < (sizeof(lfs_spi_list) / sizeof(lfs_spi_list[0])); i++) {
+    pinMode(lfs_spi_list[i].csPin_, OUTPUT);
+    digitalWrite(lfs_spi_list[i].csPin_, HIGH);
+  }
+  #endif
+
+  while(!Serial && millis() < 3000); 
+  // give chance to debug some display startups...
+
 //-----------------------------------------------------------------------------
 // initialize display
 //-----------------------------------------------------------------------------
   #if defined(TOUCH_CS) && defined(SUPPORTS_XPT2046_TOUCH)
   pinMode(TOUCH_CS, OUTPUT); digitalWriteFast(TOUCH_CS, HIGH);
   pinMode(TFT_CS, OUTPUT); digitalWriteFast(TFT_CS, HIGH);
+  Serial.printf("\n\n*** start up touch cs:%u irq:%u ***\n", TOUCH_CS, TOUCH_TIRQ);
   ts.begin();
   #endif
 #if defined(_ILI9341_t3H_) || defined(_ILI9341_t3NH_)
-  tft.begin();
+  Serial.println("*** start up ILI9341 ***");
+  tft.begin(10000000u);
   #if USE_SF_IOCarrier == 1
     tft.invertDisplay(true);
   #endif
   tft.setRotation(1);
+
+  tft.fillScreen(RED);
+  delay(500);
+  tft.fillScreen(GREEN);
+  delay(500);
+  tft.fillScreen(BLUE);
+  delay(500);
 
 #elif defined(_ILI9488_t3H_)
   tft.begin();
@@ -333,16 +403,16 @@ void setup(void) {
   //tft.init(240, 240, SPI_MODE2);           // Init ST7789 240x240 no CS
   tft.setRotation(1);
 
- #elif defined(_RA8875MC_H_)
+#elif defined(_RA8875MC_H_)
   //  begin display: Choose from: RA8875_480x272, RA8875_800x480, RA8875_800x480ALT, Adafruit_480x272, Adafruit_800x480
   tft.begin(TFT_RA8875_BEGIN_MODE, TFT_RA8875_BEGIN_COLORS_BPP, TFT_RA8875_BEGIN_SPI_SPEED);
   tft.setRotation(0);
 
   #if defined(RA8875_USE_LAYERS)
-  #endif
-  //tft.GPIOX(true);      // Enable TFT - display enable tied to GPIOX
+  #endif  //tft.GPIOX(true);      // Enable TFT - display enable tied to GPIOX
   //tft.PWM1config(true, RA8875_PWM_CLK_DIV1024); // PWM output for backlight
   //tft.PWM1out(255);
+
 
   #if defined(RA8875_INT) && defined(USE_FT5206_TOUCH)
   tft.useCapINT(RA8875_INT);//we use the capacitive chip Interrupt out!
@@ -357,6 +427,10 @@ void setup(void) {
   #endif
 
  #elif defined(_RA8876_T3)
+  #if defined(TFT_BL)
+  pinMode(TFT_BL, OUTPUT);
+  digitalWrite(TFT_BL, HIGH);
+  #endif
   tft.begin();
 
    #ifdef RA8876_INT
@@ -371,6 +445,14 @@ void setup(void) {
     tft.printTSRegisters(Serial, 0x80, 0xb5-0x80);
    #endif
   tft.backlight(true);
+
+    tft.fillScreen(RED);
+  delay(500);
+  tft.fillScreen(GREEN);
+  delay(500);
+  tft.fillScreen(BLUE);
+  delay(500);
+
 
   tft.setRotation(0);
 
@@ -391,6 +473,16 @@ void setup(void) {
 //-----------------------------------------------------------------------------
   //Serial.print(F("Initializing SD card..."));
   tft.println(F("Init SD card..."));
+
+#if defined(USE_SPI_LITTLEFS)
+  for (uint8_t i = 0; i < (sizeof(lfs_spi_list) / sizeof(lfs_spi_list[0])); i++) {
+    if (lfs_spi_list[i].begin()) {
+      MTP.addFilesystem(*lfs_spi_list[i].fs(), lfs_spi_list[i].displayName());
+    } else {
+      Serial.printf("Storage not added for pin %d\n", i);
+    }
+  }
+#endif
   if (!SD.begin(SD_CS)) {
     tft.setTextSize(2);
     FillScreen(RED);
@@ -576,6 +668,7 @@ void loop() {
         if (ch == 'd') g_debug_output = !g_debug_output;
         if (ch == 's') g_stepMode = !g_stepMode;
         if (ch == 'f') g_use_efb = !g_use_efb;
+        if (ch == 'l') listFiles(&SD);
 
         ch = Serial.read();
       }
@@ -588,6 +681,7 @@ void loop() {
         if (ch == 'd') g_debug_output = !g_debug_output;
         if (ch == 's') g_stepMode = !g_stepMode;
         if (ch == 'f') g_use_efb = !g_use_efb;
+        if (ch == 'l') listFiles(&SD);
         ch = Serial.read();
       }
     }
@@ -805,6 +899,8 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
   uint8_t  r, g, b;
   uint32_t pos = 0;
 
+  uint16_t *usPixels = nullptr;
+
 
   Serial.println();
   Serial.print(F("Loading image '"));
@@ -821,8 +917,9 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
     // Read DIB header
     uint32_t bmpHdrSize  __attribute__((unused)) = read32(bmpFile);
     //Serial.print(F("Header size: ")); Serial.println(bmpHdrSize);
-    image_width  = read32(bmpFile);
-    image_height = read32(bmpFile);
+    g_image_width = image_width  = read32(bmpFile);
+    g_image_height = image_height = read32(bmpFile);
+
     if(read16(bmpFile) == 1) { // # planes -- must be '1'
       bmpDepth = read16(bmpFile); // bits per pixel
       //Serial.print(F("Bit Depth: ")); Serial.println(bmpDepth);
@@ -841,13 +938,22 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
         }
 
         g_image_scale = 1;
+        g_image_scale_up = 0;
         if (g_BMPScale > 0) {
           g_image_scale = g_BMPScale; // use what they passed in
         } else if (g_BMPScale < 0) {
-          if (image_width > g_tft_width) g_image_scale = (image_width + g_tft_width - 1) / g_tft_width;
-          if (image_height > g_tft_height) {
-            int yscale = (image_height + g_tft_height - 1) / g_tft_height;
-            if (yscale > g_image_scale) g_image_scale = yscale;
+          // bugbug experiement - try to scale up...
+          if ((image_width*2 < g_tft_width) && (image_height*2 < g_tft_height)) {
+            // image is less than half the screen... 
+            // lets try simple scale up...
+            g_image_scale_up = 2;
+
+          } else { 
+            if (image_width > g_tft_width) g_image_scale = (image_width + g_tft_width - 1) / g_tft_width;
+            if (image_height > g_tft_height) {
+              int yscale = (image_height + g_tft_height - 1) / g_tft_height;
+              if (yscale > g_image_scale) g_image_scale = yscale;
+            }
           }
         } else {  
           if ((image_width > g_jpg_scale_x_above[SCL_16TH]) || (image_height >  g_jpg_scale_y_above[SCL_16TH])) {
@@ -860,21 +966,43 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
             g_image_scale = 2;
           }        
         }
-        if (g_center_image) {
-          g_image_offset_x = (g_tft_width - (image_width / g_image_scale)) / 2;
-          g_image_offset_y = (g_tft_height - (image_height / g_image_scale)) / 2;
-        } else {
-          g_image_offset_x = 0;
-          g_image_offset_y = 0;
-        }
-        Serial.printf("Scale: 1/%d Image Offsets (%d, %d)\n", g_image_scale, g_image_offset_x, g_image_offset_y);
+        if (g_image_scale_up) {
+          if (g_center_image) {
+            g_image_offset_x = (g_tft_width - (image_width * g_image_scale_up)) / 2;
+            g_image_offset_y = (g_tft_height - (image_height * g_image_scale_up)) / 2;
+          } else {
+            g_image_offset_x = 0;
+            g_image_offset_y = 0;
+          }
+          
+          g_image_scale = 2; // bugbug use this to know which row to read in to...
+          Serial.printf("Scale: %d Image Offsets (%d, %d)\n", g_image_scale_up, g_image_offset_x, g_image_offset_y);
 
-        if (fErase && (((image_width/g_image_scale) < g_tft_width) || ((image_height/g_image_scale) < image_height))) {
-          FillScreen((uint16_t)g_background_color);
+          if (fErase && (((image_width * g_image_scale_up) < g_tft_width) || ((image_height * g_image_scale_up) < image_height))) {
+            FillScreen((uint16_t)g_background_color);
+          }
+
+          // now we will allocate large buffer for SCALE*width
+          // need 2 rows to work with, and resultant output will be an addition 2x
+          usPixels = (uint16_t*)malloc(image_width * 4 * sizeof(uint16_t));
+
+        } else {  
+          if (g_center_image) {
+            g_image_offset_x = (g_tft_width - (image_width / g_image_scale)) / 2;
+            g_image_offset_y = (g_tft_height - (image_height / g_image_scale)) / 2;
+          } else {
+            g_image_offset_x = 0;
+            g_image_offset_y = 0;
+          }
+          Serial.printf("Scale: 1/%d Image Offsets (%d, %d)\n", g_image_scale, g_image_offset_x, g_image_offset_y);
+
+          if (fErase && (((image_width/g_image_scale) < g_tft_width) || ((image_height/g_image_scale) < image_height))) {
+            FillScreen((uint16_t)g_background_color);
+          }
+          // now we will allocate large buffer for SCALE*width
+          usPixels = (uint16_t*)malloc(image_width * g_image_scale * sizeof(uint16_t));
         }
 
-        // now we will allocate large buffer for SCALE*width
-        uint16_t *usPixels = (uint16_t*)malloc(image_width * g_image_scale * sizeof(uint16_t));
         if (usPixels) {
           for (row=0; row<image_height; row++) { // For each scanline...
 
@@ -1070,8 +1198,53 @@ void WaitforWRComplete() {
 
 // Function to draw pixels to the display
 void ScaleWriteClippedRect(int row, int image_width, uint16_t *usPixels) {
-  // this methos assumes you are writing the data into the proper spots in Image_width*CLIP_LINES rectangle
-  if ((row % g_image_scale) == (g_image_scale -1)) {
+  // this method assumes you are writing the data into the proper spots in Image_width*CLIP_LINES rectangle
+  if (g_image_scale_up) {
+    //--------------------------------------------------------------------
+    // experiment scale up 2 to 1...
+    //--------------------------------------------------------------------
+    uint16_t *usRowOut = usPixels + 2 * image_width; // 
+    uint8_t r1, r2, g1, g2, b1, b2;
+    if (row) { 
+      // if this is not our first row, then we need to compute the fill in row
+      // first...
+      uint16_t *p = usRowOut;
+      for(int col = 0; col < image_width; col++) {
+        // bug bug.. could be faster
+        Color565ToRGB(usPixels[col], r1, g1, b1); 
+        Color565ToRGB(usPixels[col + image_width], r2, g2, b2); 
+        *p = Color565((r1 + r2) / 2, (g1 + g2) / 2, (b1 + b2) / 2);
+        // need to compute middle one as well. 
+        if (col) {
+          // again could be sped up
+          Color565ToRGB(*p, r1, g1, b1); 
+          Color565ToRGB(*(p-2), r2, g2, b2); 
+          *(p-1) = Color565((r1 + r2) / 2, (g1 + g2) / 2, (b1 + b2) / 2);
+        }
+        p += 2; 
+      }
+      writeClippedRect(0, row*2 - 1, image_width*2 - 1, 1, usRowOut);
+    }
+    // now lets generate the one for the actual row;
+    uint16_t *p = usRowOut;
+    uint16_t *ppixIn = usPixels + (row & 1)*image_width;  // which row did we read into
+    for(int col = 0; col < image_width; col++) {
+      // bug bug.. could be faster
+      *p = *ppixIn++; // copy the pixel in to pixel out
+      if (col) {
+        // again could be sped up
+        Color565ToRGB(*p, r1, g1, b1); 
+        Color565ToRGB(*(p-2), r2, g2, b2); 
+        *(p-1) = Color565((r1 + r2) / 2, (g1 + g2) / 2, (b1 + b2) / 2);
+      }
+       p += 2; 
+    }
+    writeClippedRect(0, row*2, image_width*2 - 1, 1, usRowOut);
+  
+  } else if ((row % g_image_scale) == (g_image_scale -1)) {
+    //--------------------------------------------------------------------
+    // else scale down
+    //--------------------------------------------------------------------
     uint16_t newx = 0;
     for(uint16_t pix_cnt=0; pix_cnt < image_width; pix_cnt += g_image_scale) {
       uint8_t red = 0; uint8_t green = 0; uint8_t blue = 0;
@@ -1181,8 +1354,6 @@ int JPEGDraw(JPEGDRAW *pDraw) {
 //used for png files primarily
 #ifdef __PNGDEC__
 PNG png;
-int g_image_width;
-int g_image_height;
 
 void processPNGFile(const char *name, bool fErase)
 {
@@ -1283,7 +1454,6 @@ void ProcessTouchScreen()
 //  if (ts.bufferEmpty()) {
 //    return;
 //  }
-
   // You can also wait for a touch
   if (! ts.touched()) {
     g_fast_mode = false;
@@ -1376,3 +1546,47 @@ void ProcessTouchScreen()
 {
 }
 #endif
+void listFiles(FS *pfs)
+{
+  Serial.print("\n Space Used = ");
+  Serial.println(pfs->usedSize());
+  Serial.print("Filesystem Size = ");
+  Serial.println(pfs->totalSize());
+
+  printDirectory(pfs);
+}
+
+
+void printDirectory(FS *pfs) {
+  Serial.println("Directory\n---------");
+  printDirectory(pfs->open("/"), 0);
+  Serial.println();
+}
+
+void printDirectory(File dir, int numSpaces) {
+  while (true) {
+    File entry = dir.openNextFile();
+    if (! entry) {
+      //Serial.println("** no more files **");
+      break;
+    }
+    printSpaces(numSpaces);
+    Serial.print(entry.name());
+    if (entry.isDirectory()) {
+      Serial.println("/");
+      printDirectory(entry, numSpaces + 2);
+    } else {
+      // files have sizes, directories do not
+      printSpaces(36 - numSpaces - strlen(entry.name()));
+      Serial.print("  ");
+      Serial.println(entry.size(), DEC);
+    }
+    entry.close();
+  }
+}
+
+void printSpaces(int num) {
+  for (int i = 0; i < num; i++) {
+    Serial.print(" ");
+  }
+}
