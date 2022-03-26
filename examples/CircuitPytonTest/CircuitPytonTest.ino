@@ -165,48 +165,63 @@ void loop() {
   if (Serial.available()) {
     uint8_t command = Serial.read();
     int ch = Serial.read();
-    uint32_t drive_index = CommandLineReadNextNumber(ch, 0);
-    while (ch == ' ')
-      ch = Serial.read();
-
-    switch (command) {
-    case 'l':
-      listFiles();
-      break;
-    case 'e':
-      eraseFiles();
-      break;
-    case '1': {
-      // first dump list of storages:
-      uint32_t fsCount = MTP.getFilesystemCount();
-      Serial.printf("\nDump Storage list(%u)\n", fsCount);
-      for (uint32_t ii = 0; ii < fsCount; ii++) {
-        Serial.printf("store:%u storage:%x name:%s fs:%x\n", ii,
-                      MTP.Store2Storage(ii), MTP.getFilesystemNameByIndex(ii),
-                      (uint32_t)MTP.getFilesystemNameByIndex(ii));
+    if (command == '$') {
+      while (ch != -1) {
+        // hack use $ to signal ctrl_
+        if (ch == '$') {
+          ch = Serial.read();
+          if (ch == -1) break;
+          ch &= 0x1f; // get into ctrl range
+        }
+        
+        if (userial) userial.write(ch);
+        ch = Serial.read();
       }
-      Serial.println("\nDump Index List");
-      MTP.storage()->dumpIndexList();
-    } break;
-    case '2':
-      Serial.printf("Drive # %d Selected\n", drive_index);
-      mscDisk = MTP.getFilesystemByIndex(drive_index);
-      break;
-    case 'r':
-      Serial.println("Send Device Reset Event");
-      MTP.send_DeviceResetEvent();
-      break;
-    case '\r':
-    case '\n':
-    case 'h':
-      menu();
-      break;
-    default:
-      menu();
-      break;
+      
+    } else {
+      uint32_t drive_index = CommandLineReadNextNumber(ch, 0);
+      while (ch == ' ')
+        ch = Serial.read();
+
+      switch (command) {
+      case 'l':
+        listFiles();
+        break;
+      case 'e':
+        eraseFiles();
+        break;
+      case '1': {
+        // first dump list of storages:
+        uint32_t fsCount = MTP.getFilesystemCount();
+        Serial.printf("\nDump Storage list(%u)\n", fsCount);
+        for (uint32_t ii = 0; ii < fsCount; ii++) {
+          Serial.printf("store:%u storage:%x name:%s fs:%x\n", ii,
+                        MTP.Store2Storage(ii), MTP.getFilesystemNameByIndex(ii),
+                        (uint32_t)MTP.getFilesystemNameByIndex(ii));
+        }
+        Serial.println("\nDump Index List");
+        MTP.storage()->dumpIndexList();
+      } break;
+      case '2':
+        Serial.printf("Drive # %d Selected\n", drive_index);
+        mscDisk = MTP.getFilesystemByIndex(drive_index);
+        break;
+      case 'r':
+        Serial.println("Send Device Reset Event");
+        MTP.send_DeviceResetEvent();
+        break;
+      case '\r':
+      case '\n':
+      case 'h':
+        menu();
+        break;
+      default:
+        menu();
+        break;
+      }
+      while (Serial.read() != -1)
+        ; // remove rest of characters.
     }
-    while (Serial.read() != -1)
-      ; // remove rest of characters.
   }
 }
 
