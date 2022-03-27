@@ -118,6 +118,11 @@ void setup() {
     // wait for serial port to connect.
   }
 
+  #if defined(USB_MTPDISK_DUAL_SERIAL)
+    SerialUSB1.begin(115200);
+    Serial.println("*** WE HAVE DUAL SERIAL ***");
+  #endif
+
   // set to real stream
   MTP.PrintStream(&Serial); // Setup which stream to use...
 
@@ -158,10 +163,24 @@ void loop() {
   checkMSCChanges();
   MTP.loop();
   CheckForDeviceChanges();
+  #if defined(USB_MTPDISK_DUAL_SERIAL)
+  if (userial && userial.available()) {
+    while (userial.available()) SerialUSB1.write(userial.read());
+  }
+  if (SerialUSB1.available()) {
+    for (;;) {
+      int ch = SerialUSB1.read();
+      if (ch == -1) break;
+      if (userial)userial.write(ch);
+      //Serial.println(ch, HEX);
+    }
+  }
+  #else
   if (userial && userial.available()) {
     Serial.print("$$USerial:");
     while (userial.available()) Serial.write(userial.read());
   }
+  #endif  
   if (Serial.available()) {
     uint8_t command = Serial.read();
     int ch = Serial.read();

@@ -24,7 +24,7 @@
 
 // modified for SDFS by WMXZ
 
-#if defined(USB_MTPDISK) || defined(USB_MTPDISK_SERIAL)
+#if defined(USB_MTPDISK) || defined(USB_MTPDISK_SERIAL) || defined(USB_MTPDISK_DUAL_SERIAL)
 
 #include "MTP_Teensy.h"
 #include "MTP_Const.h"
