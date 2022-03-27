@@ -242,12 +242,12 @@ void loop() {
         MTP.storage()->dumpIndexList();
       } break;
       case '2':
-        {
-          uint32_t drive_index = CommandLineReadNextNumber(ch, 0);
-          Serial.printf("Drive # %d Selected\n", drive_index);
-          mscDisk = MTP.getFilesystemByIndex(drive_index);
-        }
-        break;
+      {
+        uint32_t drive_index = CommandLineReadNextNumber(ch, 0);
+        Serial.printf("Drive # %d Selected\n", drive_index);
+        mscDisk = MTP.getFilesystemByIndex(drive_index);
+      }
+      break;
       case 'r':
         Serial.println("Send Device Reset Event");
         MTP.send_DeviceResetEvent();
@@ -280,16 +280,22 @@ void readFile(int ch)
       *psz++ = ch;
       ch = Serial.read();
     }
+    *psz = 0;
   }
 
-  Serial.printf("\nDownloading  File%s!!!\n", download_file_name);
+  if (!userial) {
+    Serial.printf("Error: USB Host Serial is not connected");
+    return;
+  }
+
+  Serial.printf("\nDownloading  File: %s!!!\n", download_file_name);
   // open the file.
   dataFile = myfs.open(download_file_name);
 
   // if the file is available, write to it:
+  bool start_of_line = false;
   if (dataFile) {
     while (dataFile.available()) {
-      //Serial.println(dataFile.read(), DEC);
       int pycomm = dataFile.read();
       while (pycomm != -1) {
         // hack use $ to signal ctrl_
@@ -302,15 +308,35 @@ void readFile(int ch)
           else pycomm &= 0x1f; // get into ctrl range
           //Serial.println(pycomm);
         }
-
-        if (userial) userial.write(pycomm);
+        if (start_of_line) {        
+          if ((pycomm != ' ') && (pycomm != '\t')) {
+            userial.write(pycomm);
+             Serial.write(pycomm);
+            start_of_line = false;
+          }
+        } else {
+          userial.write(pycomm);
+          Serial.write(pycomm);
+        }
+        if ((pycomm == '\n') || (pycomm == '\r')) start_of_line = true;
         pycomm = Serial.read();
-        //Serial.print("1: ");Serial.println(pycomm);
       }
       if (userial && userial.available()) {
         Serial.print("$$USerial:");
-        while (userial.available()) Serial.write(userial.read());
+        while (userial.available()) {
+          int ch = userial.read();
+  #if defined(USB_MTPDISK_DUAL_SERIAL)
+          SerialUSB1.write(ch);
+  #endif
+          Serial.write(ch);
+        }
       }
+    }
+    // see if we can automatically close out normal file
+    userial.print("\b\b\b"); // output a few backspaces
+    for (uint8_t i = 0; i < 3; i++) {
+      delay(100);
+      userial.print("\x7f\r");
     }
     dataFile.close();
     Serial.println("Download Complete");
