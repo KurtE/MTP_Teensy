@@ -270,6 +270,8 @@ void loop() {
   }
 }
 
+extern bool read_file_line(File &dataFile, char *line_buffer, int &last_eol_marker);
+
 void readFile(int ch)
 {
   // see if we have a filename
@@ -293,50 +295,66 @@ void readFile(int ch)
   dataFile = myfs.open(download_file_name);
 
   // if the file is available, write to it:
-  bool start_of_line = false;
+  uint8_t indent_level = 0;
+
+
+  char line_buffer[256];
+  int last_eol_marker = 0;
+  uint8_t indent_spaces[20] = {0}; // 
+
   if (dataFile) {
-    while (dataFile.available()) {
-      int pycomm = dataFile.read();
-      while (pycomm != -1) {
-        // hack use $ to signal ctrl_
-        if (pycomm == '$') {
-          pycomm = dataFile.read();
-          if (pycomm == -1) break;
-          //Serial.print("$: ");Serial.println(pycomm);
-          if (pycomm == '$') pycomm = Delete;
-          //if (pycomm == 10) { pycomm &= 0x1f; break; }
-          else pycomm &= 0x1f; // get into ctrl range
-          //Serial.println(pycomm);
-        }
-        if (start_of_line) {        
-          if ((pycomm != ' ') && (pycomm != '\t')) {
-            userial.write(pycomm);
-             Serial.write(pycomm);
-            start_of_line = false;
-          }
-        } else {
-          userial.write(pycomm);
-          Serial.write(pycomm);
-        }
-        if ((pycomm == '\n') || (pycomm == '\r')) start_of_line = true;
-        pycomm = Serial.read();
+    while (read_file_line(dataFile, line_buffer, last_eol_marker)) {
+      char *psz = line_buffer;
+      uint8_t count_spaces = 0;
+      while (*psz == ' ') {
+        psz++;
+        count_spaces++;
       }
+      if (count_spaces > indent_spaces[indent_level]) {
+        // new indent level
+        indent_spaces[++indent_level] = count_spaces;
+      } else if (count_spaces < indent_spaces[indent_level]) {
+        while (count_spaces < indent_spaces[indent_level]) {
+          userial.write(0x08); // Output BS
+          indent_level--;
+        }
+      }
+
+      // output any data we have pending... 
+      userial.println(psz);
+      Serial.printf("%u:%s\n", indent_level, line_buffer);
+
       if (userial && userial.available()) {
         Serial.print("$$USerial:");
         while (userial.available()) {
           int ch = userial.read();
-  #if defined(USB_MTPDISK_DUAL_SERIAL)
+          #if defined(USB_MTPDISK_DUAL_SERIAL)
           SerialUSB1.write(ch);
-  #endif
+          #endif
           Serial.write(ch);
         }
       }
     }
     // see if we can automatically close out normal file
-    userial.print("\b\b\b"); // output a few backspaces
+    while (indent_level--) userial.write(0x08); // Output BS
+    elapsedMillis em;
+    while (em < 250) {
+      if (userial && userial.available()) {
+        Serial.print("$$USerial:");
+        while (userial.available()) {
+          int ch = userial.read();
+          #if defined(USB_MTPDISK_DUAL_SERIAL)
+          SerialUSB1.write(ch);
+          #endif
+          Serial.write(ch);
+        }
+      }
+    }
+
     for (uint8_t i = 0; i < 3; i++) {
-      delay(100);
       userial.print("\x7f\r");
+      delay(100);
+      if (userial.available()) break; // 
     }
     dataFile.close();
     Serial.println("Download Complete");
@@ -346,6 +364,47 @@ void readFile(int ch)
     Serial.printf("error opening %s\n", download_file_name);
   }
 }
+
+bool read_file_line(File &dataFile, char *line_buffer, int &last_eol_marker)
+{
+  char *psz = line_buffer;
+  *line_buffer = 0;
+  
+  int ch = dataFile.read();
+  if (ch == -1) return false; // no more data. 
+
+  // if two EOL characters in a row and not same eat the one.
+  if ((ch == '\n') || (ch == '\r')) {
+    if (last_eol_marker && (ch == last_eol_marker)) {
+      return true; // empty line
+    }
+    ch = dataFile.read(); // eat the 2nd eol character
+  }
+
+  // first read in a line... 
+  while (ch != -1) {
+    if ((ch == '\n') || (ch == '\r')) break; // end of line
+
+    // hack use $ to signal ctrl_
+    if (ch == '$') {
+      ch = dataFile.read();
+      if (ch == -1) break;
+      //Serial.print("$: ");Serial.println(ch);
+      if (ch == '$') ch = Delete;
+      //if (ch == 10) { ch &= 0x1f; break; }
+      else ch &= 0x1f; // get into ctrl range
+      //Serial.println(ch);
+    }
+    *psz++ = ch;
+
+    // read in next character
+    ch = dataFile.read(); // eat the 2nd eol character
+  }
+  *psz = 0;
+  last_eol_marker = ch; // remember what character we ended line on...
+  return (psz != line_buffer);
+}
+
 
 void checkMSCChanges() {
   myusb.Task();
