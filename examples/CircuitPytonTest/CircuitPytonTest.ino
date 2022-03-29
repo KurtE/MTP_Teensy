@@ -71,6 +71,7 @@ msDevice *pdrives[] {&drive1, &drive2, &drive3};
 bool drive_previous_connected[CNT_DRIVES] = {false, false, false};
 
 FS *mscDisk;
+bool echo_serial = false;
 
 #include <LittleFS.h>
 uint32_t LFSRAM_SIZE = 65536; // probably more than enough...
@@ -186,14 +187,23 @@ void loop() {
   CheckForDeviceChanges();
 #if defined(USB_MTPDISK_DUAL_SERIAL)
   if (userial && userial.available()) {
-    while (userial.available()) SerialUSB1.write(userial.read());
+    if (echo_serial) Serial.print("<<:");
+    while (userial.available()) {
+      int ch = userial.read();
+      SerialUSB1.write(ch);
+      if (echo_serial)Serial.write(ch);
+    }
   }
   if (SerialUSB1.available()) {
+    if (echo_serial) Serial.print(">>:");
     for (;;) {
       int ch = SerialUSB1.read();
       if (ch == -1) break;
       if (userial)userial.write(ch);
-      //Serial.println(ch, HEX);
+      if (echo_serial) {
+        if (ch >= ' ' || ch == '\n' || ch == '\r')Serial.write(ch);
+        else Serial.printf("<ctrl-%c>", ch + 'a');
+      }
     }
   }
 #else
@@ -254,6 +264,10 @@ void loop() {
         break;
       case 'd':
         readFile(ch);
+        break;
+      case 's':
+        if (echo_serial) {echo_serial = false; Serial.println("Echo off");}
+        else {echo_serial = true; Serial.println("Echo on");}
         break;
       case '\r':
       case '\n':
@@ -464,6 +478,7 @@ void menu() {
   Serial.println("\tl - List files on disk");
   Serial.println("\te - Erase files on disk");
   Serial.println("\td[<filename>] - download to MicroPython");
+  Serial.println("\ts - Dual Serial - toggle echo on serial");
   Serial.println("\tr - reset MTP");
   Serial.println("\th - Menu");
   Serial.println();
