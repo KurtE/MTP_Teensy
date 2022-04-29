@@ -8,8 +8,8 @@
 */
 #include <MTP_Teensy.h>
 //#include <mscFS.h>
-#include <USBHost_t36.h>
-#include <USBHost_ms.h>
+#include <msFilesystem.h>
+#include <msDevice.h>
 
 File dataFile; // Specifes that dataFile is of File type
 
@@ -18,8 +18,6 @@ bool write_data = false;
 uint32_t diskSize;
 
 // Add in MTPD objects
-MTPStorage storage;
-MTPD mtpd(&storage);
 
 // Add USBHost objectsUsbFs
 USBHost myusb;
@@ -28,9 +26,9 @@ USBHub hub2(myusb);
 USBHub hub(myusb);
 
 // MSC objects.
-msController drive1(myusb);
-msController drive2(myusb);
-msController drive3(myusb);
+msDevice drive1(myusb);
+msDevice drive2(myusb);
+msDevice drive3(myusb);
 
 msFilesystem msFS1(myusb);
 msFilesystem msFS2(myusb);
@@ -44,7 +42,7 @@ msFilesystem *pmsFS[] = {&msFS1, &msFS2, &msFS3, &msFS4, &msFS5};
 uint32_t pmsfs_store_ids[CNT_MSC] = {0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL};
 char  pmsFS_display_name[CNT_MSC][20];
 
-msController *pdrives[] {&drive1, &drive2, &drive3};
+msDevice *pdrives[] {&drive1, &drive2, &drive3};
 #define CNT_DRIVES  (sizeof(pdrives)/sizeof(pdrives[0]))
 bool drive_previous_connected[CNT_DRIVES] = {false, false, false};
 
@@ -75,7 +73,7 @@ void setup() {
   delay(3000);
 
   // startup mtp.. SO to not timeout...
-  mtpd.begin();
+  MTP.begin();
 // lets initialize a RAM drive.
 #if defined ARDUINO_TEENSY41
   if (external_psram_size)
@@ -83,12 +81,12 @@ void setup() {
 #endif
   if (lfsram.begin(LFSRAM_SIZE)) {
     Serial.printf("Ram Drive of size: %u initialized\n", LFSRAM_SIZE);
-    uint32_t istore = storage.addFilesystem(lfsram, "RAM");
+    uint32_t istore = MTP.addFilesystem(lfsram, "RAM");
     Serial.printf("Set Storage Index drive to %u\n", istore);
   }
   mscDisk = &lfsram;  // so we don't start of with NULL pointer
 
-  storage.addFilesystem(bogusfs, "Bogus");
+  MTP.addFilesystem(bogusfs, "Bogus");
 
   myusb.begin();
 
@@ -104,7 +102,7 @@ void setup() {
 
 void loop() {
   checkMSCChanges();
-  mtpd.loop();
+  MTP.loop();
 
   if (Serial.available()) {
     uint8_t command = Serial.read();
@@ -135,26 +133,26 @@ void loop() {
       break;
     case '1': {
       // first dump list of storages:
-      uint32_t fsCount = storage.getFSCount();
+      uint32_t fsCount = MTP.getFilesystemCount();
       Serial.printf("\nDump Storage list(%u)\n", fsCount);
       for (uint32_t ii = 0; ii < fsCount; ii++) {
         Serial.printf("store:%u storage:%x name:%s fs:%x\n", ii,
-                      mtpd.Store2Storage(ii), storage.getStoreName(ii),
-                      (uint32_t)storage.getStoreFS(ii));
+                      MTP.Store2Storage(ii), MTP.getFilesystemNameByIndex(ii),
+                      (uint32_t)MTP.getFilesystemNameByIndex(ii));
       }
       Serial.println("\nDump Index List");
-      storage.dumpIndexList();
+      MTP.storage()->dumpIndexList();
     } break;
     case '2':
       Serial.printf("Drive # %d Selected\n", drive_index);
-      mscDisk = storage.getStoreFS(drive_index);
+      mscDisk = MTP.getFilesystemByIndex(drive_index);
       break;
     case 'd':
       dumpLog();
       break;
     case 'r':
       Serial.println("Send Device Reset Event");
-      mtpd.send_DeviceResetEvent();
+      MTP.send_DeviceResetEvent();
       break;
     case '\r':
     case '\n':
@@ -203,20 +201,20 @@ void checkMSCChanges() {
         snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d-%s", i, volName);
       else
         snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d", i);
-      pmsfs_store_ids[i] = storage.addFilesystem(*pmsFS[i], pmsFS_display_name[i]);
+      pmsfs_store_ids[i] = MTP.addFilesystem(*pmsFS[i], pmsFS_display_name[i]);
 
       // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
-      if (mtpd.send_StoreAddedEvent(pmsfs_store_ids[i]) < 0) send_device_reset = true;
+      if (MTP.send_StoreAddedEvent(pmsfs_store_ids[i]) < 0) send_device_reset = true;
     }
     // Or did volume go away?
     else if ((pmsfs_store_ids[i] != 0xFFFFFFFFUL) && !*pmsFS[i] ) {
-      if (mtpd.send_StoreRemovedEvent(pmsfs_store_ids[i]) < 0) send_device_reset = true;
-      storage.removeFilesystem(pmsfs_store_ids[i]);
+      if (MTP.send_StoreRemovedEvent(pmsfs_store_ids[i]) < 0) send_device_reset = true;
+      MTP.storage()->removeFilesystem(pmsfs_store_ids[i]);
       // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
       pmsfs_store_ids[i] = 0xFFFFFFFFUL;
     }
   }
-  if (send_device_reset) mtpd.send_DeviceResetEvent();
+  if (send_device_reset) MTP.send_DeviceResetEvent();
 }
 
 void logData() {
@@ -251,7 +249,7 @@ void stopLogging() {
   // Closes the data file.
   dataFile.close();
   Serial.printf("Records written = %d\n", record_count);
-  mtpd.send_DeviceResetEvent();
+  MTP.send_DeviceResetEvent();
 }
 
 void dumpLog() {
@@ -309,7 +307,7 @@ void eraseFiles() {
     }
     if (pfsLIB.formatter(partVol)) {
       Serial.println("\nFiles erased !");
-      mtpd.send_DeviceResetEvent();
+      MTP.send_DeviceResetEvent();
     }
     */
 }
