@@ -73,16 +73,25 @@ uint32_t MTP_class::sessionID_ = 0;
 //***************************************************************************
 //  Top level - public functions called by user program
 //***************************************************************************
+// test/hack have usb_mtp.c call us on first usb message..
+void usb_mtp_first_rx_cb() {
+  MTP.begin(); // 
+}
 
 
 int MTP_class::begin() {
+  // maybe don't do anything if already running interval timer
+  if (g_pmtpd_interval) {
+    printf("MTP.begin previously called");
+    return 0;
+  }
   // lets set up to check for MTP messages and tell
   // other side we are busy...  Maybe should be function:
 #if defined(__IMXRT1062__)
   transmit_packet_size_mask = usb_mtp_rxSize() - 1;
 #endif
   g_pmtpd_interval = this;
-  printf("\n\n*** Start Interval Timer ***\n");
+  printf("\n\n*** Start Interval Timer at ms:%u ***\n", millis());
   g_intervaltimer.begin(&_interval_timer_handler, 50000); // 20 Hz
   return usb_init_events();
 }
@@ -301,6 +310,9 @@ void MTP_class::processIntervalTimer() {
           break;
         case 0x1004: // GetStorageIDs 1004, needed by MacOS Android File Transfer app
           return_code = GetStorageIDs(container);
+          break;
+        case 0x1005: // GetStorageInfo
+          return_code = GetStorageInfo(container);
           break;
         case 0x9801: // GetObjectPropsSupported
           return_code = GetObjectPropsSupported(container);

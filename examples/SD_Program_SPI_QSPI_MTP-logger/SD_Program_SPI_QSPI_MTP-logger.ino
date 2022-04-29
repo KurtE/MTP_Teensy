@@ -90,11 +90,34 @@ public:
 
   // overrides for Print
   virtual size_t write(uint8_t b) {
+    if (Serial) {
+      sendBufferToSerial();
+      return Serial.write(b);
+    }
     if (tail_ < sizeof(buffer_)) {
       buffer_[tail_++] = b;
       return 1;
     }
     return 0;
+  }
+  virtual size_t write(const uint8_t *buffer, size_t size) {
+    if (Serial) {
+      sendBufferToSerial();
+      return Serial.write(buffer, size);
+    }
+    size_t free_write = sizeof(buffer_) - tail_;
+    if (free_write < size) size = free_write;
+    if (size) memcpy(&buffer_[tail_], buffer, size);
+    tail_ += size;
+    return size;
+
+  }
+
+  inline void sendBufferToSerial() {
+    if (tail_) {
+      Serial.write(buffer_, tail_);
+      tail_ = 0;
+    }
   }
 
   enum { BUFFER_SIZE = 32768 };
@@ -112,35 +135,10 @@ void setup() {
   MTP.PrintStream(&rstream); // Setup which stream to use...
   rstream.printf("+++ before MTP.begin() %u\n", millis());
 
-  MTP.begin();
-
-  // Open serial communications and wait for port to open:
-  rstream.printf("+++ before wait on !Serial %u\n", millis());
-  while (!DBGSerial && millis() < 5000) {
-    // wait for serial port to connect.
-  }
-  //DBGSerial.begin(2000000); // don't call it wastes 2 seconds. 
-  rstream.printf("+++ after wait on !Serial %u\n", millis());
+  //MTP.begin();
 
   // set to real stream
-  MTP.PrintStream(&DBGSerial); // Setup which stream to use...
-  int ch;
-  while ((ch = rstream.read()) != -1)
-    DBGSerial.write(ch);
-
-  if (CrashReport) {
-    DBGSerial.print(CrashReport);
-  }
-  DBGSerial.println("\n" __FILE__ " " __DATE__ " " __TIME__);
-
   DBGSerial.printf("%u Initializing MTP Storage list ...", millis());
-
-  DateTimeFields date;
-  breakTime(Teensy3Clock.get(), date);
-  const char *monthname[12]={
-    "Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"};
-  DBGSerial.printf("Date: %u %s %u %u:%u:%u\n",
-    date.mday, monthname[date.mon], date.year+1900, date.hour, date.min, date.sec);
 
 #if defined(__IMXRT1062__)
   // Lets add the Program memory version:
@@ -158,11 +156,11 @@ void setup() {
     LFSRAM_SIZE = 4 * 1024 * 1024;
 #endif
   if (lfsram.begin(LFSRAM_SIZE)) {
-    DBGSerial.printf("Ram Drive of size: %u initialized\n", LFSRAM_SIZE);
+    rstream.printf("Ram Drive of size: %u initialized\n", LFSRAM_SIZE);
     uint32_t istore = MTP.addFilesystem(lfsram, "RAM");
     if (istore != 0xFFFFFFFFUL) {
       MTP.storage()->setIndexStore(istore);
-      DBGSerial.printf("Set Storage Index drive to %u\n", istore);
+      rstream.printf("Set Storage Index drive to %u\n", istore);
     }
   }
 
@@ -185,7 +183,7 @@ void setup() {
   sdio_previously_present = sdSDIO.begin(BUILTIN_SDCARD);
   index_sdio_storage = MTP.addFilesystem(sdSDIO, "SD_Builtin");
   //MTP.setIndexStore(index_sdio_storage);
-  //DBGSerial.printf("Set Storage Index drive to %u\n", index_sdio_storage);
+  //rstream.printf("Set Storage Index drive to %u\n", index_sdio_storage);
 #endif
 
   #ifdef ENABLE_SPI_SD_MEDIA_PRESENT
@@ -196,11 +194,26 @@ void setup() {
   if (sdSPI.begin(SD_ChipSelect)) {
     index_sdspi_storage = MTP.addFilesystem(sdSPI, "SD_SPI");
   } else {
-    DBGSerial.printf("SD_SPI(%d) not added", SD_ChipSelect);
+    rstream.printf("SD_SPI(%d) not added", SD_ChipSelect);
     index_sdspi_storage = -1; 
   }
   #endif
   elapsed_millis_since_last_sd_check = 0;
+
+  // Open serial communications and wait for port to open:
+  rstream.printf("+++ before wait on !Serial %u\n", millis());
+  while (!DBGSerial && millis() < 5000) {
+    // wait for serial port to connect.
+  }
+  //rstream.begin(2000000); // don't call it wastes 2 seconds. 
+  rstream.printf("+++ after wait on !Serial %u\n", millis());
+  MTP.PrintStream(&DBGSerial); // Setup which stream to use...
+  rstream.sendBufferToSerial();
+
+  if (CrashReport) {
+    DBGSerial.print(CrashReport);
+  }
+  DBGSerial.println("\n" __FILE__ " " __DATE__ " " __TIME__);
 
   DBGSerial.printf("%u Storage list initialized.\n", millis());
 
@@ -223,13 +236,13 @@ void setup() {
 const char *getFSPN(uint32_t ii) {
   FS* pfs = MTP.storage()->getStoreFS(ii);
   // total set of hacks...
-  if (pfs == (FS *)&lfsram) return lfsram.getPN();
-  if (pfs == (FS *)&lfsProg) return lfsProg.getPN();
+  if (pfs == (FS *)&lfsram) return lfsram.getMediaName();
+  if (pfs == (FS *)&lfsProg) return lfsProg.getMediaName();
   #ifdef ARDUINO_TEENSY41
-  if (pfs == (FS *)&lfsqspi) return lfsqspi.getPN();
+  if (pfs == (FS *)&lfsqspi) return lfsqspi.getMediaName();
   #endif
   for (uint8_t i = 0; i < CLFSSPIPINS; i++) {
-    if (pfs == (FS *)&lfsspi[i]) return lfsspi[i].getPN();
+    if (pfs == (FS *)&lfsspi[i]) return lfsspi[i].getMediaName();
   }
   return "";
 }
@@ -245,7 +258,7 @@ void loop() {
       uint32_t fsCount = MTP.storage()->getFSCount();
       DBGSerial.printf("\nDump Storage list(%u)\n", fsCount);
       for (uint32_t ii = 0; ii < fsCount; ii++) {
-        DBGSerial.printf("store:%u storage:%x name:%s fs:%x pn:", ii,
+        DBGSerial.printf("store:%u storage:%x name:%s fs:%x media:", ii,
                          MTP.Store2Storage(ii), MTP.storage()->getStoreName(ii),
                          (uint32_t)MTP.storage()->getStoreFS(ii));
         Serial.flush();  

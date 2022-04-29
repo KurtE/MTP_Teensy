@@ -9,24 +9,28 @@
 LittleFS_QSPI qspi;
 void setup()
 {
-  Serial.begin(9600);
+  // mandatory to begin the MTP session.
+  //MTP.begin();
+  //Serial.begin(9600);
+  // try to add QSPI Flash
+  bool qspi_started;
+  if ((qspi_started = qspi.begin())) {
+    MTP.addFilesystem(qspi, qspi.displayName());
+  }
+
   while (!Serial && millis() < 5000) {
     // wait for serial port to connect.
   }
+  
+  if (!qspi_started) {
+    Serial.println("No QSPI Flash found");
+  }
 
-  Serial.print(CrashReport);
+  if (CrashReport) Serial.print(CrashReport);
   Serial.println("\n" __FILE__ " " __DATE__ " " __TIME__);
   delay(1000);
 
-  // mandatory to begin the MTP session.
-  MTP.begin();
   
-  // try to add QSPI Flash
-  if (qspi.begin()) {
-    MTP.addFilesystem(qspi, qspi.displayName());
-  } else {
-    Serial.println("No QSPI Flash found");
-  }
   Serial.println("\nSetup done");
 }
 
