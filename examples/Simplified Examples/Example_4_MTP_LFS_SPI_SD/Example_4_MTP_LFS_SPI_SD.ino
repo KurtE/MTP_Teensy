@@ -50,10 +50,15 @@ void setup() {
 
   // Now lets try our list of LittleFS SPI?
   for (uint8_t i = 0; i < (sizeof(lfs_spi_list) / sizeof(lfs_spi_list[0])); i++) {
+    pinMode(lfs_spi_list[i].csPin_, OUTPUT);
+    digitalWrite(lfs_spi_list[i].csPin_, HIGH);
+  }
+
+  for (uint8_t i = 0; i < (sizeof(lfs_spi_list) / sizeof(lfs_spi_list[0])); i++) {
     if (lfs_spi_list[i].begin()) {
       MTP.addFilesystem(*lfs_spi_list[i].fs(), lfs_spi_list[i].displayName());
     } else {
-      Serial.printf("Storage not added for pin %d\n", i);
+      Serial.printf("Storage not added for pin %d\n", lfs_spi_list[i].csPin_);
     }
   }
 
