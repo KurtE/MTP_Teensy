@@ -201,10 +201,19 @@ void loop() {
       Serial.println(">>>(userial): >>>");
       echo_dir = 2;
     }
+    int prev_ch = 0;
     for (;;) {
       int ch = SerialUSB1.read();
       if (ch == -1) break;
-      if (userial)userial.write(ch);
+        if (userial) {
+          // I believe CircuitPython wants \r 
+          if (ch == '\n') {
+            if (prev_ch != '\r') userial.write('\r');
+          } else if (ch == '\r') {
+            if (prev_ch != '\n') userial.write('\r');
+          } else userial.write(ch);
+          prev_ch = ch;
+        }
       if (echo_serial) {
         if (ch >= ' ' || ch == '\n' || ch == '\r')Serial.write(ch);
         else Serial.printf("<ctrl-%c>", ch + 'a');
@@ -224,6 +233,7 @@ void loop() {
     uint8_t command = Serial.read();
     int ch = Serial.read();
     if (command == '$') {
+      int prev_ch = 0;
       while (ch != -1) {
         // hack use $ to signal ctrl_
         if (ch == '$') {
@@ -234,7 +244,15 @@ void loop() {
           ch &= 0x1f; // get into ctrl range
         }
 
-        if (userial) userial.write(ch);
+        if (userial) {
+          // I believe CircuitPython wants \r 
+          if (ch == '\n') {
+            if (prev_ch != '\r') userial.write('\r');
+          } else if (ch == '\r') {
+            if (prev_ch != '\n') userial.write('\r');
+          } else userial.write(ch);
+          prev_ch = ch;
+        }
         ch = Serial.read();
       }
 
@@ -437,8 +455,16 @@ void checkMSCChanges() {
     if (*pdrives[i]) {
       if (!drive_previous_connected[i]) {
         Serial.println("\n@@@@@@@@@@@@@@@ NEW Drives @@@@@@@@@@@");
+        Serial.printf("Print Partition Table for drive %d before begin\n", i);
+
+        pdrives[i]->printPartionTable(Serial);
+
         // BUGBUG right now just assume one partition.the partition enumeration is in flux
         if (pusbFS[i]->begin(pdrives[i])) {
+
+          Serial.printf("Print Partition Table for drive %d after begin\n", i);
+          pdrives[i]->printPartionTable(Serial);
+
           Serial.printf("\n##USB Drive: %u connected\n", i);
           drive_previous_connected[i] = true;
 
