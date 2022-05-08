@@ -1,12 +1,8 @@
 #include <SD.h>
 #include <MTP_Teensy.h>
 #include <USBHost_t36.h>
-#include <USBHost_ms.h>
-
-
-// Add in MTPD objects
-MTPStorage storage;
-MTPD mtpd(&storage);
+#include <msFilesystem.h>
+#include <msDevice.h>
 
 // Add USBHost objectsUsbFs
 USBHost myusb;
@@ -107,8 +103,6 @@ void setup()
   Serial.println("\n" __FILE__ " " __DATE__ " " __TIME__);
   delay(3000);
 
-  mtpd.begin();
-  
   storage_configure();
 
   myusb.begin();
@@ -130,32 +124,42 @@ void setup()
   
 }
 
+uint8_t current_store = 0;
+uint8_t storage_index = '0';
 void loop() {
   checkMSCChanges();
-  mtpd.loop();
+  MTP.loop();
   
   if (Serial.available()) {
     uint8_t command = Serial.read();
     int ch = Serial.read();
-    drive_index = CommandLineReadNextNumber(ch, 0);
-    while (ch == ' ')
-      ch = Serial.read();
+    if ('2'==command) storage_index = CommandLineReadNextNumber(ch, 0);
+    while (ch == ' ') ch = Serial.read();
+
+    uint32_t fsCount;
     switch (command) {
     case '1': {
       // first dump list of storages:
-      uint32_t fsCount = storage.getFSCount();
+      uint32_t fsCount = MTP.getFilesystemCount();
       Serial.printf("\nDump Storage list(%u)\n", fsCount);
       for (uint32_t ii = 0; ii < fsCount; ii++) {
         Serial.printf("store:%u storage:%x name:%s fs:%x\n", ii,
-                      mtpd.Store2Storage(ii), storage.getStoreName(ii),
-                      (uint32_t)storage.getStoreFS(ii));
+                         MTP.Store2Storage(ii), MTP.getFilesystemNameByIndex(ii),
+                         (uint32_t)MTP.getFilesystemByIndex(ii));
       }
-      Serial.println("\nDump Index List");
-      storage.dumpIndexList();
-    } break;
+    }
+    //Serial.println("\nDump Index List");
+    //MTP.storage()->dumpIndexList();
+    break;
     case '2':
-      Serial.printf("Drive # %d Selected\n", drive_index);
-      myfs = storage.getStoreFS(drive_index);
+      if (storage_index < MTP.getFilesystemCount()) {
+        Serial.printf("Storage Index %u Name: %s Selected\n", storage_index,
+        MTP.getFilesystemNameByIndex(storage_index));
+        myfs = MTP.getFilesystemByIndex(storage_index);
+        current_store = storage_index;
+      } else {
+        Serial.printf("Storage Index %u out of range\n", storage_index);
+      }
       break;
     case 'l':
       listFiles();
@@ -186,7 +190,7 @@ void loop() {
 	    break;
     case 'r':
       Serial.println("Reset");
-      mtpd.send_DeviceResetEvent();
+      MTP.send_DeviceResetEvent();
       break;
     case 'R':
       Serial.print(" RESTART Teensy ...");
@@ -212,7 +216,7 @@ void storage_configure() {
   for (uint8_t i = 0; i < COUNT_MYFS; i++) {
     if (myFS[i].sd.begin(myFS[i].csPin)) {
       storage_added = true;
-      storage.addFilesystem(myFS[i].sd, myFS[i].name);
+      MTP.addFilesystem(myFS[i].sd, myFS[i].name);
     }
   }
 
@@ -220,25 +224,26 @@ void storage_configure() {
   // lets initialize a RAM drive.
   if (lfsram.begin(LFSRAM_SIZE)) {
     Serial.printf("Ram Drive of size: %u initialized\n", LFSRAM_SIZE);
-    uint32_t istore = storage.addFilesystem(lfsram, "Prog");
+    uint32_t istore = MTP.addFilesystem(lfsram, "Prog");
     if (istore != 0xFFFFFFFFUL)
-      storage.setIndexStore(istore);
+      MTP.useFileSystemIndexFileStore(istore);
     Serial.printf("Set Storage Index drive to %u\n", istore);
     storage_added = true;
   }
 
-  if (!flash6.begin(chipSelect, SPI)) {
+  if (!flash5.begin(chipSelect, SPI)) {
     Serial.printf("Error starting %s\n", "SPI FLASH");
     //while (1) {
       // Error, so don't do anything more - stay stuck here
     //}
     if(!storage_added) storage_added = false;
   } else {
-      storage.addFilesystem(flash6, "sFlash6");
+      MTP.addFilesystem(flash5, "sFlash6");
       Serial.println("LittleFS initialized.");
       storage_added = true;
   }
  
+
 }
 
 void checkMSCChanges() {
@@ -271,20 +276,20 @@ void checkMSCChanges() {
         snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d-%s", i, volName);
       else
         snprintf(pmsFS_display_name[i], sizeof(pmsFS_display_name[i]), "MSC%d", i);
-        pmsfs_store_ids[i] = storage.addFilesystem(*pmsFS[i], pmsFS_display_name[i]);
+        pmsfs_store_ids[i] = MTP.addFilesystem(*pmsFS[i], pmsFS_display_name[i]);
         storage_added = true;
         // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
-        if (mtpd.send_StoreAddedEvent(pmsfs_store_ids[i]) < 0) send_device_reset = true;
+        if (MTP.send_StoreAddedEvent(pmsfs_store_ids[i]) < 0) send_device_reset = true;
     }
     // Or did volume go away?
     else if ((pmsfs_store_ids[i] != 0xFFFFFFFFUL) && !*pmsFS[i] ) {
-      if (mtpd.send_StoreRemovedEvent(pmsfs_store_ids[i]) < 0) send_device_reset = true;
-      storage.removeFilesystem(pmsfs_store_ids[i]);
+      if (MTP.send_StoreRemovedEvent(pmsfs_store_ids[i]) < 0) send_device_reset = true;
+      MTP.storage()->removeFilesystem(pmsfs_store_ids[i]);
       // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
       pmsfs_store_ids[i] = 0xFFFFFFFFUL;
     }
   }
-  if (send_device_reset) mtpd.send_DeviceResetEvent();
+  if (send_device_reset) MTP.send_DeviceResetEvent();
 }
 
 
