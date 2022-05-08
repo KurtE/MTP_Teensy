@@ -25,6 +25,8 @@
 #define USE_LFS_SPI 0     // SPI Flash
 #define USE_LFS_NAND 0
 #define USE_LFS_QSPI_NAND 0
+#define USE_LFS_QSPI_NAND 1
+
 #define USE_LFS_FRAM 0
 #endif
 #define USE_MSC 1    // set to > 0 experiment with  (USBHost.t36 + mscFS)
@@ -88,32 +90,33 @@ SDClass sdx[nsd];
 // =======================================================================
 #if USE_MSC == 1
 #include <USBHost_t36.h>
-//#include <mscFS.h>
-#include <msFilesystem.h>
-#include <msDevice.h>
 
 // Add USBHost objectsUsbFs
 USBHost myusb;
 USBHub hub1(myusb);
 USBHub hub2(myusb);
-USBHub hub(myusb);
+USBHub hub3(myusb);
+USBHub hub4(myusb);
 
 // MSC objects.
-msDevice drive1(myusb);
-msDevice drive2(myusb);
-msDevice drive3(myusb);
+USBDrive drive1(myusb);
+USBDrive drive2(myusb);
+USBDrive drive3(myusb);
+USBDrive drive4(myusb);
+USBDrive drive5(myusb);
 
-msFilesystem msFS1(myusb);
-msFilesystem msFS2(myusb);
-msFilesystem msFS3(myusb);
-msFilesystem msFS4(myusb);
-msFilesystem msFS5(myusb);
+USBFilesystem usbFS1(myusb);
+USBFilesystem usbFS2(myusb);
+USBFilesystem usbFS3(myusb);
+USBFilesystem usbFS4(myusb);
+USBFilesystem usbFS5(myusb);
 
 // Quick and dirty
-msFilesystem *pmsFS[] = {&msFS1, &msFS2, &msFS3, &msFS4, &msFS5};
-#define CNT_MSC  (sizeof(pmsFS)/sizeof(pmsFS[0]))
-uint32_t pmsfs_store_ids[CNT_MSC] = {0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL};
-char  pmsFS_display_name[CNT_MSC][20];
+// Quick and dirty
+USBFilesystem *pusbFS[] = {&usbFS1, &usbFS2, &usbFS3, &usbFS4, &usbFS5};
+#define CNT_MSC  (sizeof(pusbFS)/sizeof(pusbFS[0]))
+uint32_t pusbFS_store_ids[CNT_MSC] = {0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL};
+char  pusbFS_display_name[CNT_MSC][20];
 
 msController *pdrives[] {&drive1, &drive2, &drive3};
 #define CNT_DRIVES  (sizeof(pdrives)/sizeof(pdrives[0]))
@@ -319,4 +322,6 @@ void loop()
   }
 
   if (write_data) logData();
+
 }
+
