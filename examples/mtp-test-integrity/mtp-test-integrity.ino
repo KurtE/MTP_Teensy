@@ -24,9 +24,7 @@
 #define USE_LFS_PROGM 1   // T4.4 Progam Flash
 #define USE_LFS_SPI 0     // SPI Flash
 #define USE_LFS_NAND 0
-#define USE_LFS_QSPI_NAND 0
 #define USE_LFS_QSPI_NAND 1
-
 #define USE_LFS_FRAM 0
 #endif
 #define USE_MSC 1    // set to > 0 experiment with  (USBHost.t36 + mscFS)
@@ -76,7 +74,7 @@ FS *myfs = &lfsram;
   #define TIME_BETWEEN_SD_CHECKS_MS 1000
   bool sdio_previously_present;
 
-  const char *sd_str[]={"sdio", "EXT1"}; // edit to reflect your configuration
+  const char *sd_str[]={"BUILTIN", "EXT1"}; // edit to reflect your configuration
   const int cs[] = {BUILTIN_SDCARD, 10}; // edit to reflect your configuration
   const int cdPin[] = {0xff, 0xff};
   const int nsd = sizeof(sd_str)/sizeof(const char *);
@@ -118,9 +116,9 @@ USBFilesystem *pusbFS[] = {&usbFS1, &usbFS2, &usbFS3, &usbFS4, &usbFS5};
 uint32_t pusbFS_store_ids[CNT_MSC] = {0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL};
 char  pusbFS_display_name[CNT_MSC][20];
 
-msController *pdrives[] {&drive1, &drive2, &drive3};
+USBDrive *pdrives[] {&drive1, &drive2, &drive3, &drive4, &drive5};
 #define CNT_DRIVES  (sizeof(pdrives)/sizeof(pdrives[0]))
-bool drive_previous_connected[CNT_DRIVES] = {false, false, false};
+bool drive_previous_connected[CNT_DRIVES] = {false, false, false, false, false};
 #endif
 
 // =======================================================================
@@ -322,6 +320,4 @@ void loop()
   }
 
   if (write_data) logData();
-
 }
-
