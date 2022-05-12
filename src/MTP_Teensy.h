@@ -32,6 +32,10 @@
 #error "You need to select USB Type: 'MTP Disk (Experimental)'"
 #endif
 
+#if TEENSYDUINO < 157
+#error "Teensyduino 1.57-beta is required, get it at https://forum.pjrc.com/threads/70196"
+#endif
+
 #include "core_pins.h"
 #include "usb_dev.h"
 extern "C" int usb_mtp_sendEvent(const void *buffer, uint32_t len,
