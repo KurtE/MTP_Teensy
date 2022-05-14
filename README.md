@@ -2,6 +2,9 @@
 
 ## Readme updates are in progress. 
 
+*Warning* this version requires Teensyduino 1.57-beta1 or later to build.
+You can download this version from the lines on the page https://forum.pjrc.com/threads/70196"
+
 MTP Responder for Teensy 3.x and 4.x
 
 Uses SD interface and Bill Greiman's SdFat_V2 as distributed via Teenyduino supporting exFAT and SDIO

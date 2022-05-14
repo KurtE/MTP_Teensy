@@ -91,7 +91,19 @@ void setup()
   
   //*****  Program disk   ****/
   // similar to Ramdisk:
-   progdisk.begin(1024*256);   // minimum program disk size is 256k.
+  // I want it to start at 0x60100000 like CircuitPython flash data.
+  #if defined(ARDUINO_TEENSY40)
+  #define FLASH_SIZE  0x1F0000
+  #elif defined(ARDUINO_TEENSY41)
+  #define FLASH_SIZE  0x7C0000
+  #elif defined(ARDUINO_TEENSY_MICROMOD)
+  #define FLASH_SIZE  0xFC0000
+  #endif
+  // LittleFS uses to compute the baseaddr...
+  //  baseaddr = 0x60000000 + FLASH_SIZE - size;
+  // So I want size ....
+   uint32_t  disk_size = (0x60000000 + FLASH_SIZE) - 0x60100000;
+   progdisk.begin(disk_size);   // minimum program disk size is 256k.
    MTP.addFilesystem(progdisk, "progdisk");
 #else
  // if you are using a T3.x a RAM disk can only be set up a disk using
