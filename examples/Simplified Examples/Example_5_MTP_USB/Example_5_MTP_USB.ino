@@ -208,6 +208,7 @@ void checkUSBDrives() {
       }
       // Or did volume go away?
       else if ((filesystem_list_store_ids[i] != 0xFFFFFFFFUL) && !*filesystem_list[i] ) {
+        Serial.printf("Remove volume: index=%d, store id:%x\n", i, filesystem_list_store_ids[i]);
         if (MTP.send_StoreRemovedEvent(filesystem_list_store_ids[i]) < 0) send_device_reset = true;
         MTP.storage()->removeFilesystem(filesystem_list_store_ids[i]);
         // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
@@ -233,6 +234,10 @@ void menu() {
 }
 
 void listFiles() {
+  if (SelectedFS == nullptr) {
+    Serial.println("Error: No Filesystem selected");
+    return;
+  }
   Serial.print("\n Space Used = ");
   Serial.println(SelectedFS->usedSize());
   Serial.print("Filesystem Size = ");
@@ -244,6 +249,10 @@ void listFiles() {
 }
 
 void eraseFiles() {
+  if (SelectedFS == nullptr) {
+    Serial.println("Error: No Filesystem selected");
+    return;
+  }
   /*
     PFsVolume partVol;
     if (!partVol.begin(sdx[1].sdfs.card(), true, 1)) {

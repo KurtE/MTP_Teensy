@@ -144,24 +144,34 @@ public:
 		return name[store];
 	}
 	File open(uint32_t store, const char *filename, uint32_t mode) {
+		if (fs[store] == nullptr) return File();
 		return fs[store]->open(filename, mode);
 	}
 	bool mkdir(uint32_t store, char *filename) {
+		if (fs[store] == nullptr) return false;
 		return fs[store]->mkdir(filename);
 	}
 	bool rename(uint32_t store, char *oldfilename, char *newfilename) {
+		if (fs[store] == nullptr) return false;
 		return fs[store]->rename(oldfilename, newfilename);
 	}
 	bool remove(uint32_t store, const char *filename) {
+		if (fs[store] == nullptr) return false;
 		return fs[store]->remove(filename);
 	}
 	bool rmdir(uint32_t store, const char *filename) {
+		if (fs[store] == nullptr) return false;
 		return fs[store]->rmdir(filename);
 	}
 	uint64_t totalSize(uint32_t store) {
+		if (fs[store] == nullptr) {
+			Serial.printf("$$$ MTPStorage::totalsize nullptr %u\n", store);
+			return (uint64_t)-1;
+		}
 		return fs[store]->totalSize();
 	}
 	uint64_t usedSize(uint32_t store) {
+		if (fs[store] == nullptr) return (uint64_t)-1;
 		return fs[store]->usedSize();
 	}
 	bool CompleteCopyFile(uint32_t from, uint32_t to); 
