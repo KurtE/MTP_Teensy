@@ -170,7 +170,7 @@ void checkUSBDrives() {
   myusb.Task();
 
   // lets chec each of the drives.
-  bool drive_list_changed = false;
+  //bool drive_list_changed = false;
   for (uint16_t drive_index = 0; drive_index < (sizeof(drive_list)/sizeof(drive_list[0])); drive_index++) {
     USBDrive *pdrive = drive_list[drive_index];
     if (*pdrive) {
@@ -179,21 +179,21 @@ void checkUSBDrives() {
         pdrive->startFilesystems();
         Serial.printf("\nTry Partition list");
         pdrive->printPartionTable(Serial);
-        drive_list_changed = true;
+        //drive_list_changed = true;
         drive_previous_connected[drive_index] = true;
       }
     } else if (drive_previous_connected[drive_index]) {
       Serial.printf("\n === Drive index %d removed ===\n", drive_index);
       drive_previous_connected[drive_index] = false;
-      drive_list_changed = true;
+      //drive_list_changed = true;
     }
   }
 
-  // BUGBUG not 100 correct as drive could have been replaced between calls
-  if (drive_list_changed) {
-    bool send_device_reset = false;
-    for (uint8_t i = 0; i < CNT_USBFS; i++) {
-      if (*filesystem_list[i] && (filesystem_list_store_ids[i] == 0xFFFFFFFFUL)) {
+  bool send_device_reset = false;
+  for (uint8_t i = 0; i < CNT_USBFS; i++) {
+    if (*filesystem_list[i]) {
+      // So file system is valid do we have a MTP id for it?
+      if ( (filesystem_list_store_ids[i] == 0xFFFFFFFFUL)) {
         Serial.printf("Found new Volume:%u\n", i); Serial.flush();
         // Lets see if we can get the volume label:
         char volName[20];
@@ -205,18 +205,24 @@ void checkUSBDrives() {
 
         // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
         if (MTP.send_StoreAddedEvent(filesystem_list_store_ids[i]) < 0) send_device_reset = true;
-      }
-      // Or did volume go away?
-      else if ((filesystem_list_store_ids[i] != 0xFFFFFFFFUL) && !*filesystem_list[i] ) {
-        Serial.printf("Remove volume: index=%d, store id:%x\n", i, filesystem_list_store_ids[i]);
-        if (MTP.send_StoreRemovedEvent(filesystem_list_store_ids[i]) < 0) send_device_reset = true;
-        MTP.storage()->removeFilesystem(filesystem_list_store_ids[i]);
-        // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
-        filesystem_list_store_ids[i] = 0xFFFFFFFFUL;
+      } else if (filesystem_list[i]->changed()) {
+        // Something with this file system changed. 
+        Serial.printf("File system changed volume: index=%d, store id:%x\n", i, filesystem_list_store_ids[i]);
+        Serial.println("Show Partition list");
+        filesystem_list[i]->device->printPartionTable(Serial);
+        filesystem_list[i]->changed(false);
       }
     }
-    if (send_device_reset) MTP.send_DeviceResetEvent();
+    // Or did volume go away?
+    else if ((filesystem_list_store_ids[i] != 0xFFFFFFFFUL) && !*filesystem_list[i] ) {
+      Serial.printf("Remove volume: index=%d, store id:%x\n", i, filesystem_list_store_ids[i]);
+      if (MTP.send_StoreRemovedEvent(filesystem_list_store_ids[i]) < 0) send_device_reset = true;
+      MTP.storage()->removeFilesystem(filesystem_list_store_ids[i]);
+      // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
+      filesystem_list_store_ids[i] = 0xFFFFFFFFUL;
+    }
   }
+  if (send_device_reset) MTP.send_DeviceResetEvent();
 }
 
 
