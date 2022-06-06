@@ -217,88 +217,54 @@ void checkSDChanges()  {
 void checkMSCChanges() {
   myusb.Task();
 
-#define NEW_MSC_STUFF
-#ifdef NEW_MSC_STUFF
-  bool send_device_reset = false;
-  for (uint8_t i = 0; i < CNT_DRIVES; i++) {
-    if (*pdrives[i]) {
-      if (!drive_previous_connected[i]) {
-        Serial.println("\n@@@@@@@@@@@@@@@ NEW Drives @@@@@@@@@@@");
-        // BUGBUG right now just assume one partition.the partition enumeration is in flux
-        if (pusbFS[i]->begin(pdrives[i])) {
-          Serial.printf("\n##USB Drive: %u connected\n", i);
-          drive_previous_connected[i] = true;
-          pdrives[i]->printPartionTable(Serial);
-          Serial.printf("Found new Volume:%u\n", i); Serial.flush();
-          // Lets see if we can get the volume label:
-          char volName[20];
-          if (pusbFS[i]->mscfs.getVolumeLabel(volName, sizeof(volName)))
-            snprintf(pusbFS_display_name[i], sizeof(pusbFS_display_name[i]), "USB%d-%s", i, volName);
-          else
-            snprintf(pusbFS_display_name[i], sizeof(pusbFS_display_name[i]), "USB%d", i);
-          
-            pusbFS_store_ids[i] = MTP.addFilesystem(*pusbFS[i], pusbFS_display_name[i]);
-
-          // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
-          if (MTP.send_StoreAddedEvent(pusbFS_store_ids[i]) < 0) send_device_reset = true;
-        }
+  // lets chec each of the drives.
+  bool drive_list_changed = false;
+  for (uint16_t drive_index = 0; drive_index < (sizeof(drive_list)/sizeof(drive_list[0])); drive_index++) {
+    USBDrive *pdrive = drive_list[drive_index];
+    if (*pdrive) {
+      if (!drive_previous_connected[drive_index] || !pdrive->filesystemsStarted()) {
+        Serial.printf("\n === Drive index %d found ===\n", drive_index);
+        pdrive->startFilesystems();
+        Serial.printf("\nTry Partition list");
+        pdrive->printPartionTable(Serial);
+        drive_list_changed = true;
+        drive_previous_connected[drive_index] = true;
       }
-    } else {
-      if (drive_previous_connected[i] && (pusbFS_store_ids[i] != 0xFFFFFFFFUL)) {
-        drive_previous_connected[i] = false;
-        if (MTP.send_StoreRemovedEvent(pusbFS_store_ids[i]) < 0) send_device_reset = true;
-        MTP.storage()->removeFilesystem(pusbFS_store_ids[i]);
+    } else if (drive_previous_connected[drive_index]) {
+      Serial.printf("\n === Drive index %d removed ===\n", drive_index);
+      drive_previous_connected[drive_index] = false;
+      drive_list_changed = true;
+    }
+  }
+
+  // BUGBUG not 100 correct as drive could have been replaced between calls
+  if (drive_list_changed) {
+    bool send_device_reset = false;
+    for (uint8_t i = 0; i < CNT_USBFS; i++) {
+      if (*filesystem_list[i] && (filesystem_list_store_ids[i] == 0xFFFFFFFFUL)) {
+        Serial.printf("Found new Volume:%u\n", i); Serial.flush();
+        // Lets see if we can get the volume label:
+        char volName[20];
+        if (filesystem_list[i]->mscfs.getVolumeLabel(volName, sizeof(volName)))
+          snprintf(filesystem_list_display_name[i], sizeof(filesystem_list_display_name[i]), "MSC%d-%s", i, volName);
+        else
+          snprintf(filesystem_list_display_name[i], sizeof(filesystem_list_display_name[i]), "MSC%d", i);
+        filesystem_list_store_ids[i] = MTP.addFilesystem(*filesystem_list[i], filesystem_list_display_name[i]);
+
         // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
-        pusbFS_store_ids[i] = 0xFFFFFFFFUL;
+        if (MTP.send_StoreAddedEvent(filesystem_list_store_ids[i]) < 0) send_device_reset = true;
+      }
+      // Or did volume go away?
+      else if ((filesystem_list_store_ids[i] != 0xFFFFFFFFUL) && !*filesystem_list[i] ) {
+        Serial.printf("Remove volume: index=%d, store id:%x\n", i, filesystem_list_store_ids[i]);
+        if (MTP.send_StoreRemovedEvent(filesystem_list_store_ids[i]) < 0) send_device_reset = true;
+        MTP.storage()->removeFilesystem(filesystem_list_store_ids[i]);
+        // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
+        filesystem_list_store_ids[i] = 0xFFFFFFFFUL;
       }
     }
+    if (send_device_reset) MTP.send_DeviceResetEvent();
   }
-#else
-  //USBDrive mscDrive;
-  //PFsLib pfsLIB;
-  for (uint8_t i = 0; i < CNT_DRIVES; i++) {
-    if (*pdrives[i]) {
-      if (!drive_previous_connected[i]) {
-        Serial.println("\n@@@@@@@@@@@@@@@ NEW Drives @@@@@@@@@@@");
-        if (pusbFS[i]->begin(pdrives[i])) {
-          Serial.println("\t ## new drive");
-          Serial.printf("\nUSB Drive: %u connected\n", i);
-          //pfsLIB.mbrDmp(&mscDrive, (uint32_t) - 1, Serial);
-          Serial.println("\nTry Partition list");
-          //pfsLIB.listPartitions(&mscDrive, Serial);
-          drive_previous_connected[i] = true;
-        }
-        Serial.println("\n@@@@@@@@@@@@@@@ NEW Drives  Completed. @@@@@@@@@@@");
-      }
-    } else {
-      drive_previous_connected[i] = false;
-    }
-  }
-  bool send_device_reset = false;
-  for (uint8_t i = 0; i < CNT_MSC; i++) {
-    if (*pusbFS[i] && (pusbFS_store_ids[i] == 0xFFFFFFFFUL)) {
-      Serial.printf("Found new Volume:%u\n", i); Serial.flush();
-      // Lets see if we can get the volume label:
-      char volName[20];
-      if (pusbFS[i]->mscfs.getVolumeLabel(volName, sizeof(volName)))
-        snprintf(pusbFS_display_name[i], sizeof(pusbFS_display_name[i]), "MSC%d-%s", i, volName);
-      else
-        snprintf(pusbFS_display_name[i], sizeof(pusbFS_display_name[i]), "MSC%d", i);
-      pusbFS_store_ids[i] = MTP.addFilesystem(*pusbFS[i], pusbFS_display_name[i]);
-
-      // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
-      if (MTP.send_StoreAddedEvent(pusbFS_store_ids[i]) < 0) send_device_reset = true;
-    }
-    // Or did volume go away?
-    else if ((pusbFS_store_ids[i] != 0xFFFFFFFFUL) && !*pusbFS[i] ) {
-      if (MTP.send_StoreRemovedEvent(pusbFS_store_ids[i]) < 0) send_device_reset = true;
-      MTP.storage()->removeFilesystem(pusbFS_store_ids[i]);
-      // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
-      pusbFS_store_ids[i] = 0xFFFFFFFFUL;
-    }
-  }
-#endif  
-  if (send_device_reset) MTP.send_DeviceResetEvent();
 }
 #endif
 
@@ -753,25 +719,62 @@ void benchmark() {
 
 const char *getFSPN(uint32_t ii) {
   FS* pfs = MTP.storage()->getStoreFS(ii);
-  #if  USE_LFS_QSPI
-  if (pfs == (FS *)&qspifs[0]) return qspifs[0].getMediaName();
+  #if USE_LFS_QSPI==1
+    if (pfs == (FS *)&qspifs[0] && USE_LFS_QSPI == 1) {
+      DBGSerial.printf("(0)"); Serial.flush();
+      return qspifs[0].getMediaName();
+    }
+  #endif
+  #if useExMem == 1
+    if (pfs == (FS *)&lfsram) {
+      DBGSerial.printf("(1)"); Serial.flush();
+      return lfsram.getMediaName();
+    }
+  #endif
+  #if useProIdx == 1
+    if (pfs == (FS *)&lfsProg) {
+      DBGSerial.printf("(2)"); Serial.flush();
+      return lfsProg.getMediaName();
+    }
   #endif
   for (uint8_t i = 0; i < 4; i++) {
-    #if USE_LFS_RAM
-    if (pfs == (FS *)&ramfs[i]) return ramfs[i].getMediaName();
+    #if USE_LFS_RAM == 1
+      if ((i < nfs_ram) && pfs == (FS *)&ramfs[i]) {
+        DBGSerial.printf("(3-%u)", i); Serial.flush();
+        return ramfs[i].getMediaName();
+      }
     #endif
-    #if USE_LFS_PROGM
-    if (pfs == (FS *)&progmfs[i]) return progmfs[i].getMediaName();
+    #if USE_LFS_PROGM == 1
+      if ((i < nfs_progm) && pfs == (FS *)&progmfs[i]) {
+        DBGSerial.printf("(4-%u)", i); Serial.flush();
+        return progmfs[i].getMediaName();
+      }
     #endif
-    #if USE_LFS_SPI
-    if (pfs == (FS *)&spifs[i]) return spifs[i].getMediaName();
+    #if USE_LFS_SPI == 1
+      if ((i < nfs_spi) && pfs == (FS *)&spifs[i]) {
+        DBGSerial.printf("(4a-%u)", i); Serial.flush();
+        return spifs[i].getMediaName();
+      }
     #endif
-    #if USE_LFS_NAND
-    if (pfs == (FS *)&nspifs[i]) return nspifs[i].getMediaName();
+    #if USE_LFS_NAND == 1
+      if ((i < nspi_nsd) && pfs == (FS *)&nspifs[i]) {
+        DBGSerial.printf("(5-%u)", i); Serial.flush();
+        return nspifs[i].getMediaName();
+      }
     #endif
-    #if USE_LFS_FRAM
-    if (pfs == (FS *)&qfspifs[i]) return qfspifs[i].getMediaName();
+    #if USE_LFS_QSPI_NAND == 1
+      if ((i < qnspi_nsd) && pfs == (FS *)&nfs_progm[i]) {
+        DBGSerial.printf("(6-%u)", i); Serial.flush();
+        return qnspifs[i].getMediaName();
+      }
     #endif
-  }
+    #if USE_LFS_FRAM == 1
+      if ((i < qfspi_nsd) && pfs == (FS *)&qfspi[i]){
+        DBGSerial.printf("(7-%u)", i); Serial.flush();
+        return qfspi[i].getMediaName();
+      }
+    #endif
+   }
+  DBGSerial.printf("(8)"); Serial.flush();
   return "";
 }
