@@ -6,37 +6,36 @@
 //---------------------------------------------------
 // Select drives you want to create
 //---------------------------------------------------
-#define USE_SD  1         // SDFAT based SDIO and SPI
+#define USE_MSC           1    // set to > 0 experiment with  (USBHost.t36 + mscFS)
+#define USE_SD            1    // SDFAT based SDIO and SPI
+
 #ifdef ARDUINO_TEENSY41
-#define USE_LFS_RAM 1     // T4.1 PSRAM (or RAM)
+#define USE_LFS_RAM       0    // T4.1 PSRAM (or RAM)
 #else
-#define USE_LFS_RAM 0     // T4.1 PSRAM (or RAM)
+#define USE_LFS_RAM       0    // T4.1 PSRAM (or RAM)
 #endif
 #ifdef ARDUINO_TEENSY_MICROMOD
-#define USE_LFS_QSPI 0    // T4.1 QSPI
-#define USE_LFS_PROGM 1   // T4.4 Progam Flash
-#define USE_LFS_SPI 0     // SPI Flash
-#define USE_LFS_NAND 0                                                                           
+#define USE_LFS_QSPI      0    // T4.1 QSPI
+#define USE_LFS_PROGM     1    // T4.4 Progam Flash
+#define USE_LFS_SPI       0    // SPI Flash
+#define USE_LFS_NAND      0                                                                           
 #define USE_LFS_QSPI_NAND 0
-#define USE_LFS_FRAM 0
+#define USE_LFS_FRAM      0
 #else
-#define USE_LFS_QSPI 0    // T4.1 QSPI
-#define USE_LFS_PROGM 1   // T4.4 Progam Flash
-#define USE_LFS_SPI 0     // SPI Flash
-#define USE_LFS_NAND 0
+#define USE_LFS_QSPI      1    // T4.1 QSPI
+#define USE_LFS_PROGM     0   // T4.4 Progam Flash
+#define USE_LFS_SPI       1     // SPI Flash
+#define USE_LFS_NAND      1
 #define USE_LFS_QSPI_NAND 0
-#define USE_LFS_QSPI_NAND 1
-
-#define USE_LFS_FRAM 0
+#define USE_LFS_FRAM      0
 #endif
-#define USE_MSC 1    // set to > 0 experiment with  (USBHost.t36 + mscFS)
-#define USE_SW_PU  1 //set to 1 if SPI devices do not have PUs,
-                     // https://www.pjrc.com/better-spi-bus-design-in-3-steps/
+#define USE_SW_PU         1 //set to 1 if SPI devices do not have PUs,
+                            // https://www.pjrc.com/better-spi-bus-design-in-3-steps/
 
-#define memBoard  0  //SPI: 1 original(2NAND+2FLASH), 2 - adesto to Q256JW (4FLASH), 3 - Q256+Q01(2FLASH)
+#define memBoard          1 //SPI: 1 original(2NAND+2FLASH), 2 - adesto to Q256JW (4FLASH), 3 - Q256+Q01(2FLASH)
 // if both useProIdx and useExMem = 0 defaults to using SD Card.
-#define useProIdx 1 // use program memory for index file
-#define useExMem  0 // use PSRAM for index file
+#define useProIdx         1 // use program memory for index file
+#define useExMem          0 // use PSRAM for index file
 
 //Used a store of index file
 uint32_t LFSRAM_SIZE = 65536; // probably more than enough...
@@ -76,8 +75,10 @@ FS *myfs = &lfsram;
   #define TIME_BETWEEN_SD_CHECKS_MS 1000
   bool sdio_previously_present;
 
-  const char *sd_str[]={"sdio", "EXT1"}; // edit to reflect your configuration
-  const int cs[] = {BUILTIN_SDCARD, 10}; // edit to reflect your configuration
+  //const char *sd_str[]={"BUILTIN", "EXT1"}; // edit to reflect your configuration
+  //const int cs[] = {BUILTIN_SDCARD, 10}; // edit to reflect your configuration
+  const char *sd_str[]={"BUILTIN"}; // edit to reflect your configuration
+  const int cs[] = {BUILTIN_SDCARD}; // edit to reflect your configuration
   const int cdPin[] = {0xff, 0xff};
   const int nsd = sizeof(sd_str)/sizeof(const char *);
   bool sd_media_present_prev[nsd];
@@ -104,23 +105,24 @@ USBDrive drive2(myusb);
 USBDrive drive3(myusb);
 USBDrive drive4(myusb);
 USBDrive drive5(myusb);
+USBDrive *drive_list[] = {&drive1, &drive2, &drive3, &drive4, &drive5};
+bool drive_previous_connected[] = {false, false, false, false, false};
 
-USBFilesystem usbFS1(myusb);
-USBFilesystem usbFS2(myusb);
-USBFilesystem usbFS3(myusb);
-USBFilesystem usbFS4(myusb);
-USBFilesystem usbFS5(myusb);
+USBFilesystem pf1(myusb);
+USBFilesystem pf2(myusb);
+USBFilesystem pf3(myusb);
+USBFilesystem pf4(myusb);
+USBFilesystem pf5(myusb);
+USBFilesystem pf6(myusb);
+USBFilesystem pf7(myusb);
+USBFilesystem pf8(myusb);
+USBFilesystem *filesystem_list[] = {&pf1, &pf2, &pf3, &pf4, &pf5, &pf6, &pf7, &pf8};
 
 // Quick and dirty
 // Quick and dirty
-USBFilesystem *pusbFS[] = {&usbFS1, &usbFS2, &usbFS3, &usbFS4, &usbFS5};
-#define CNT_MSC  (sizeof(pusbFS)/sizeof(pusbFS[0]))
-uint32_t pusbFS_store_ids[CNT_MSC] = {0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL};
-char  pusbFS_display_name[CNT_MSC][20];
-
-msController *pdrives[] {&drive1, &drive2, &drive3};
-#define CNT_DRIVES  (sizeof(pdrives)/sizeof(pdrives[0]))
-bool drive_previous_connected[CNT_DRIVES] = {false, false, false};
+#define CNT_USBFS  (sizeof(filesystem_list)/sizeof(filesystem_list[0]))
+uint32_t filesystem_list_store_ids[CNT_USBFS] = {0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL};
+char  filesystem_list_display_name[CNT_USBFS][20];
 #endif
 
 // =======================================================================
@@ -189,17 +191,17 @@ LittleFS_SPIFram qfspifs[qfspi_nsd]; // needs to be declared if LittleFS is used
 
 void setup()
 {
-    storage_configure();
+  storage_configure();
     
-  while (!Serial && !DBGSerial.available() && millis() < 5000) 
+  while (!Serial && !DBGSerial.available() && millis() < 5000) {}
 
-  DBGSerial.print(CrashReport);
-  DBGSerial.println("\n" __FILE__ " " __DATE__ " " __TIME__);  
-
+  if (CrashReport) {
+    Serial.print(CrashReport);
+  }
   //This is mandatory to begin the d session.
-  //MTP.begin();
+  MTP.begin();
   //delay(2000);
-
+  delay(500);
 
   #if USE_MSC == 1
   myusb.begin();
@@ -236,9 +238,18 @@ void loop()
         DBGSerial.printf("store:%u storage:%x name:%s fs:%x pn:", ii,
                          MTP.Store2Storage(ii), MTP.getFilesystemNameByIndex(ii),
                          (uint32_t)MTP.getFilesystemByIndex(ii));
-        Serial.flush();        
-        DBGSerial.println(getFSPN(ii));
-      }
+    /*    char dest[12];     // Destination string
+        char key[] = "MSC";
+        strncpy(dest, MTP.getFilesystemNameByIndex(ii), 3);
+        if(strcmp(key, dest) == 0) {
+          DBGSerial.println(getFSPN(ii));
+          DBGSerial.println("USB Storage");
+        } else {
+          DBGSerial.println(getFSPN(ii));
+        }
+     */
+          DBGSerial.println(getFSPN(ii));
+      } 
       //DBGSerial.println("\nDump Index List");
       //MTP.storage()->dumpIndexList();
       break;
@@ -322,6 +333,4 @@ void loop()
   }
 
   if (write_data) logData();
-
 }
-
