@@ -56,16 +56,17 @@ bool hid_driver_active[CNT_DEVICES] = {false, false};
 
 
 // Quick and dirty
-USBFilesystem *pusbFS[] = {&usbFS1, &usbFS2, &usbFS3, &usbFS4, &usbFS5};
-#define CNT_MSC  (sizeof(pusbFS)/sizeof(pusbFS[0]))
-uint32_t pusbFS_store_ids[CNT_MSC] = {0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL};
-char  pusbFS_display_name[CNT_MSC][20];
+USBFilesystem *filesystem_list[] = {&usbFS1, &usbFS2, &usbFS3, &usbFS4, &usbFS5};
 
-USBDrive *pdrives[] {&drive1, &drive2, &drive3};
-#define CNT_DRIVES  (sizeof(pdrives)/sizeof(pdrives[0]))
+#define CNT_USBFS  (sizeof(filesystem_list)/sizeof(filesystem_list[0]))
+uint32_t filesystem_list_store_ids[CNT_USBFS] = {0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL};
+char  filesystem_list_display_name[CNT_USBFS][20];
+
+USBDrive *drive_list[] {&drive1, &drive2, &drive3};
+#define CNT_DRIVES  (sizeof(drive_list)/sizeof(drive_list[0]))
 bool drive_previous_connected[CNT_DRIVES] = {false, false, false};
 
-FS *mscDisk;
+FS *SelectedFS;
 bool echo_serial = false;
 
 #include <LittleFS.h>
@@ -153,7 +154,7 @@ void setup() {
     uint32_t istore = MTP.addFilesystem(lfsram, "RAM");
     Serial.printf("Set Storage Index drive to %u\n", istore);
   }
-  mscDisk = &lfsram;  // so we don't start of with NULL pointer
+  SelectedFS = &lfsram;  // so we don't start of with NULL pointer
 
   if (myfs.begin(PROG_FLASH_SIZE)) {
     Serial.printf("Program Drive of size: %u initialized\n", PROG_FLASH_SIZE);
@@ -168,7 +169,7 @@ void setup() {
   keyboard1.attachExtrasRelease(OnHIDExtrasRelease);
 
   Serial.println("\nInitializing USB MSC drives...");
-  checkMSCChanges();
+  CheckUSBDriveChanges();
   Serial.println("MSC and MTP initialized.");
 
   menu();
@@ -177,7 +178,7 @@ void setup() {
 char Delete = 127;
 
 void loop() {
-  checkMSCChanges();
+  CheckUSBDriveChanges();
   MTP.loop();
   CheckForDeviceChanges();
 #if defined(USB_MTPDISK_DUAL_SERIAL)
@@ -281,7 +282,8 @@ void loop() {
       {
         uint32_t drive_index = CommandLineReadNextNumber(ch, 0);
         Serial.printf("Drive # %d Selected\n", drive_index);
-        mscDisk = MTP.getFilesystemByIndex(drive_index);
+        SelectedFS = MTP.getFilesystemByIndex(drive_index);
+        Serial.printf("Selected Drive FS: %p\n", SelectedFS);
       }
       break;
       case 'r':
@@ -445,99 +447,57 @@ bool read_file_line(File &dataFile, char *line_buffer, int &last_eol_marker)
 }
 
 
-void checkMSCChanges() {
+void CheckUSBDriveChanges() {
   myusb.Task();
 
-  #define NEW_MSC_STUFF
-  #ifdef NEW_MSC_STUFF
-  bool send_device_reset = false;
-  for (uint8_t i = 0; i < CNT_DRIVES; i++) {
-    if (*pdrives[i]) {
-      if (!drive_previous_connected[i]) {
-        Serial.println("\n@@@@@@@@@@@@@@@ NEW Drives @@@@@@@@@@@");
-        Serial.printf("Print Partition Table for drive %d before begin\n", i);
-
-        pdrives[i]->printPartionTable(Serial);
-
-        // BUGBUG right now just assume one partition.the partition enumeration is in flux
-        if (pusbFS[i]->begin(pdrives[i])) {
-
-          Serial.printf("Print Partition Table for drive %d after begin\n", i);
-          pdrives[i]->printPartionTable(Serial);
-
-          Serial.printf("\n##USB Drive: %u connected\n", i);
-          drive_previous_connected[i] = true;
-
-          Serial.printf("Found new Volume:%u\n", i); Serial.flush();
-          // Lets see if we can get the volume label:
-          char volName[20];
-          if (pusbFS[i]->mscfs.getVolumeLabel(volName, sizeof(volName)))
-            snprintf(pusbFS_display_name[i], sizeof(pusbFS_display_name[i]), "USB%d-%s", i, volName);
-          else
-            snprintf(pusbFS_display_name[i], sizeof(pusbFS_display_name[i]), "USB%d", i);
-          
-          pusbFS_store_ids[i] = MTP.addFilesystem(*pusbFS[i], pusbFS_display_name[i]);
-
-          // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
-          if (MTP.send_StoreAddedEvent(pusbFS_store_ids[i]) < 0) send_device_reset = true;
-        }
+  // lets chec each of the drives.
+  bool drive_list_changed = false;
+  for (uint16_t drive_index = 0; drive_index < (sizeof(drive_list)/sizeof(drive_list[0])); drive_index++) {
+    USBDrive *pdrive = drive_list[drive_index];
+    if (*pdrive) {
+      if (!drive_previous_connected[drive_index] || !pdrive->filesystemsStarted()) {
+        Serial.printf("\n === Drive index %d found ===\n", drive_index);
+        pdrive->startFilesystems();
+        Serial.printf("\nTry Partition list");
+        pdrive->printPartionTable(Serial);
+        drive_list_changed = true;
+        drive_previous_connected[drive_index] = true;
       }
-    } else {
-      if (drive_previous_connected[i] && (pusbFS_store_ids[i] != 0xFFFFFFFFUL)) {
-        drive_previous_connected[i] = false;
-        if (MTP.send_StoreRemovedEvent(pusbFS_store_ids[i]) < 0) send_device_reset = true;
-        MTP.storage()->removeFilesystem(pusbFS_store_ids[i]);
+    } else if (drive_previous_connected[drive_index]) {
+      Serial.printf("\n === Drive index %d removed ===\n", drive_index);
+      drive_previous_connected[drive_index] = false;
+      drive_list_changed = true;
+    }
+  }
+
+  // BUGBUG not 100 correct as drive could have been replaced between calls
+  if (drive_list_changed) {
+    bool send_device_reset = false;
+    for (uint8_t i = 0; i < CNT_USBFS; i++) {
+      if (*filesystem_list[i] && (filesystem_list_store_ids[i] == 0xFFFFFFFFUL)) {
+        Serial.printf("Found new Volume:%u\n", i); Serial.flush();
+        // Lets see if we can get the volume label:
+        char volName[20];
+        if (filesystem_list[i]->mscfs.getVolumeLabel(volName, sizeof(volName)))
+          snprintf(filesystem_list_display_name[i], sizeof(filesystem_list_display_name[i]), "MSC%d-%s", i, volName);
+        else
+          snprintf(filesystem_list_display_name[i], sizeof(filesystem_list_display_name[i]), "MSC%d", i);
+        filesystem_list_store_ids[i] = MTP.addFilesystem(*filesystem_list[i], filesystem_list_display_name[i]);
+
         // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
-        pusbFS_store_ids[i] = 0xFFFFFFFFUL;
+        if (MTP.send_StoreAddedEvent(filesystem_list_store_ids[i]) < 0) send_device_reset = true;
+      }
+      // Or did volume go away?
+      else if ((filesystem_list_store_ids[i] != 0xFFFFFFFFUL) && !*filesystem_list[i] ) {
+        Serial.printf("Remove volume: index=%d, store id:%x\n", i, filesystem_list_store_ids[i]);
+        if (MTP.send_StoreRemovedEvent(filesystem_list_store_ids[i]) < 0) send_device_reset = true;
+        MTP.storage()->removeFilesystem(filesystem_list_store_ids[i]);
+        // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
+        filesystem_list_store_ids[i] = 0xFFFFFFFFUL;
       }
     }
+    if (send_device_reset) MTP.send_DeviceResetEvent();
   }
-  #else
-  USBDrive mscDrive;
-  //PFsLib pfsLIB;
-  for (uint8_t i = 0; i < CNT_DRIVES; i++) {
-    if (*pdrives[i]) {
-      if (!drive_previous_connected[i]) {
-        Serial.println("\n@@@@@@@@@@@@@@@ NEW Drives @@@@@@@@@@@");
-        if (mscDrive.begin(pdrives[i])) {
-          Serial.println("\t ## new drive");
-          Serial.printf("\nUSB Drive: %u connected\n", i);
-          //pfsLIB.mbrDmp(&mscDrive, (uint32_t) - 1, Serial);
-          Serial.println("\nTry Partition list");
-          //pfsLIB.listPartitions(&mscDrive, Serial);
-          drive_previous_connected[i] = true;
-        }
-        Serial.println("\n@@@@@@@@@@@@@@@ NEW Drives  Completed. @@@@@@@@@@@");
-      }
-    } else {
-      drive_previous_connected[i] = false;
-    }
-  }
-  bool send_device_reset = false;
-  for (uint8_t i = 0; i < CNT_MSC; i++) {
-    if (*pusbFS[i] && (pusbFS_store_ids[i] == 0xFFFFFFFFUL)) {
-      Serial.printf("Found new Volume:%u\n", i); Serial.flush();
-      // Lets see if we can get the volume label:
-      char volName[20];
-      if (pusbFS[i]->mscfs.getVolumeLabel(volName, sizeof(volName)))
-        snprintf(pusbFS_display_name[i], sizeof(pusbFS_display_name[i]), "MSC%d-%s", i, volName);
-      else
-        snprintf(pusbFS_display_name[i], sizeof(pusbFS_display_name[i]), "MSC%d", i);
-      pusbFS_store_ids[i] = MTP.addFilesystem(*pusbFS[i], pusbFS_display_name[i]);
-
-      // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
-      if (MTP.send_StoreAddedEvent(pusbFS_store_ids[i]) < 0) send_device_reset = true;
-    }
-    // Or did volume go away?
-    else if ((pusbFS_store_ids[i] != 0xFFFFFFFFUL) && !*pusbFS[i] ) {
-      if (MTP.send_StoreRemovedEvent(pusbFS_store_ids[i]) < 0) send_device_reset = true;
-      MTP.storage()->removeFilesystem(pusbFS_store_ids[i]);
-      // Try to send store added. if > 0 it went through = 0 stores have not been enumerated
-      pusbFS_store_ids[i] = 0xFFFFFFFFUL;
-    }
-  }
-  #endif  
-  if (send_device_reset) MTP.send_DeviceResetEvent();
 }
 
 
@@ -556,17 +516,25 @@ void menu() {
 }
 
 void listFiles() {
+  if (SelectedFS == nullptr) {
+    Serial.println("Error: No Filesystem selected");
+    return;
+  }
   Serial.print("\n Space Used = ");
-  Serial.println(mscDisk->usedSize());
+  Serial.println(SelectedFS->usedSize());
   Serial.print("Filesystem Size = ");
-  Serial.println(mscDisk->totalSize());
+  Serial.println(SelectedFS->totalSize());
 
-  File root = mscDisk->open("/");
+  File root = SelectedFS->open("/");
   printDirectory(root, 0);
   root.close();
 }
 
 void eraseFiles() {
+  if (SelectedFS == nullptr) {
+    Serial.println("Error: No Filesystem selected");
+    return;
+  }
   /*
     PFsVolume partVol;
     if (!partVol.begin(sdx[1].sdfs.card(), true, 1)) {

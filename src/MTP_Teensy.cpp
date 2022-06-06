@@ -50,7 +50,7 @@ Stream *MTP_class::printStream_ = &Serial;
 DMAMEM uint8_t MTP_class::disk_buffer_[DISK_BUFFER_SIZE] __attribute__((aligned(32)));
 #endif
 
-#define DEBUG 2
+//#define DEBUG 2
 #if DEBUG > 0
 #define printf(...) printStream_->printf(__VA_ARGS__)
 #else
@@ -677,7 +677,9 @@ uint32_t MTP_class::formatStore(struct MTPContainer &cmd) {
   g_pmtpd_interval = this;
   dtFormatStart_ = millis();  // remember when format started
   g_intervaltimer.begin(&_interval_timer_handler, 50000); // 20 Hz
+  #if DEBUG > 0
   elapsedMillis msec = 0;
+  #endif
   uint8_t success = storage_.formatStore(store, format);
   if (g_pmtpd_interval) g_intervaltimer.end();
   printf("formatStore success=%u, format took %u ms\n", success, (uint32_t)msec);
@@ -707,10 +709,15 @@ uint32_t MTP_class::GetStorageIDs(struct MTPContainer &cmd) {
   uint32_t num = storage_.get_FSCount();
   // Quick and dirty, we maybe allow some storages to be removed, lets loop
   // through and see if there are any...
+  printf("MTP_class::GetStorageIDs: cnt:%u\n", num);
   uint32_t num_valid = 0;
+  const char *sz;
   for (uint32_t ii = 0; ii < num; ii++) {
-    if (storage_.get_FSName(ii))
+
+    if ((sz = storage_.get_FSName(ii)) != nullptr) {
       num_valid++; // storage id
+      printf("\t%u(%s) %u\n", ii, sz, num_valid);
+    }
   }
   writeDataPhaseHeader(cmd, 4 + num_valid * 4);
   write32(num_valid); // number of storages (disks)
@@ -732,6 +739,10 @@ uint32_t MTP_class::GetStorageInfo(struct MTPContainer &cmd) {
   uint32_t store = Storage2Store(storage);
   const char *name = storage_.get_FSName(store);
   // const char *volumeID = storage_.get_volumeID(store);
+  if (name == nullptr) {
+    printf("MTP_class::GetStorageInfo %u is not valid (Nullptr name)\n");
+    return MTP_RESPONSE_STORE_NOT_AVAILABLE;
+  }
   static const char _volumeID[] = "";
 
   uint32_t size = 2 + 2 + 2 + 8 + 8 + 4 + writestringlen(name) + writestringlen(_volumeID);

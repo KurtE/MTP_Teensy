@@ -131,7 +131,7 @@ void MTPStorage::OpenIndex()
 	if (!index_) MTP_class::PrintStream()->println("cannot open Index file");
 	mtp_lock_storage(false);
 	user_index_file_ = false; // opened up default file so make sure off
-	MTP_class::PrintStream()->printf("MTPStorage::OpenIndex Record Size:%u %u\n", sizeof(Record), sizeof(RecordFixed));
+	DBGPrintf("MTPStorage::OpenIndex Record Size:%u %u\n", sizeof(Record), sizeof(RecordFixed));
 	#if MTP_RECORD_BLOCKS
 	DBGPrintf("MTPStorage::OpenIndex:\n");
 	for(uint8_t i = 0; i < MTP_RECORD_BLOCKS; i++) {
@@ -142,7 +142,7 @@ void MTPStorage::OpenIndex()
 	}
 	memset(recordBlocksInfo_, 0, sizeof(recordBlocksInfo_));
 	memset(recordBlocks_, 0, sizeof(recordBlocks_));
-	map_objectid_to_block_cycle_ = 0; 
+	map_objectid_to_block_cycle_ = 0;
 	for(uint8_t i = 1; i < MTP_RECORD_BLOCKS; i++) {
 		recordBlocksInfo_[i].block_index = 0xffff;
 	}
@@ -179,7 +179,7 @@ void MTPStorage::printClearRecordReadWriteCounts() {
 			MTP_class::PrintStream()->printf("  Count:%u NF: %u\n", recordBlocks_[i].recordCount, recordBlocks_[i].dataIndexNextFree);
 
 			#ifdef _memoryhexdump_h_
-			MemoryHexDump(Serial, recordBlocks_[i].data, BLOCK_SIZE_DATA, true, nullptr, -1, 0); 
+			MemoryHexDump(Serial, recordBlocks_[i].data, BLOCK_SIZE_DATA, true, nullptr, -1, 0);
 			#endif
 			for (uint8_t j=0; j < recordBlocks_[i].recordCount; j++) {
 				uint16_t ro = recordBlocks_[i].recordOffsets[j];
@@ -205,9 +205,9 @@ void MTPStorage::printClearRecordReadWriteCounts() {
 
 #if MTP_RECORD_BLOCKS
 //=============================================================================
-// Version that compresses objects into blocks. 
+// Version that compresses objects into blocks.
 //=============================================================================
-// function to take care to make sure the block we want is in 
+// function to take care to make sure the block we want is in
 // the block cache...
 void MTPStorage::ClearRecordBlock(uint8_t index) {
 	// overkill for now
@@ -254,15 +254,47 @@ uint8_t MTPStorage::CacheRecordBlock(uint16_t block_index)
 	// not in cache and we know cache is full
 	// see if we need to write out the current contents of the block
 	if (recordBlocksInfo_[biIndex].dirty) {
-		DBGPrintf("  >> cache write: %u %u\n", biIndex, recordBlocksInfo_[biIndex].block_index);
+		DBGPrintf("  >> cache write: %u %u MPI:%d\n", biIndex, recordBlocksInfo_[biIndex].block_index, maxrecordBlockWritten_);
 		debug_fs_write_record_count_++;
-		index_.seek(recordBlocksInfo_[biIndex].block_index * sizeof(RecordBlock));
+
+		uint64_t seek_pos = recordBlocksInfo_[biIndex].block_index * sizeof(RecordBlock);
+		//MTP_class::PrintStream()->printf(">> cache write: %u %u %d %llu\n", biIndex, recordBlocksInfo_[biIndex].block_index, maxrecordBlockWritten_, seek_pos);
+
+		int block_index_m1 = recordBlocksInfo_[biIndex].block_index - 1;
+		if (block_index_m1 > maxrecordBlockWritten_) {
+			//MTP_class::PrintStream()->printf("\tExtend index\n");
+			seek_pos = (maxrecordBlockWritten_+1) * sizeof(RecordBlock);
+			if (!index_.seek(seek_pos, SeekSet))
+				MTP_class::PrintStream()->printf("$$$ Failed to seek to extend Index record:%u addr:%llu\n",
+							maxrecordBlockWritten_+1, seek_pos);
+			while (block_index_m1 > maxrecordBlockWritten_) {
+				maxrecordBlockWritten_++;
+				for (int index=0; index < MTP_RECORD_BLOCKS; index++) {
+					if (recordBlocksInfo_[index].block_index == maxrecordBlockWritten_) {
+						size_t bytes_written = index_.write((char *)&recordBlocks_[index], sizeof(RecordBlock));
+						recordBlocksInfo_[index].dirty = false;  // we wrote the data out.
+						if ((bytes_written != sizeof(RecordBlock)))
+							MTP_class::PrintStream()->printf(F("$$$ Failed to write Index record: %u bytes written: %u\n"),
+									recordBlocksInfo_[index].block_index, bytes_written);
+						break;
+					}
+				}
+			}
+		} else {
+
+			bool seek_ok = index_.seek(seek_pos, SeekSet);
+			if (!seek_ok) {
+				MTP_class::PrintStream()->printf(F("$$$ Failed to seek for write Index record: %u addr:%llu Cur: %llu\n"),
+					recordBlocksInfo_[biIndex].block_index, seek_pos, index_.position());
+			}
+		}
+
 		size_t bytes_written = index_.write((char *)&recordBlocks_[biIndex], sizeof(RecordBlock));
 		if (bytes_written != sizeof(RecordBlock)) {
 			MTP_class::PrintStream()->printf(F("$$$ Failed to write Index record: %u bytes written: %u\n"), recordBlocksInfo_[biIndex].block_index, bytes_written);
 		}
 		if (recordBlocksInfo_[biIndex].block_index > maxrecordBlockWritten_)
-			maxrecordBlockWritten_ = recordBlocksInfo_[biIndex].block_index; 
+			maxrecordBlockWritten_ = recordBlocksInfo_[biIndex].block_index;
 	}
 	// Now read in the previous contents
 	recordBlocksInfo_[biIndex].dirty = false;
@@ -271,10 +303,15 @@ uint8_t MTPStorage::CacheRecordBlock(uint16_t block_index)
 	if (block_index <= maxrecordBlockWritten_) {
 		debug_fs_read_record_count_++;
 		DBGPrintf("  >> cache read: %u %u\n", biIndex, block_index);
-		index_.seek(block_index * sizeof(RecordBlock));
+		uint64_t seek_pos = block_index * sizeof(RecordBlock);
+		bool seek_ok = index_.seek(seek_pos, SeekSet);
+		if (!seek_ok) {
+			MTP_class::PrintStream()->printf(F("$$$ Failed to seek for read Index record: %u addr:%llu Cur: %llu\n"),
+				recordBlocksInfo_[biIndex].block_index, seek_pos, index_.position());
+		}
 		size_t bytes_read = index_.read((char *)&recordBlocks_[biIndex], sizeof(RecordBlock));
-		if (bytes_read != sizeof(RecordBlock)) {
-			MTP_class::PrintStream()->printf(F("$$$ Failed to read Index record: %u bytes Read: %u\n"), block_index, bytes_read);
+		if (!seek_ok || (bytes_read != sizeof(RecordBlock))) {
+			MTP_class::PrintStream()->printf(F("$$$ Failed to read Index record: %u seek:%u bytes Read: %u\n"), block_index, seek_ok, bytes_read);
 		}
 	} else {
 
@@ -298,30 +335,30 @@ uint32_t MTPStorage::AppendIndexRecord(const Record &r)
 	debug_write_record_count_++;
 	// so now dealing with normal stuff
 	uint16_t block_index = ((new_record - MTPD_MAX_FILESYSTEMS) >> 6); // lower 6 bits is index into block
-	uint8_t record_index = (new_record - MTPD_MAX_FILESYSTEMS) & 0x3f; 
+	uint8_t record_index = (new_record - MTPD_MAX_FILESYSTEMS) & 0x3f;
 	uint8_t biIndex = CacheRecordBlock(block_index); // lets map to block index;
 	DBGPrintf("Cache Append IR: %u(%u %u): %u %s\n", i, block_index, record_index, biIndex, r.name);
 
 	// now see if our record will fit with enough fudge.
-	uint16_t size_new_name = (strlen(r.name) + 4) & 0xfffc; // size is strlen + \0 and rounded up to 4 byte increments. 
+	uint16_t size_new_name = (strlen(r.name) + 4) & 0xfffc; // size is strlen + \0 and rounded up to 4 byte increments.
 
-	if ((recordBlocks_[biIndex].dataIndexNextFree + sizeof(RecordFixed) 
+	if ((recordBlocks_[biIndex].dataIndexNextFree + sizeof(RecordFixed)
 			+ size_new_name + BLOCK_SIZE_NAME_FUDGE) > BLOCK_SIZE_DATA) {
 		// new item won't fit, so increment to next on...
 		block_index++; // need to go to next block
-		record_index = 0; 
+		record_index = 0;
 		new_record = (block_index << 6) + MTPD_MAX_FILESYSTEMS;  // round up to start of next block
 		index_entries_ = new_record + 1;
 
 		biIndex = CacheRecordBlock(block_index); // lets map to block index;
-		DBGPrintf("  >> $$$ new block %u %u bi:%u\n", new_record, block_index, biIndex); 
+		DBGPrintf("  >> $$$ new block %u %u bi:%u\n", new_record, block_index, biIndex);
 	}
 
 	// now move the append part out of the write record
 	// new record to add to end
 	recordBlocks_[biIndex].recordCount++;
-	recordBlocks_[biIndex].recordOffsets[record_index] = recordBlocks_[biIndex].dataIndexNextFree; 
-	DBGPrintf("  >> AIR new C:%u O:%u\n", recordBlocks_[biIndex].recordCount, recordBlocks_[biIndex].recordOffsets[record_index]); 
+	recordBlocks_[biIndex].recordOffsets[record_index] = recordBlocks_[biIndex].dataIndexNextFree;
+	DBGPrintf("  >> AIR new C:%u O:%u\n", recordBlocks_[biIndex].recordCount, recordBlocks_[biIndex].recordOffsets[record_index]);
 	uint16_t 	record_data_index = recordBlocks_[biIndex].recordOffsets[record_index];
 	RecordFixed *prBlock = (RecordFixed*)&recordBlocks_[biIndex].data[record_data_index];
 	DBGPrintf("    >> %p = %p\n", prBlock, pr);
@@ -330,7 +367,7 @@ uint32_t MTPStorage::AppendIndexRecord(const Record &r)
 	*prBlock = *pr;
 	recordBlocksInfo_[biIndex].dirty = true;
 	strcpy(prBlock->name, pr->name);
-	recordBlocks_[biIndex].dataIndexNextFree += sizeof(RecordFixed) + size_new_name; // increment to next position add slop for alignment up 
+	recordBlocks_[biIndex].dataIndexNextFree += sizeof(RecordFixed) + size_new_name; // increment to next position add slop for alignment up
 	mtp_lock_storage(false);
 
 	return new_record;
@@ -352,10 +389,10 @@ bool MTPStorage::WriteIndexRecord(uint32_t i, const Record &r)
 
 		// now lets convert this to block and index within block.
 		uint16_t block_index = i >> 6; // lower 6 bits is index into block
-		uint8_t record_index = i & 0x3f; 
+		uint8_t record_index = i & 0x3f;
 		DBGPrintf("CacheWIR: %u(%u %u): %s\n", i, block_index, record_index, r.name); DBGFlush();
 
-		int size_new_name = (strlen(r.name) + 4) & 0xfffc; // size is strlen + \0 and rounded up to 4 byte increments. 
+		int size_new_name = (strlen(r.name) + 4) & 0xfffc; // size is strlen + \0 and rounded up to 4 byte increments.
 
 		RecordFixed *pr = (RecordFixed*)&r;  // use structure without the name...
 		
@@ -366,7 +403,7 @@ bool MTPStorage::WriteIndexRecord(uint32_t i, const Record &r)
 		uint16_t record_data_index = prb->recordOffsets[record_index];
 
 		// maybe should assert (record_index < prb->recordCount) {
-		DBGPrintf("  >> WIR Update\n"); 
+		DBGPrintf("  >> WIR Update\n");
 		// So this record has been stored before;
 		RecordFixed *prBlock = (RecordFixed*)&prb->data[record_data_index];
 		int size_old_name = (strlen(prBlock->name) + 4) & 0xfffc;
@@ -395,11 +432,11 @@ bool MTPStorage::WriteIndexRecord(uint32_t i, const Record &r)
 				}
 				prb->dataIndexNextFree += delta_size;
 				rdiNext += delta_size; // 				
-				// need to fix after strncpy as it may not zero terminate. 
+				// need to fix after strncpy as it may not zero terminate.
 				strncpy(prBlock->name, r.name, size_old_name + delta_size - 1);
 				prBlock->name[size_old_name + delta_size - 1] = '\0'; // strncpy does not alway 0 terminate..
 			} else {
-				// simple case fits in same space as was previously allocated. 
+				// simple case fits in same space as was previously allocated.
 				strcpy(prBlock->name, r.name);
 			}
 		}
@@ -437,7 +474,7 @@ MTPStorage::Record MTPStorage::ReadIndexRecord(uint32_t i)
 		debug_read_record_count_++;
 		// now lets convert this to block and index within block.
 		uint16_t block_index = i >> 6; // lower 6 bits is index into block
-		uint8_t record_index = i & 0x3f; 
+		uint8_t record_index = i & 0x3f;
 		
 		uint8_t biIndex = CacheRecordBlock(block_index);
 		DBGPrintf("CacheRIR: %u(%u %u)", i, block_index, record_index); DBGFlush();
@@ -519,7 +556,7 @@ MTPStorage::Record MTPStorage::ReadIndexRecord(uint32_t i)
 	} else {
 		debug_read_record_count_++;
 		debug_fs_read_record_count_++;
-		bool seek_ok  __attribute__((unused)) = index_.seek((i - MTPD_MAX_FILESYSTEMS) * sizeof(ret));
+		bool seek_ok  __attribute__((unused)) = index_.seek((i - MTPD_MAX_FILESYSTEMS) * sizeof(ret), SeekSet);
 		int cb_read = index_.read((char *)&ret, sizeof(ret));
 		if (cb_read != sizeof(ret)) {
 			MTP_class::PrintStream()->printf("$$$ Failed to read Index Record(%u): %u %d %s\n", i, seek_ok, cb_read, ret.name);
@@ -581,7 +618,9 @@ void MTPStorage::GenerateIndex(uint32_t store)
 {
 	if (index_generated_) return;
 	index_generated_ = true;
+	#if DEBUG
 	MTP_class::PrintStream()->println("*** MTPStorage::GenerateIndex called ***");
+	#endif
 	// first remove old index file
 	mtp_lock_storage(true);
 	if (user_index_file_) {
@@ -609,7 +648,10 @@ void MTPStorage::GenerateIndex(uint32_t store)
 		r.dtCreate = 0;
 		strcpy(r.name, "/");
 		AppendIndexRecord(r);
+
+		#if DEBUG
 		printRecordIncludeName(ii, &r);
+		#endif
 	}
 }
 
@@ -639,8 +681,10 @@ void MTPStorage::ScanDir(uint32_t store, uint32_t i)
 			r.dtModify = child_.getModifyTime(dtf) ? makeTime(dtf) : 0;
 			r.dtCreate = child_.getCreateTime(dtf) ? makeTime(dtf) : 0;
 			sibling = AppendIndexRecord(r);
+			#if DEBUG
 			MTP_class::PrintStream()->print("  >> ");
 			printRecordIncludeName(sibling, &r);
+			#endif
 			child_.close();
 		}
 		record.scanned = true;
@@ -782,7 +826,7 @@ void MTPStorage::read(uint32_t handle, uint32_t pos, char *out, uint32_t bytes)
 {
 	OpenFileByIndex(handle);
 	mtp_lock_storage(true);
-	file_.seek(pos);
+	file_.seek(pos, SeekSet);
 	file_.read(out, bytes);
 	mtp_lock_storage(false);
 }
@@ -1021,7 +1065,7 @@ void MTPStorage::dumpIndexList(void)
 				if (skip_start_index) {
 					MTP_class::PrintStream()->printf("< Skiped %u - %u >\n", skip_start_index, ii-1);
 					skip_start_index = 0;
-				} 
+				}
 				MTP_class::PrintStream()->printf("%d: %d %d %u %d %d %d %u %u %s\n",
 			                                 ii, p.store, p.isdir, p.scanned, p.parent, p.sibling, p.child,
 			                                 p.dtCreate, p.dtModify, p.name);
