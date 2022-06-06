@@ -7,7 +7,7 @@
   This example code is in the public domain.
 */
 
-#define PLAY_WAVE_FILES
+//#define PLAY_WAVE_FILES
 
 #include "SD.h"
 #include <MTP_Teensy.h>
@@ -21,6 +21,10 @@ bool write_data = false;
 uint32_t diskSize;
 
 uint8_t current_store = 0;
+
+// experiment to hold extra uint32_t for each storage
+uint32_t extra_storage_data[MTPD_MAX_FILESYSTEMS] = {0}; 
+enum {FS_LITTLEFS = 0x1, FS_SD=0x2};
 
 
 #if defined(ARDUINO_TEENSY41) || defined(ARDUINO_TEENSY36) || defined(ARDUINO_TEENSY35) || defined(ARDUINO_TEENSY_MICROMOD) || defined(ARDUINO_TEENSY40)
@@ -90,10 +94,10 @@ public:
 
   // overrides for Print
   virtual size_t write(uint8_t b) {
-    if (Serial) {
-      sendBufferToSerial();
-      return Serial.write(b);
-    }
+    //if (Serial) {
+    //  sendBufferToSerial();
+    //  return Serial.write(b);
+    //}
     if (tail_ < sizeof(buffer_)) {
       buffer_[tail_++] = b;
       return 1;
@@ -101,10 +105,10 @@ public:
     return 0;
   }
   virtual size_t write(const uint8_t *buffer, size_t size) {
-    if (Serial) {
-      sendBufferToSerial();
-      return Serial.write(buffer, size);
-    }
+    //if (Serial) {
+    //  sendBufferToSerial();
+    //  return Serial.write(buffer, size);
+    //}
     size_t free_write = sizeof(buffer_) - tail_;
     if (free_write < size) size = free_write;
     if (size) memcpy(&buffer_[tail_], buffer, size);
@@ -126,9 +130,11 @@ public:
   uint32_t tail_ = 0;
 };
 
-void setup() {
   // setup to do quick and dirty ram stream until Serial or like is up...
+
   RAMStream rstream;
+
+void setup() {
   // start up MTPD early which will if asked tell the MTP
   // host that we are busy, until we have finished setting
   // up...
@@ -138,15 +144,15 @@ void setup() {
   //MTP.begin();
 
   // set to real stream
-  DBGSerial.printf("%u Initializing MTP Storage list ...", millis());
+  rstream.printf("%u Initializing MTP Storage list ...", millis());
 
 #if defined(__IMXRT1062__)
   // Lets add the Program memory version:
   // checks that the LittFS program has started with the disk size specified
   if (lfsProg.begin(file_system_size)) {
-    MTP.addFilesystem(lfsProg, "Program");
+    addFilesystem(lfsProg, "Program", FS_LITTLEFS);
   } else {
-    Serial.println("Error starting Program Flash storage");
+    rstream.println("Error starting Program Flash storage");
   }
 #endif
 
@@ -157,7 +163,7 @@ void setup() {
 #endif
   if (lfsram.begin(LFSRAM_SIZE)) {
     rstream.printf("Ram Drive of size: %u initialized\n", LFSRAM_SIZE);
-    uint32_t istore = MTP.addFilesystem(lfsram, "RAM");
+    uint32_t istore = addFilesystem(lfsram, "RAM", FS_LITTLEFS);
     if (istore != 0xFFFFFFFFUL) {
       MTP.storage()->setIndexStore(istore);
       rstream.printf("Set Storage Index drive to %u\n", istore);
@@ -166,33 +172,33 @@ void setup() {
 
 #ifdef ARDUINO_TEENSY41
   if (lfsqspi.begin()) {
-    MTP.addFilesystem(*lfsqspi.fs(), lfsqspi.displayName());
+    addFilesystem(*lfsqspi.fs(), lfsqspi.displayName(), FS_LITTLEFS);
   } else {
-    Serial.println("T4.1 does not have external Flash chip");
+    rstream.println("T4.1 does not have external Flash chip");
   }
 #endif
 
   for (uint8_t i = 0; i < CLFSSPIPINS; i++) {
     if (lfsspi[i].begin()) {
-      MTP.addFilesystem(lfsspi[i], lfsspi[i].displayName());
+      addFilesystem(*lfsspi[i].fs(), lfsspi[i].displayName(), FS_LITTLEFS);
     }
   }
 
 #if defined(USE_BUILTIN_SDCARD)
   // always add
   sdio_previously_present = sdSDIO.begin(BUILTIN_SDCARD);
-  index_sdio_storage = MTP.addFilesystem(sdSDIO, "SD_Builtin");
+  index_sdio_storage = addFilesystem(sdSDIO, "SD_Builtin", FS_SD);
   //MTP.setIndexStore(index_sdio_storage);
   //rstream.printf("Set Storage Index drive to %u\n", index_sdio_storage);
 #endif
 
   #ifdef ENABLE_SPI_SD_MEDIA_PRESENT
   sdspi_previously_present = sdSPI.begin(SD_ChipSelect);
-  index_sdspi_storage = MTP.addFilesystem(sdSPI, "SD_SPI");
-  Serial.printf("*** SD SPI(%u) added FS: %u %u\n", SD_ChipSelect, sdspi_previously_present, index_sdspi_storage);
+  index_sdspi_storage = addFilesystem(sdSPI, "SD_SPI", FS_SD);
+  rstream.printf("*** SD SPI(%u) added FS: %u %u\n", SD_ChipSelect, sdspi_previously_present, index_sdspi_storage);
   #else
   if (sdSPI.begin(SD_ChipSelect)) {
-    index_sdspi_storage = MTP.addFilesystem(sdSPI, "SD_SPI");
+    index_sdspi_storage = addFilesystem(sdSPI, "SD_SPI", FS_SD);
   } else {
     rstream.printf("SD_SPI(%d) not added", SD_ChipSelect);
     index_sdspi_storage = -1; 
@@ -208,6 +214,7 @@ void setup() {
   //rstream.begin(2000000); // don't call it wastes 2 seconds. 
   rstream.printf("+++ after wait on !Serial %u\n", millis());
   MTP.PrintStream(&DBGSerial); // Setup which stream to use...
+  Serial.begin(115200);
   rstream.sendBufferToSerial();
 
   if (CrashReport) {
@@ -233,16 +240,22 @@ void setup() {
   menu();
 }
 
+uint32_t addFilesystem(FS &disk, const char *diskname, uint32_t extra_data)
+{
+  uint32_t istore = MTP.addFilesystem(disk, diskname);  
+  if (istore != 0xFFFFFFFFUL) {
+
+    extra_storage_data[istore] = extra_data; 
+  }
+  return istore;
+}
+
+
 const char *getFSPN(uint32_t ii) {
   FS* pfs = MTP.storage()->getStoreFS(ii);
-  // total set of hacks...
-  if (pfs == (FS *)&lfsram) return lfsram.getMediaName();
-  if (pfs == (FS *)&lfsProg) return lfsProg.getMediaName();
-  #ifdef ARDUINO_TEENSY41
-  if (pfs == (FS *)&lfsqspi) return lfsqspi.getMediaName();
-  #endif
-  for (uint8_t i = 0; i < CLFSSPIPINS; i++) {
-    if (pfs == (FS *)&lfsspi[i]) return lfsspi[i].getMediaName();
+
+  if (pfs && (extra_storage_data[ii] & FS_LITTLEFS)) {
+    return ((LittleFS*)pfs)->getMediaName();
   }
   return "";
 }
