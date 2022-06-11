@@ -69,15 +69,43 @@ public:
   void loop(void);
 
   // methods to add and query storage information.
+
+  // Add a file system to the list of storages that will be seen by
+  // the host computer.  Returns the index of the item within the list
   uint32_t addFilesystem(FS &disk, const char *diskname);
+
+  // returns the count of file systems that have been added to the storage list
   inline uint32_t getFilesystemCount(void) { return storage_.getFSCount(); }
+
+  // return a pointer to the file system with the store index, that was returned by
+  // a previous call to addFilesystem.
   inline FS* getFilesystemByIndex(uint32_t store) { return storage_.getStoreFS(store); }
+
+  // Return the storage name that with the given store index.  tht is the index returned
+  // by previous call to addFilesystem.
   inline const char *getFilesystemNameByIndex(uint32_t store) { return storage_.getStoreName(store); }
+
+  // Set which of the file systems should be used to store our storage index.  This index is used 
+  // to remember the mappings of object IDs to underlying file system object.  By default the system
+  // uses the first storage tht was added.
   inline bool useFileSystemIndexFileStore(uint32_t store = 0) { return storage_.setIndexStore(store); }
+
+  // maps a file system name (The diskname parameter in addFilesystem)
+  // and returns the file system index.
   inline uint32_t getFilesystemIndexFromName(const char *fsname) { return storage_.getStoreID(fsname); }
 
+  // Reurns a pointer to stream object that is being used within MTP_Teensy
+  // code to output debug and informational messages.  By default it
+  // is a pointer to the Serial object.
   static inline Stream *PrintStream(void) { return printStream_; }
+
+  // Set what stream object should be used to output debug and information 
+  // messages.  By default the system uses the Serial object.
   static void PrintStream(Stream *stream) { printStream_ = stream; }
+
+  // Returns a pointer to the underlying MTPStorage object.  Most sketches
+  // do not need this, but it does allow access to things such as
+  // debug functions.
   MTPStorage *storage() {return &storage_ ;}
 
   // Test to set file name to 232 as overhead of 24 in storage...
@@ -224,8 +252,22 @@ public:
   int send_addObjectEvent(uint32_t p1);
   int send_removeObjectEvent(uint32_t p1);
   int send_StorageInfoChangedEvent(uint32_t p1);
+
+  // Send a device reset event, when processed by the host
+  // they will start a new session, at which point we will
+  // clear our file system store file as the object ids are
+  // only valid during  a sesion. 
+
   int send_DeviceResetEvent(void);
+
+  // Send an event telling the host, that we added another storeage
+  // to our list.  Example:  USBHost detects a new USB device has
+  // been inserted, and we wish to show the new filesystem(s)
   int send_StoreAddedEvent(uint32_t store);
+
+
+  // Send an event telling the host, that a file system is no longer
+  // available and for the host to remove it from their list. 
   int send_StoreRemovedEvent(uint32_t store);
 
   // higer level version of sending events
