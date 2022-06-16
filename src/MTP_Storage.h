@@ -88,7 +88,7 @@ public:
 	// upper 10 (or 26 if I go back to 32 bits) will be the 2K record number to
 	// read and write. 
 	enum {MAX_RECORDS_PER_BLOCK=64, BLOCK_SIZE=2048, BLOCK_SIZE_DATA=BLOCK_SIZE - (2*MAX_RECORDS_PER_BLOCK + 3),
-		BLOCK_SIZE_NAME_FUDGE=64};
+		BLOCK_SIZE_NAME_FUDGE=64, INDEX_STORE_MEM_FILE=(uint32_t)-2};
 	struct RecordBlock {
 		uint16_t recordOffsets[MAX_RECORDS_PER_BLOCK];
 		uint16_t dataIndexNextFree; 
