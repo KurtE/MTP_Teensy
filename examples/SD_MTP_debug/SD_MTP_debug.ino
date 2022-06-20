@@ -8,6 +8,12 @@
 SDClass sdSPI;
 #endif
 
+#if defined(__IMXRT1062__)
+#include <LittleFS.h>
+static const uint32_t file_system_size = 1024 * 512;
+LittleFS_Program lfsProg; // Used to create FS on the Flash memory of the chip
+#endif
+
 #ifdef ARDUINO_TEENSY41
 extern "C" uint8_t external_psram_size;
 #endif
@@ -82,6 +88,18 @@ void setup()
   }
   MTP.addFilesystem(sdSPI, "SD2");
 #endif
+
+#if defined(__IMXRT1062__)
+  // Lets add the Program memory version:
+  // checks that the LittFS program has started with the disk size specified
+  if (lfsProg.begin(file_system_size)) {
+    MTP.addFilesystem(lfsProg, "Program");
+  } else {
+    Serial.println("Error starting Program Flash storage");
+  }
+#endif
+
+
 
   //MTP.useFileSystemIndexFileStore(MTPStorage::INDEX_STORE_MEM_FILE);
   Serial.println("\nSetup done");

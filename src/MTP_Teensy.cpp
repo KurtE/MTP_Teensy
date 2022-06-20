@@ -97,6 +97,7 @@ int MTP_class::begin() {
 }
 
 uint32_t MTP_class::addFilesystem(FS &disk, const char *diskname) {
+  printStream_->println("Add **FS** file system");
   uint32_t store = storage_.addFilesystem(disk, diskname);
   if (store != 0xFFFFFFFF) {
     send_StoreAddedEvent(store);
@@ -104,6 +105,16 @@ uint32_t MTP_class::addFilesystem(FS &disk, const char *diskname) {
   return store; // TODO: let's change this to bool for success / fail
 }
 
+#if defined(__SD_H__)
+uint32_t MTP_class::addFilesystem(SDClass &disk, const char *diskname) {
+  printStream_->println("Add **SDClass** file system");
+  uint32_t store = storage_.addFilesystem(disk, diskname, MTPStorage::FSTYPE_SD);
+  if (store != 0xFFFFFFFF) {
+    send_StoreAddedEvent(store);
+  }
+  return store; // TODO: let's change this to bool for success / fail
+}
+#endif
 
 void MTP_class::loop(void) {
   if (g_pmtpd_interval) {
@@ -280,8 +291,10 @@ void MTP_class::loop(void) {
     usb_mtp_status = 0x01;
   }
 
-  // See if Storage needs to do anything
-  storage_.loop();
+  // See if Storage needs to do anything - it now returns true if it thinks we should reset the device.
+  if (storage_.loop()) {
+    send_DeviceResetEvent();
+  }
 }
 
 
@@ -1694,7 +1707,7 @@ int usb_mtp_sendEvent(const void *buffer, uint32_t len, uint32_t timeout) { // T
 //  digitalWriteFast(4, LOW);
   return len;
 }
-}
+} // extern c
 
 #elif defined(__IMXRT1062__)
 // keep this here until cores is upgraded
@@ -2279,5 +2292,55 @@ void MTP_class::printContainer(const void *container, const char *msg) {
   printf("\n");
 }
 #endif // MTP_VERBOSE_PRINT_CONTAINER
+
+
+//=============================================================================
+// Quick attempt to check if devices changed state...
+// Experiment - put into here as going to try calling some MTP functions... 
+// Should probably be extracted to own file... 
+// 
+//=============================================================================
+#undef printf  // 
+bool MTPStorage::loop() {
+  #if defined(__SD_H__)
+  bool storage_changed = false;
+  if (!loop_check_known_fstypes_changed_) return false;
+
+  if ((uint32_t)(millis() - millis_atlast_device_check_) < TIME_BETWEEN_DEVCE_CHECKS_MS) return false;
+
+  millis_atlast_device_check_ = millis(); 
+  for (uint8_t i = 0; i < fsCount; i++) {
+    if (fstype_[i] == FSTYPE_SD) {
+      SDClass *sdfs = (SDClass *)fs[i];
+      elapsedMicros em = 0;
+      bool media_present = sdfs->mediaPresent();
+
+      switch (sd_media_present_prev_[i]) {
+        case 0: sd_media_present_prev_[i] = media_present ? 0x1 : 0xff;
+          break;
+        case 1:
+          if (!media_present) {
+            MTP_class::PrintStream()->printf("SD Disk %s(%u) removed\n", name[i], i);
+            sd_media_present_prev_[i] = 0xff;
+            if (!MTP.send_StorageInfoChangedEvent(i)) storage_changed = true;
+          }
+          break;
+        default:  
+          if (media_present) {
+            MTP_class::PrintStream()->printf("SD Disk %s(%u) inserted\n", name[i], i);
+            sd_media_present_prev_[i] = 0x1;
+            if (!MTP.send_StorageInfoChangedEvent(i)) storage_changed = true;
+          }
+      }
+    }
+  }
+  
+  return storage_changed;
+  #else
+  return false;
+  #endif
+}
+
+
 
 #endif // USB_MTPDISK

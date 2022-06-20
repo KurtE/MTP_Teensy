@@ -33,6 +33,12 @@
 #include "core_pins.h"
 
 #include "FS.h"
+
+#if defined(__has_include) && __has_include(<SD.h>)
+#include <SD.h>
+#endif
+
+
 #ifndef FILE_WRITE_BEGIN
 #define FILE_WRITE_BEGIN 2
 #endif
@@ -89,6 +95,7 @@ public:
 	// read and write. 
 	enum {MAX_RECORDS_PER_BLOCK=64, BLOCK_SIZE=2048, BLOCK_SIZE_DATA=BLOCK_SIZE - (2*MAX_RECORDS_PER_BLOCK + 3),
 		BLOCK_SIZE_NAME_FUDGE=64, INDEX_STORE_MEM_FILE=(uint32_t)-2};
+	enum {FSTYPE_UNKNOWN=0, FSTYPE_SD};		
 	struct RecordBlock {
 		uint16_t recordOffsets[MAX_RECORDS_PER_BLOCK];
 		uint16_t dataIndexNextFree; 
@@ -104,10 +111,7 @@ public:
 #endif
 
 	constexpr MTPStorage() {  }
-	uint32_t addFilesystem(FS &disk, const char *diskname);
-	uint32_t addFilesystem(FS &fs, const char *name, void *unused1, uint32_t unused2) {
-		return addFilesystem(fs, name);
-	}
+	uint32_t addFilesystem(FS &disk, const char *diskname, uint8_t fstype=FSTYPE_UNKNOWN);
 	bool removeFilesystem(uint32_t store);
 	bool clearStoreIndexItems(uint32_t store);
 	bool setIndexStore(uint32_t storage = 0);
@@ -143,6 +147,13 @@ public:
 	const char *get_FSName(uint32_t store) {
 		return name[store];
 	}
+	const uint8_t get_FSType(uint32_t store) {
+		return fstype_[store];
+	}
+	const void set_FSType(uint32_t store, uint8_t fstype) {
+		fstype_[store] = fstype;
+	}
+
 	File open(uint32_t store, const char *filename, uint32_t mode) {
 		if (fs[store] == nullptr) return File();
 		return fs[store]->open(filename, mode);
@@ -221,13 +232,15 @@ public:
 	void printRecord(int h, Record *p);
 	void printRecordIncludeName(int h, Record *p);
 	void dumpIndexList(void);
-	void loop() {	}
+	bool loop();
 	void printClearRecordReadWriteCounts();
 
 private:
 	unsigned int fsCount = 0;
 	const char *name[MTPD_MAX_FILESYSTEMS] = {nullptr};
 	FS *fs[MTPD_MAX_FILESYSTEMS] = {nullptr};
+	uint8_t fstype_[MTPD_MAX_FILESYSTEMS] = {0};
+	bool loop_check_known_fstypes_changed_ = false;
 	uint16_t store_first_child_[MTPD_MAX_FILESYSTEMS] = {0};
 	uint8_t store_scanned_[MTPD_MAX_FILESYSTEMS] = {0};
 	uint8_t store_storage_minor_index_[MTPD_MAX_FILESYSTEMS] = {0};
@@ -252,6 +265,14 @@ private:
 	uint32_t debug_fs_read_record_count_ = 0;
 	uint32_t debug_write_record_count_ = 0;
 	uint32_t debug_fs_write_record_count_ = 0;
+
+	// experiment with building in SD Checking
+	#if defined(__SD_H__)
+	// 0-not tested yet, 1-inserted, 0xff-not inserted
+	uint8_t sd_media_present_prev_[MTPD_MAX_FILESYSTEMS] = {0};
+	uint32_t millis_atlast_device_check_ = 0;  // can not use elapsedMillis as per const...
+	enum {TIME_BETWEEN_DEVCE_CHECKS_MS = 500};
+	#endif
 
 	#if MTP_RECORD_BLOCKS
 	static RecordBlock recordBlocks_[MTP_RECORD_BLOCKS];

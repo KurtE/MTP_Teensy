@@ -72,6 +72,9 @@ public:
 
   // Add a file system to the list of storages that will be seen by
   // the host computer.  Returns the index of the item within the list
+  #if defined(__SD_H__)
+  uint32_t addFilesystem(SDClass &disk, const char *diskname);
+  #endif
   uint32_t addFilesystem(FS &disk, const char *diskname);
 
   // returns the count of file systems that have been added to the storage list

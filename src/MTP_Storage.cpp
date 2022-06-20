@@ -1677,11 +1677,13 @@ bool MTPStorage::CopyByPathNames(uint32_t store0, char *oldfilename, uint32_t st
 }
 #endif
 
-uint32_t MTPStorage::addFilesystem(FS &disk, const char *diskname)
+uint32_t MTPStorage::addFilesystem(FS &disk, const char *diskname, uint8_t fstype)
 {
 	if (fsCount < MTPD_MAX_FILESYSTEMS) {
 		name[fsCount] = diskname;
 		fs[fsCount] = &disk;
+		fstype_[fsCount] = fstype;
+		if (fstype != FSTYPE_UNKNOWN) loop_check_known_fstypes_changed_ = true;
 		store_storage_minor_index_[fsCount] = 1; // start off with 1
 		DBGPrintf("addFilesystem: %d %s %x\n", fsCount, diskname, (uint32_t)fs[fsCount]);
 		return fsCount++;
