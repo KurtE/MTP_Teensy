@@ -29,7 +29,7 @@
 #define MTP_TEENSY_H
 
 #if !defined(USB_MTPDISK) && !defined(USB_MTPDISK_SERIAL)
-#error "You need to select USB Type: 'MTP Disk (Experimental)'"
+#error "You need to select USB Type: 'MTP Disk (Experimental)' or 'Serial + MTP Disk (Experimental)'"
 #endif
 
 #if TEENSYDUINO < 157

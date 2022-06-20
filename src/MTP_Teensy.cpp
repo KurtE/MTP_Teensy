@@ -137,6 +137,7 @@ void MTP_class::loop(void) {
       // operation field.  The top 4 bits indicate the number
       // of parameters to transmit with the response code.
       int return_code = 0x2001; // OK use as default value
+      bool send_reset_event = false;
 
       if (container.type == MTP_CONTAINER_TYPE_COMMAND) {
         switch (container.op) {
@@ -178,13 +179,14 @@ void MTP_class::loop(void) {
           }
           break;
         case 0x100C: // SendObjectInfo
-	  return_code = SendObjectInfo(container);
+          return_code = SendObjectInfo(container);
           break;
         case 0x100D: // SendObject
           return_code = SendObject(container);
           break;
         case 0x100F: // FormatStore
           return_code = formatStore(container);
+          if (return_code == MTP_RESPONSE_OK) send_reset_event = true;
           break;
         case 0x1014: // GetDevicePropDesc
           return_code = GetDevicePropDesc(container);
@@ -251,6 +253,13 @@ void MTP_class::loop(void) {
         #endif
         write(&container, container.len);
         write_finish();
+
+        // Maybe some operations might need to tell host to do reset
+        // right now try after a format store.
+        if (send_reset_event) {
+          send_DeviceResetEvent();
+        }
+
       }
     } else {
       printf("ERROR: loop received command with %u bytes\n", receive_buffer.len);
@@ -684,7 +693,9 @@ uint32_t MTP_class::formatStore(struct MTPContainer &cmd) {
   if (g_pmtpd_interval) g_intervaltimer.end();
   printf("formatStore success=%u, format took %u ms\n", success, (uint32_t)msec);
   if (success) {
-    storage_.ResetIndex(); // maybe should add a less of sledge hammer here.
+    // The caller of this funciton will call device reset.
+    // which when new session is started should reset the index
+    //storage_.ResetIndex(); // maybe should add a less of sledge hammer here.
     // send_DeviceResetEvent();
     return MTP_RESPONSE_OK;
   } else {
@@ -1881,6 +1892,7 @@ void MTP_class::printContainer(const void *container, const char *msg) {
     printf(" %x", c->params[2]);
   }
   printf("\n");
+}
 #else // MTP_VERBOSE_PRINT_CONTAINER
   int print_property_name = -1; // no
   if (msg) {

@@ -97,6 +97,212 @@ static void dbgPrint(uint16_t line) {
 #define sd_getName(x, y, n) strlcpy(y, x.name(), n)
 
 #define indexFile "/mtpindex.dat"
+
+//=============================================================================
+// Experiment using Memory Filesystem specific for this case... 
+// Sort of based off of work of BogusFS as well by Frank's and my MemFile.
+// But then extended to allow the FIle to grow and Shrink...
+//=============================================================================
+
+class IndexMemFS;
+
+class MemIndexFile : public FileImpl
+{
+public:
+  //Currently we will extend file if you try to extend beyond the end of current
+  // note in our case we only writing like 2048 chunks.  At some point may allocate
+  // multiples of these. 
+  //So..just let the mcu crash if something is wrong.
+  virtual size_t write(const void *buf, size_t nbyte);
+  virtual int peek() { //""Returns the next character"
+    if (_storage_ptr == nullptr) return 0;
+    int p = _current_file_index + 1;
+    if (p > (int)_storage_size) return -1;
+    return *(_storage_ptr + p);
+  }
+  virtual int available() {
+    if (_storage_ptr == nullptr) return 0;
+    int s = _storage_size - _current_file_index;
+    if (s < 0) s = 0;
+    return s;
+  }
+  virtual void flush() {}
+  virtual size_t read(void *buf, size_t nbyte);
+  virtual bool truncate(uint64_t size);
+  virtual bool seek(uint64_t pos, int mode = SeekSet);
+  virtual uint64_t position() {
+    if (_storage_ptr == nullptr) return 0;
+    return _current_file_index;
+  }
+  virtual uint64_t size() {
+    if (_storage_ptr == nullptr) return 0;
+    return _storage_size;
+  }
+  virtual void close();
+  virtual bool isOpen() {
+    return _open;
+  }
+  virtual operator bool() {
+    return _open;
+  }
+  virtual const char * name() {
+    return _storage_ptr != nullptr ? "Index" : nullptr;
+  }
+  virtual boolean isDirectory(void) {
+    return false;
+  }
+  virtual File openNextFile(uint8_t mode) {
+    return File();
+  }
+  virtual void rewindDirectory(void) {
+  }
+ 	bool getCreateTime(DateTimeFields &tm) {
+		return false;
+	}
+	bool getModifyTime(DateTimeFields &tm) {
+		return false;
+	}
+	bool setCreateTime(const DateTimeFields &tm) {
+		return false;
+	}
+	bool setModifyTime(const DateTimeFields &tm) {
+		return false;
+	}
+protected:
+  friend class IndexMemFS;
+	MemIndexFile() {_open = true;}
+  uint8_t *_storage_ptr = nullptr;
+  uint32_t _current_file_index = 0;
+  uint32_t _storage_size = 0;
+  bool 		_open = false;
+};
+
+//Currently we will extend file if you try to extend beyond the end of current
+// note in our case we only writing like 2048 chunks.  At some point may allocate
+// multiples of these. 
+//So..just let the mcu crash if something is wrong.
+size_t MemIndexFile::write(const void *buf, size_t nbyte) {
+  if ((_current_file_index + nbyte) > _storage_size) {
+  	// We need to allocate or reallocate ...
+  	uint32_t new_size = _current_file_index + nbyte;
+  	if (_storage_ptr == nullptr) {
+		  #if defined(__IMXRT1062__)
+		  _storage_ptr = (uint8_t*)extmem_malloc(new_size);
+		  #else
+		  _storage_ptr = (uint8_t*)malloc(new_size);
+		  #endif 
+			Serial.printf("\t$$%p = malloc(%u)\n", _storage_ptr, new_size);// hard coded, dont care just give me the file
+		  if (!_storage_ptr) return -1;
+  		_storage_size = new_size;
+  	} else {  		
+		  #if defined(__IMXRT1062__)
+		  uint8_t *new_storage_ptr = (uint8_t*)extmem_realloc(_storage_ptr, new_size);
+		  #else
+		  uint8_t *new_storage_ptr = (uint8_t*)realloc(_storage_ptr, new_size);
+		  #endif 
+			Serial.printf("\t$$%p = realloc(%p, %u)\n", new_storage_ptr, _storage_ptr, new_size);	// hard coded, dont care just give me the file
+		  if (!new_storage_ptr) return -1;
+		  _storage_ptr = new_storage_ptr;
+  		_storage_size = new_size;
+  	}
+  }
+	DBGPrintf("!!!MemIndexFile::write (%p %u): %p\n", buf, nbyte, _storage_ptr + _current_file_index); 	// hard coded, dont care just give me the file
+  if (nbyte > 0) memcpy(_storage_ptr + _current_file_index, buf, nbyte);
+  _current_file_index += nbyte;
+  return nbyte;
+}
+
+size_t MemIndexFile::read(void *buf, size_t nbyte) {
+	DBGPrintf("!!!MemIndexFile::read(%p, %u): %p\n", buf, nbyte, _storage_ptr + _current_file_index); 	// hard coded, dont care just give me the file
+  if (_storage_ptr == nullptr) return 0;
+  if (_current_file_index + nbyte > (unsigned)_storage_size) nbyte = _storage_size - _current_file_index;
+  if (nbyte > 0) memcpy(buf, _storage_ptr + _current_file_index, nbyte);
+  _current_file_index += nbyte;
+  return nbyte;
+}
+
+bool MemIndexFile::truncate(uint64_t size) {
+	DBGPrintf("!!!MemIndexFile::truncate %u\n", (uint32_t)size);	// hard coded, dont care just give me the file
+  if (_storage_ptr) {
+  	#if defined(__IMXRT1062__)
+	  uint8_t *new_storage_ptr = (uint8_t*)extmem_realloc(_storage_ptr, size);
+	  #else
+	  uint8_t *new_storage_ptr = (uint8_t*)realloc(_storage_ptr, size);
+	  #endif 
+	  if (!new_storage_ptr) return false;
+  	_storage_ptr = new_storage_ptr;
+		_storage_size = size;
+		return true;
+	}
+  return false;
+}
+
+bool MemIndexFile::seek(uint64_t pos, int mode) {
+  if ((_storage_ptr == nullptr) && (pos > 0)) return false;
+  int p = pos;
+  if (mode == SeekCur) p = _current_file_index + pos;
+  else if (mode == SeekEnd) p = (int)(_current_file_index + _storage_size) - (int)pos;
+  if (p < 0 || p > (int)_storage_size) return false;
+  _current_file_index = p;
+	DBGPrintf("!!!MemIndexFile::seek %u %d %p\n", (uint32_t)pos, mode, _storage_ptr + _current_file_index);	// hard coded, dont care just give me the file
+  return true;
+}
+ 
+void MemIndexFile::close() {
+	Serial.printf("!!!MemIndexFile::close\n");	// hard coded, dont care just give me the file
+  #if defined(__IMXRT1062__)
+  if (_storage_ptr) extmem_free(_storage_ptr);
+  #else
+  if (_storage_ptr) free(_storage_ptr);
+  #endif 
+
+  _storage_ptr = nullptr;
+  _storage_size = 0;
+  _current_file_index = 0;
+  _open = false;
+}
+ 
+
+class IndexMemFS : public FS
+{
+public:
+  IndexMemFS()  { }
+
+  File open(const char *name, uint8_t mode) {
+		Serial.println("!!!IndexMemFS::open"); 	// hard coded, dont care just give me the file
+    _file = File(new MemIndexFile());
+    return _file;
+  }
+
+  bool exists(const char *filepath) {
+    return true;
+  }
+  bool mkdir(const char *filepath) {
+    return false;
+  }
+  bool rename(const char *oldfilepath, const char *newfilepath) {
+    return false;
+  }
+  bool remove(const char *filepath) {
+  	if (_file) _file.close(); // this will free up the memory...
+    return false;
+  }
+  bool rmdir(const char *filepath) {
+    return false;
+  }
+  uint64_t usedSize() {
+  	return _file.size();
+  }
+  uint64_t totalSize() {
+  	return _file.size();
+  }
+
+protected:
+  File _file;
+};
+
+IndexMemFS g_indexMemFS;
+
 // TODO:
 //   support serialflash
 //   partial object fetch/receive
@@ -127,8 +333,22 @@ void MTPStorage::OpenIndex()
 {
 	if (index_) return; // only once
 	mtp_lock_storage(true);
+	#if MTP_RECORD_BLOCKS
+	if (index_file_storage_ != INDEX_STORE_MEM_FILE) {
+		index_ = open(index_file_storage_, indexFile, FILE_WRITE_BEGIN);
+		if (!index_) {
+			MTP_class::PrintStream()->printf("Failed to open Index file on storage number %d try memory File\n", index_file_storage_);
+			index_ = g_indexMemFS.open(indexFile, FILE_WRITE_BEGIN);
+		}
+	} else
+		index_ = g_indexMemFS.open(indexFile, FILE_WRITE_BEGIN);
+	#else
+	// We only support the memory index on those machines which we have setup to use MTP_RECORD_BLOCKS
 	index_ = open(index_file_storage_, indexFile, FILE_WRITE_BEGIN);
+	#endif
+
 	if (!index_) MTP_class::PrintStream()->println("cannot open Index file");
+
 	mtp_lock_storage(false);
 	user_index_file_ = false; // opened up default file so make sure off
 	DBGPrintf("MTPStorage::OpenIndex Record Size:%u %u\n", sizeof(Record), sizeof(RecordFixed));
@@ -136,8 +356,8 @@ void MTPStorage::OpenIndex()
 	DBGPrintf("MTPStorage::OpenIndex:\n");
 	for(uint8_t i = 0; i < MTP_RECORD_BLOCKS; i++) {
 		DBGPrintf("  %u: %d %u %u\n", i,
-			recordBlocksInfo_[i].usage_weight,
 			recordBlocksInfo_[i].block_index,
+			recordBlocksInfo_[i].last_cycle_used,
 			recordBlocksInfo_[i].dirty);
 	}
 	memset(recordBlocksInfo_, 0, sizeof(recordBlocksInfo_));
@@ -146,6 +366,7 @@ void MTPStorage::OpenIndex()
 	for(uint8_t i = 1; i < MTP_RECORD_BLOCKS; i++) {
 		recordBlocksInfo_[i].block_index = 0xffff;
 	}
+	maxrecordBlockWritten_ = -1; // make sure we assume nothing written. 
 	#endif
 }
 
@@ -337,7 +558,7 @@ uint32_t MTPStorage::AppendIndexRecord(const Record &r)
 	uint16_t block_index = ((new_record - MTPD_MAX_FILESYSTEMS) >> 6); // lower 6 bits is index into block
 	uint8_t record_index = (new_record - MTPD_MAX_FILESYSTEMS) & 0x3f;
 	uint8_t biIndex = CacheRecordBlock(block_index); // lets map to block index;
-	DBGPrintf("Cache Append IR: %u(%u %u): %u %s\n", i, block_index, record_index, biIndex, r.name);
+	DBGPrintf("Cache Append IR: (%u %u): %u %s\n",  block_index, record_index, biIndex, r.name);
 
 	// now see if our record will fit with enough fudge.
 	uint16_t size_new_name = (strlen(r.name) + 4) & 0xfffc; // size is strlen + \0 and rounded up to 4 byte increments.
@@ -361,7 +582,7 @@ uint32_t MTPStorage::AppendIndexRecord(const Record &r)
 	DBGPrintf("  >> AIR new C:%u O:%u\n", recordBlocks_[biIndex].recordCount, recordBlocks_[biIndex].recordOffsets[record_index]);
 	uint16_t 	record_data_index = recordBlocks_[biIndex].recordOffsets[record_index];
 	RecordFixed *prBlock = (RecordFixed*)&recordBlocks_[biIndex].data[record_data_index];
-	DBGPrintf("    >> %p = %p\n", prBlock, pr);
+	DBGPrintf("    >> %p = %p\n", prBlock, &r);
 
 	RecordFixed *pr = (RecordFixed*)&r;  // use structure without the name...
 	*prBlock = *pr;
@@ -418,7 +639,7 @@ bool MTPStorage::WriteIndexRecord(uint32_t i, const Record &r)
 			int delta_size = size_new_name - size_new_name;
 			if (delta_size) {
 				// the sizes rounded up to 4 byte incmenets has changed
-				if ((prb->dataIndexNextFree + delta_size) >= BLOCK_SIZE_DATA) {
+				if ((prb->dataIndexNextFree + delta_size) >= (int)BLOCK_SIZE_DATA) {
 					// arg not enough room in block
 					delta_size = BLOCK_SIZE_DATA - (prb->dataIndexNextFree  + 4); // fudge
 				}
@@ -1063,7 +1284,7 @@ void MTPStorage::dumpIndexList(void)
 				if (skip_start_index == 0) skip_start_index = ii;
 			} else {
 				if (skip_start_index) {
-					MTP_class::PrintStream()->printf("< Skiped %u - %u >\n", skip_start_index, ii-1);
+					MTP_class::PrintStream()->printf("< Skipped %u - %u >\n", skip_start_index, ii-1);
 					skip_start_index = 0;
 				}
 				MTP_class::PrintStream()->printf("%d: %d %d %u %d %d %d %u %u %s\n",
@@ -1073,7 +1294,7 @@ void MTPStorage::dumpIndexList(void)
 		}
 	}
 	if (skip_start_index) {  // not likely to happen but
-		MTP_class::PrintStream()->printf("< Skiped %u - %u >\n", skip_start_index, index_entries_-1);
+		MTP_class::PrintStream()->printf("< Skipped %u - %u >\n", skip_start_index, index_entries_-1);
 	}
 }
 
@@ -1611,10 +1832,16 @@ uint32_t MTPStorage::MapFileNameToIndex(uint32_t storage, const char *pathname,
 }
 
 bool MTPStorage::setIndexStore(uint32_t storage) {
+	Serial.printf(" MTPStorage::setIndexStore: %d\n", (int)storage); 	// hard coded, dont care just give me the file
+	#if MTP_RECORD_BLOCKS
+	if ((storage != INDEX_STORE_MEM_FILE) && (storage >= getFSCount()))
+		return false; // out of range
+	#else
 	if (storage >= getFSCount())
 		return false; // out of range
+	#endif	
 	CloseIndex();
-	index_file_storage_ = storage;
+  index_file_storage_ = storage;
 	user_index_file_ = false;
 	return true;
 }
