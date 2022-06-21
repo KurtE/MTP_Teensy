@@ -779,11 +779,12 @@ uint32_t MTP_class::GetStorageInfo(struct MTPContainer &cmd) {
               : 0x0001); // filesystem type (generic hierarchical)
   write16(0x0000);       // access capability (read-write)
 
+  //elapsedMillis em;
   uint64_t ntotal = storage_.totalSize(store);
   write64(ntotal); // max capacity
   uint64_t nused = storage_.usedSize(store);
   write64((ntotal - nused)); // free space (100M)
-  //  printf("GetStorageInfo dt:%u tot:%lu, used: %lu\n", (uint32_t)em, ntotal, nused);
+  //printf("GetStorageInfo dt:%u tot:%lu, used: %lu\n", (uint32_t)em, ntotal, nused);
   write32(0xFFFFFFFFUL); // free space (objects)
   writestring(name); // storage descriptor
   writestring(_volumeID); // volume identifier
@@ -2312,7 +2313,6 @@ bool MTPStorage::loop() {
   for (uint8_t i = 0; i < fsCount; i++) {
     if (fstype_[i] == FSTYPE_SD) {
       SDClass *sdfs = (SDClass *)fs[i];
-      elapsedMicros em = 0;
       bool media_present = sdfs->mediaPresent();
 
       switch (sd_media_present_prev_[i]) {
@@ -2322,14 +2322,14 @@ bool MTPStorage::loop() {
           if (!media_present) {
             MTP_class::PrintStream()->printf("SD Disk %s(%u) removed\n", name[i], i);
             sd_media_present_prev_[i] = 0xff;
-            if (!MTP.send_StorageInfoChangedEvent(i)) storage_changed = true;
+            /* if (!MTP.send_StorageInfoChangedEvent(i))*/ storage_changed = true;
           }
           break;
         default:  
           if (media_present) {
             MTP_class::PrintStream()->printf("SD Disk %s(%u) inserted\n", name[i], i);
             sd_media_present_prev_[i] = 0x1;
-            if (!MTP.send_StorageInfoChangedEvent(i)) storage_changed = true;
+            /* if (!MTP.send_StorageInfoChangedEvent(i)) */ storage_changed = true;
           }
       }
     }

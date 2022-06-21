@@ -15,11 +15,11 @@ void setup()
 
   // Add SD Card
   if (SD.begin(CS_SD)) {
-    MTP.addFilesystem(SD, "SD Card");
     Serial.println("Added SD card using built in SDIO, or given SPI CS");
   } else {
     Serial.println("No SD Card");
   }
+  MTP.addFilesystem(SD, "SD Card");
   Serial.println("\nSetup done");
 }
 

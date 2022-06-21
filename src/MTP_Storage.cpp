@@ -93,7 +93,6 @@ static void dbgPrint(uint16_t line) {
 #define DBGFlush()
 #endif
 
-#define sd_isOpen(x) (x)
 #define sd_getName(x, y, n) strlcpy(y, x.name(), n)
 
 #define indexFile "/mtpindex.dat"
@@ -809,18 +808,22 @@ uint16_t MTPStorage::ConstructFilename(int i, char *out, int len)
 
 void MTPStorage::OpenFileByIndex(uint32_t i, uint32_t mode)
 {
-	bool file_is_open = sd_isOpen(file_);  // check to see if file is open
+	//DBGPrintf("*** OpenFileIndex(%u, %x)\n", i, mode); DBGFlush();
+	bool file_is_open = file_;  // check to see if file is open
 	if (file_is_open && (open_file_ == i) && (mode_ == mode)) {
 		return;
 	}
 	char filename[MTP_MAX_PATH_LEN];
 	uint16_t store = ConstructFilename(i, filename, MTP_MAX_PATH_LEN);
+	//DBGPrintf("\t>>Store:%u path:%s open:%u\n", store, filename, file_is_open); DBGFlush();
 	mtp_lock_storage(true);
 	if (file_is_open) {
 		file_.close();
+		//DBGPrintf("\t>>after close\n"); DBGFlush();
 	}
 	file_ = open(store, filename, mode);
-	if (!sd_isOpen(file_)) {
+	//DBGPrintf("\t>>after open\n"); DBGFlush();
+	if (!file_) {
 		DBGPrintf(
 		  "OpenFileByIndex failed to open (%u):%s mode: %u\n", i, filename, mode);
 		open_file_ = 0xFFFFFFFEUL;
@@ -878,18 +881,21 @@ void MTPStorage::GenerateIndex(uint32_t store)
 
 void MTPStorage::ScanDir(uint32_t store, uint32_t i)
 {
-	DBGPrintf("** ScanDir called %u %u\n", store, i);
+	//DBGPrintf("** ScanDir called %u %u\n", store, i); DBGFlush();
 	if (i == 0xFFFFUL) i = store;
 	Record record = ReadIndexRecord(i);
 	if (record.isdir && !record.scanned) {
+		//DBGPrintf("\t>>After ReadIndexRecord\n"); DBGFlush();
 		OpenFileByIndex(i);
-		if (!sd_isOpen(file_)) return;
+		//DBGPrintf("\t>>After OpenFileByIndex\n"); DBGFlush();
+		if (!file_) return;
 		int sibling = 0;
 		while (true) {
 			mtp_lock_storage(true);
 			child_ = file_.openNextFile();
+			//DBGPrintf("\t>>After openNextFile\n"); DBGFlush();
 			mtp_lock_storage(false);
-			if (!sd_isOpen(child_)) break;
+			if (!child_) break;
 			Record r;
 			r.store = record.store;
 			r.parent = i;
@@ -912,6 +918,10 @@ void MTPStorage::ScanDir(uint32_t store, uint32_t i)
 		record.child = sibling;
 		WriteIndexRecord(i, record);
 	}
+	// Lets try closing the file_ to see if that help minimize crash with removing SD and reinsert...
+	file_.close();
+	open_file_ = 0xFFFFFFFEUL;
+	//DBGPrintf("** ScanDir completed***\n"); DBGFlush();
 }
 
 void MTPStorage::ScanAll(uint32_t store)
@@ -927,12 +937,15 @@ void MTPStorage::ScanAll(uint32_t store)
 
 void MTPStorage::StartGetObjectHandles(uint32_t store, uint32_t parent)
 {
+	//DBGPrintf("** StartGetObjectHandles called %u %u\n", store, parent); DBGFlush();
 	GenerateIndex(store);
+	DBGPrintf("\t>> After GenerateIndex\n"); DBGFlush();
 	if (parent) {
 		if ((parent == 0xFFFFUL) || (parent == 0xFFFFFFFFUL)) {
 			parent = store; // As per initizalization
 		}
 		ScanDir(store, parent);
+		//DBGPrintf("\t>> After ScanDir\n"); DBGFlush();
 		follow_sibling_ = true;
 		// Root folder?
 		next_ = ReadIndexRecord(parent).child;
@@ -941,6 +954,7 @@ void MTPStorage::StartGetObjectHandles(uint32_t store, uint32_t parent)
 		follow_sibling_ = false;
 		next_ = 1;
 	}
+	//DBGPrintf("\t>>end StartGetObjectHandles\n"); DBGFlush();
 }
 
 uint32_t MTPStorage::GetNextObjectHandle(uint32_t store)
@@ -1803,11 +1817,11 @@ uint32_t MTPStorage::MapFileNameToIndex(uint32_t storage, const char *pathname,
 			r.scanned = false;
 
 			mtp_lock_storage(true);
-			if (sd_isOpen(file_)) file_.close();
+			if (file_) file_.close();
 			file_ = open(storage, pathname, FILE_READ);
 			mtp_lock_storage(false);
 
-			if (sd_isOpen(file_)) {
+			if (file_) {
 				r.isdir = file_.isDirectory();
 				if (!r.isdir) {
 					r.child = (uint32_t)file_.size();
