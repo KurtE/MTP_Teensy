@@ -1861,3 +1861,43 @@ bool MTPStorage::setIndexStore(uint32_t storage) {
 	user_index_file_ = false;
 	return true;
 }
+
+
+//=============================================================================
+// Quick attempt to check if devices changed state...
+// Experiment - put into here as going to try calling some MTP functions... 
+// Should probably be extracted to own file... 
+// 
+//=============================================================================
+
+bool MTPStorage::registerClassLoopCallback(uint8_t fstype, STORAGE_LOOP_CB *loop_cb)
+{
+	if (fstype < FSTYPE_MAX) {
+		loop_fstype_cbs[fstype] = loop_cb;
+		return true;
+	}
+	return false;
+}
+
+
+bool MTPStorage::loop() {
+#if defined(__SD_H__)
+  bool storage_changed = false;
+  if (!loop_check_known_fstypes_changed_) return false;
+  if (time_between_device_checks_ms_ == (uint32_t)-1) return false; 
+  if ((uint32_t)(millis() - millis_atlast_device_check_) < time_between_device_checks_ms_) return false;
+  millis_atlast_device_check_ = millis(); 
+
+  for (uint8_t i = 0; i < fsCount; i++) {
+  	uint8_t fstype = fstype_[i];
+
+  	if (fstype && (fstype < FSTYPE_MAX) && (loop_fstype_cbs[fstype])) {
+  		storage_changed |= (*loop_fstype_cbs[(uint8_t)fstype])(i, fs[i]);
+    }
+  }
+  
+  return storage_changed;
+  #else
+  return false;
+  #endif
+}
