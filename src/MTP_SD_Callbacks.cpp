@@ -24,17 +24,12 @@
 
 // modified for SDFS by WMXZ
 // Nov 2020 adapted to SdFat-beta / SD combo
-
-#include "core_pins.h"
-#include "usb_dev.h"
-#include "usb_serial.h"
-
 #include "MTP_Teensy.h"
 #include "MTP_Storage.h"
 
 // This code should only be build and run if the SD library was included in the sketch
-#if defined(__SD_H__)
-
+#if defined(__has_include) && __has_include(<SD.h>)
+#include <SD.h>
 // I am going to create a simple class with a constructor and maybe some simple data. 
 // that can be associated with the SD...
 // This is sort of a prototype, could expand to something more later.
@@ -43,7 +38,7 @@ public:
 
 	// constructor
 	MTP_SD_Callback() {
-		MTP.storage()->registerClassLoopCallback((uint8_t)MTPStorage::FSTYPE_SD, &checkMediaPresent);   
+		MTP.storage()->registerClassLoopCallback(MTP_FSTYPE_SD, &checkMediaPresent);   
 	}
 	
 	// static callback for device check (media present)
@@ -64,7 +59,7 @@ bool MTP_SD_Callback::checkMediaPresent(uint8_t storage_index, FS *pfs) {
 	bool storage_changed = false;
 	SDClass *sdfs = (SDClass *)pfs;
 	bool media_present = sdfs->mediaPresent();
-
+	//Serial.printf("MTP_SD_Callback::checkMediaPresent(%u, %p)\n", storage_index, pfs);
 	switch (media_present_prev_[storage_index]) {
 	case 0: media_present_prev_[storage_index] = media_present ? 0x1 : 0xff;
 	  break;
@@ -73,7 +68,8 @@ bool MTP_SD_Callback::checkMediaPresent(uint8_t storage_index, FS *pfs) {
 	    MTP_class::PrintStream()->printf("SD Disk %s(%u) removed\n", 
 	    								MTP.storage()->get_FSName(storage_index), storage_index);
 	    media_present_prev_[storage_index] = 0xff;
-	    /* if (!MTP.send_StorageInfoChangedEvent(i))*/ storage_changed = true;
+	    MTP.send_StorageInfoChangedEvent(storage_index);
+		storage_changed = true;
 	  }
 	  break;
 	default:  
@@ -81,7 +77,8 @@ bool MTP_SD_Callback::checkMediaPresent(uint8_t storage_index, FS *pfs) {
 	    MTP_class::PrintStream()->printf("SD Disk %s(%u) inserted\n", 
 	    								MTP.storage()->get_FSName(storage_index), storage_index);
 	    media_present_prev_[storage_index] = 0x1;
-	    /* if (!MTP.send_StorageInfoChangedEvent(i)) */ storage_changed = true;
+	  	MTP.send_StorageInfoChangedEvent(storage_index);
+	  	storage_changed = true;
 	  }
 	}
   return storage_changed;

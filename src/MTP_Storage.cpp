@@ -1691,13 +1691,13 @@ bool MTPStorage::CopyByPathNames(uint32_t store0, char *oldfilename, uint32_t st
 }
 #endif
 
-uint32_t MTPStorage::addFilesystem(FS &disk, const char *diskname, uint8_t fstype)
+uint32_t MTPStorage::addFilesystem(FS &disk, const char *diskname, mtp_fstype_t fstype)
 {
 	if (fsCount < MTPD_MAX_FILESYSTEMS) {
 		name[fsCount] = diskname;
 		fs[fsCount] = &disk;
 		fstype_[fsCount] = fstype;
-		if (fstype != FSTYPE_UNKNOWN) loop_check_known_fstypes_changed_ = true;
+		if (fstype != MTP_FSTYPE_UNKNOWN) loop_check_known_fstypes_changed_ = true;
 		store_storage_minor_index_[fsCount] = 1; // start off with 1
 		DBGPrintf("addFilesystem: %d %s %x\n", fsCount, diskname, (uint32_t)fs[fsCount]);
 		return fsCount++;
@@ -1870,9 +1870,9 @@ bool MTPStorage::setIndexStore(uint32_t storage) {
 // 
 //=============================================================================
 
-bool MTPStorage::registerClassLoopCallback(uint8_t fstype, STORAGE_LOOP_CB *loop_cb)
+bool MTPStorage::registerClassLoopCallback(mtp_fstype_t fstype, STORAGE_LOOP_CB *loop_cb)
 {
-	if (fstype < FSTYPE_MAX) {
+	if (fstype < MTP_FSTYPE_MAX) {
 		loop_fstype_cbs[fstype] = loop_cb;
 		return true;
 	}
@@ -1881,7 +1881,6 @@ bool MTPStorage::registerClassLoopCallback(uint8_t fstype, STORAGE_LOOP_CB *loop
 
 
 bool MTPStorage::loop() {
-#if defined(__SD_H__)
   bool storage_changed = false;
   if (!loop_check_known_fstypes_changed_) return false;
   if (time_between_device_checks_ms_ == (uint32_t)-1) return false; 
@@ -1891,13 +1890,10 @@ bool MTPStorage::loop() {
   for (uint8_t i = 0; i < fsCount; i++) {
   	uint8_t fstype = fstype_[i];
 
-  	if (fstype && (fstype < FSTYPE_MAX) && (loop_fstype_cbs[fstype])) {
+  	if (fstype && (fstype < MTP_FSTYPE_MAX) && (loop_fstype_cbs[fstype])) {
   		storage_changed |= (*loop_fstype_cbs[(uint8_t)fstype])(i, fs[i]);
     }
   }
   
   return storage_changed;
-  #else
-  return false;
-  #endif
 }

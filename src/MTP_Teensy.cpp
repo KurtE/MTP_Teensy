@@ -96,25 +96,14 @@ int MTP_class::begin() {
   return usb_init_events();
 }
 
-uint32_t MTP_class::addFilesystem(FS &disk, const char *diskname) {
-  printStream_->println("Add **FS** file system");
-  uint32_t store = storage_.addFilesystem(disk, diskname);
+uint32_t MTP_class::addFilesystem(FS &disk, const char *diskname, mtp_fstype_t fstype) {
+  //printStream_->println("Add **FS** file system");
+  uint32_t store = storage_.addFilesystem(disk, diskname, fstype);
   if (store != 0xFFFFFFFF) {
     send_StoreAddedEvent(store);
   }
   return store; // TODO: let's change this to bool for success / fail
 }
-
-#if defined(__SD_H__)
-uint32_t MTP_class::addFilesystem(SDClass &disk, const char *diskname) {
-  printStream_->println("Add **SDClass** file system");
-  uint32_t store = storage_.addFilesystem(disk, diskname, MTPStorage::FSTYPE_SD);
-  if (store != 0xFFFFFFFF) {
-    send_StoreAddedEvent(store);
-  }
-  return store; // TODO: let's change this to bool for success / fail
-}
-#endif
 
 void MTP_class::loop(void) {
   if (g_pmtpd_interval) {
