@@ -11,7 +11,7 @@
 //    example F5 on Windows, will update and show the new status.
 //
 //    If MTP_Teensy.h is included before SD.h, by default, this checking
-//    for drive insertions is not installed.  You can tell teh addFilesystem that
+//    for drive insertions is not installed.  You can tell the addFilesystem that
 //    the storage is an SD drive like:
 //        MTP.addFilesystem(SD, "SD Card", MTP_FSTYPE_SD);
 //

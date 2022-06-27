@@ -46,6 +46,9 @@ MTPStorage::RecordBlock MTPStorage::recordBlocks_[MTP_RECORD_BLOCKS] DMAMEM;
 MTPStorage::RecordBlockInfo MTPStorage::recordBlocksInfo_[MTP_RECORD_BLOCKS] = {{0}};
 #endif
 
+STORAGE_LOOP_CB *MTPStorage:: s_loop_fstype_cbs[MTP_FSTYPE_MAX] = {nullptr};
+bool MTPStorage::s_loop_fstypes_per_instance[] = {false};
+
 #define DEBUG 0
 
 #if DEBUG > 0
@@ -1870,10 +1873,13 @@ bool MTPStorage::setIndexStore(uint32_t storage) {
 // 
 //=============================================================================
 
-bool MTPStorage::registerClassLoopCallback(mtp_fstype_t fstype, STORAGE_LOOP_CB *loop_cb)
+bool MTPStorage::registerClassLoopCallback(mtp_fstype_t fstype, 
+			STORAGE_LOOP_CB *loop_cb, bool per_instance)
 {
 	if (fstype < MTP_FSTYPE_MAX) {
-		loop_fstype_cbs[fstype] = loop_cb;
+		s_loop_fstype_cbs[fstype] = loop_cb;
+		s_loop_fstypes_per_instance[fstype] = per_instance;
+		if (!per_instance) loop_check_known_fstypes_changed_ = true;
 		return true;
 	}
 	return false;
@@ -1887,11 +1893,32 @@ bool MTPStorage::loop() {
   if ((uint32_t)(millis() - millis_atlast_device_check_) < time_between_device_checks_ms_) return false;
   millis_atlast_device_check_ = millis(); 
 
+  static bool first_time = true;
+  if (first_time && Serial) {
+  	Serial.printf("&&&&& Dump MTPStorage Loop Data &&&&&\n\tCallback Data:");
+	  for (uint8_t i = 0; i < MTP_FSTYPE_MAX; i++)
+	  	Serial.printf("\t\t%u\t%p\t%u\n", i, s_loop_fstype_cbs[i], s_loop_fstypes_per_instance[i]);
+	  Serial.println("\tFile Systems:");	
+	
+	  for (uint8_t i = 0; i < fsCount; i++)
+	  	Serial.printf("\t\t%u\t%p\t%u\n", i,  fs[i], fstype_[i]);
+	  first_time = false;	
+  }
+
+  // Check for any class level callbacks.
+  for (uint8_t i = 0; i < MTP_FSTYPE_MAX; i++) {
+  	if (s_loop_fstype_cbs[i] && !s_loop_fstypes_per_instance[i]) {
+  		storage_changed |= (*s_loop_fstype_cbs[i])(0xff, nullptr);
+  	}
+  }
+
   for (uint8_t i = 0; i < fsCount; i++) {
   	uint8_t fstype = fstype_[i];
 
-  	if (fstype && (fstype < MTP_FSTYPE_MAX) && (loop_fstype_cbs[fstype])) {
-  		storage_changed |= (*loop_fstype_cbs[(uint8_t)fstype])(i, fs[i]);
+  	// See if there is a callback and it is a perinstance and call it
+  	if (fstype && (fstype < MTP_FSTYPE_MAX) && s_loop_fstype_cbs[fstype] 
+  				&& s_loop_fstypes_per_instance[fstype]) {
+  		storage_changed |= (*s_loop_fstype_cbs[(uint8_t)fstype])(i, fs[i]);
     }
   }
   

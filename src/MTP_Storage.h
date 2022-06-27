@@ -56,7 +56,10 @@
 
 
 typedef bool (STORAGE_LOOP_CB)(uint8_t store, FS *pfs);
-typedef enum {MTP_FSTYPE_UNKNOWN=0, MTP_FSTYPE_SD} mtp_fstype_t;
+
+// The mtp_fstype_t right now is WIP, the main user is MTP_FSTYPE_SD which calls per each object
+// but USBFS is a class level
+typedef enum {MTP_FSTYPE_UNKNOWN=0, MTP_FSTYPE_SD, MTP_FSTYPE_USBFS} mtp_fstype_t;
 
 
 
@@ -262,8 +265,9 @@ public:
 	void set_DeltaDeviceCheckTimeMS(uint32_t delta_time) { time_between_device_checks_ms_ = delta_time; }
 
 	// This registers a function to call for class type
+	// Note if class is set to 
 	// loop at the DeltaDeviceCheckTimeMS value.
-	bool registerClassLoopCallback(mtp_fstype_t fstype, STORAGE_LOOP_CB *loop_cb);   
+	bool registerClassLoopCallback(mtp_fstype_t fstype, STORAGE_LOOP_CB *loop_cb, bool per_instance=true);   
 
 
 private:
@@ -299,7 +303,9 @@ private:
 
 	// experiment with building in SD Checking
 	// 0-not tested yet, 1-inserted, 0xff-not inserted
-	STORAGE_LOOP_CB *loop_fstype_cbs[MTP_FSTYPE_MAX] = {nullptr};
+	static STORAGE_LOOP_CB *s_loop_fstype_cbs[MTP_FSTYPE_MAX];
+	static bool s_loop_fstypes_per_instance[MTP_FSTYPE_MAX];
+
 	uint32_t millis_atlast_device_check_ = 0;  // can not use elapsedMillis as per const...
 	enum {DEFAULT_TIME_BETWEEN_DEVICE_CHECKS_MS = 500};
 	uint32_t time_between_device_checks_ms_ = DEFAULT_TIME_BETWEEN_DEVICE_CHECKS_MS;

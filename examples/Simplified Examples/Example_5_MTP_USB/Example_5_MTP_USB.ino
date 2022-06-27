@@ -171,6 +171,7 @@ void checkUSBDrives() {
 
   // lets chec each of the drives.
   //bool drive_list_changed = false;
+#if 0
   for (uint16_t drive_index = 0; drive_index < (sizeof(drive_list)/sizeof(drive_list[0])); drive_index++) {
     USBDrive *pdrive = drive_list[drive_index];
     if (*pdrive) {
@@ -188,7 +189,6 @@ void checkUSBDrives() {
       //drive_list_changed = true;
     }
   }
-
   bool send_device_reset = false;
   for (uint8_t i = 0; i < CNT_USBFS; i++) {
     if (*filesystem_list[i]) {
@@ -223,6 +223,7 @@ void checkUSBDrives() {
     }
   }
   if (send_device_reset) MTP.send_DeviceResetEvent();
+#endif
 }
 
 
