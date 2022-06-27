@@ -51,7 +51,7 @@ public:
 uint8_t MTP_SD_Callback::media_present_prev_[MTPD_MAX_FILESYSTEMS] = {0};
 
 // define one here so it's constructor will be called. 
-MTP_SD_Callback mtsdcb;
+static MTP_SD_Callback mtsdcb;
 
 
 bool MTP_SD_Callback::checkMediaPresent(uint8_t storage_index, FS *pfs) {

@@ -60,7 +60,7 @@ public:
 map_usbfs_mtp_t MTP_USBFS_Callback::s_map_fs_mtp[MAX_USBFS_MTP_PAIRS] = {{nullptr, 0xFFFFFFFFUL, "" }};
 
 // define one here so it's constructor will be called.
-MTP_USBFS_Callback mtsdcb;
+static MTP_USBFS_Callback mtusbfscb;
 
 
 bool MTP_USBFS_Callback::checkUSBFSChangedState(uint8_t storage_index, FS *pfs) {
