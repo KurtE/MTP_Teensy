@@ -68,7 +68,13 @@ bool MTP_SD_Callback::checkMediaPresent(uint8_t storage_index, FS *pfs) {
 	    MTP_class::PrintStream()->printf("SD Disk %s(%u) removed\n", 
 	    								MTP.storage()->get_FSName(storage_index), storage_index);
 	    media_present_prev_[storage_index] = 0xff;
+#if 1
+		MTP.send_StoreRemovedEvent(storage_index);
+		delay(5);
+		MTP.send_StoreAddedEvent(storage_index);
+#else
 	    MTP.send_StorageInfoChangedEvent(storage_index);
+#endif	    
 		storage_changed = true;
 	  }
 	  break;
@@ -77,7 +83,13 @@ bool MTP_SD_Callback::checkMediaPresent(uint8_t storage_index, FS *pfs) {
 	    MTP_class::PrintStream()->printf("SD Disk %s(%u) inserted\n", 
 	    								MTP.storage()->get_FSName(storage_index), storage_index);
 	    media_present_prev_[storage_index] = 0x1;
-	  	MTP.send_StorageInfoChangedEvent(storage_index);
+#if 1
+		MTP.send_StoreRemovedEvent(storage_index);
+		delay(5);
+		MTP.send_StoreAddedEvent(storage_index);
+#else
+	    MTP.send_StorageInfoChangedEvent(storage_index);
+#endif	    
 	  	storage_changed = true;
 	  }
 	}
