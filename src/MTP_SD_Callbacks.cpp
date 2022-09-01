@@ -58,6 +58,7 @@ bool MTP_SD_Callback::checkMediaPresent(uint8_t storage_index, FS *pfs) {
 	// we will assume that this is an SD object	
 	bool storage_changed = false;
 	SDClass *sdfs = (SDClass *)pfs;
+	elapsedMicros emTest = 0;
 	bool media_present = sdfs->mediaPresent();
 	//Serial.printf("MTP_SD_Callback::checkMediaPresent(%u, %p)\n", storage_index, pfs);
 	switch (media_present_prev_[storage_index]) {
@@ -65,8 +66,8 @@ bool MTP_SD_Callback::checkMediaPresent(uint8_t storage_index, FS *pfs) {
 	  break;
 	case 1:
 	  if (!media_present) {
-	    MTP_class::PrintStream()->printf("SD Disk %s(%u) removed\n", 
-	    								MTP.storage()->get_FSName(storage_index), storage_index);
+	    MTP_class::PrintStream()->printf("SD Disk %s(%u) removed dt:%u\n", 
+	    								MTP.storage()->get_FSName(storage_index), storage_index, (uint32_t)emTest);
 	    media_present_prev_[storage_index] = 0xff;
 #if 1
 		MTP.send_StoreRemovedEvent(storage_index);
@@ -80,8 +81,8 @@ bool MTP_SD_Callback::checkMediaPresent(uint8_t storage_index, FS *pfs) {
 	  break;
 	default:  
 	  if (media_present) {
-	    MTP_class::PrintStream()->printf("SD Disk %s(%u) inserted\n", 
-	    								MTP.storage()->get_FSName(storage_index), storage_index);
+	    MTP_class::PrintStream()->printf("SD Disk %s(%u) inserted dt:%u\n", 
+	    								MTP.storage()->get_FSName(storage_index), storage_index, (uint32_t)emTest);
 	    media_present_prev_[storage_index] = 0x1;
 #if 1
 		MTP.send_StoreRemovedEvent(storage_index);
