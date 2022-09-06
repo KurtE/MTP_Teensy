@@ -1458,7 +1458,8 @@ bool MTPStorage::moveDir(uint32_t store0, char *oldfilename, uint32_t store1, ch
 			strlcat(tmp1Name, "/", MTP_MAX_PATH_LEN);
 		}
 		File f2 = f1.openNextFile();
-		if (!f2) break; {
+		if (!f2) break; 
+		{
 			// generate filenames
 			strlcat(tmp0Name, f2.name(), MTP_MAX_PATH_LEN);
 			strlcat(tmp1Name, f2.name(), MTP_MAX_PATH_LEN);

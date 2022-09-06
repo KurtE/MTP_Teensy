@@ -519,6 +519,8 @@ uint32_t MTP_class::GetObjectInfo(struct MTPContainer &cmd) {
   uint16_t store;
   storage_.GetObjectInfo(handle, filename, &size, &parent, &store);
 
+  #pragma GCC diagnostic push
+  #pragma GCC diagnostic ignored "-Wformat-truncation" /* Or "-Wformat-truncation" */
   if (storage_.getCreateTime(handle, dt)) {
     breakTime(dt, dtf);
     snprintf(ctimebuf, sizeof(ctimebuf), "%04u%02u%02uT%02u%02u%02u",
@@ -535,6 +537,7 @@ uint32_t MTP_class::GetObjectInfo(struct MTPContainer &cmd) {
   } else {
     mtimebuf[0] = 0;
   }
+#pragma GCC diagnostic pop
 
   writeDataPhaseHeader(cmd,
     4 + 2 + 2 + 4 + 2 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 2 + 4 + 4
