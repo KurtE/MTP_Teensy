@@ -33,6 +33,7 @@
 #include "core_pins.h"
 
 #include "FS.h"
+
 #ifndef FILE_WRITE_BEGIN
 #define FILE_WRITE_BEGIN 2
 #endif
@@ -43,12 +44,24 @@
 #ifndef MTP_MAX_PATH_LEN
 #define MTP_MAX_PATH_LEN 260
 #endif
+#ifndef MTP_FSTYPE_MAX
+#define MTP_FSTYPE_MAX  5
+#endif
 
 #if defined(__MK20DX128__) || defined(__MK20DX256__)
 #define MTP_RECORD_BLOCKS 0
 #else
 #define MTP_RECORD_BLOCKS 4
 #endif
+
+
+typedef bool (STORAGE_LOOP_CB)(uint8_t store, FS *pfs);
+
+// The mtp_fstype_t right now is WIP, the main user is MTP_FSTYPE_SD which calls per each object
+// but USBFS is a class level
+typedef enum {MTP_FSTYPE_UNKNOWN=0, MTP_FSTYPE_SD, MTP_FSTYPE_USBFS} mtp_fstype_t;
+
+
 
 class MTPStorage final {
 public:
@@ -104,10 +117,13 @@ public:
 #endif
 
 	constexpr MTPStorage() {  }
-	uint32_t addFilesystem(FS &disk, const char *diskname);
-	uint32_t addFilesystem(FS &fs, const char *name, void *unused1, uint32_t unused2) {
-		return addFilesystem(fs, name);
-	}
+
+  	// Add a file system to the list of storages that will be seen by
+  	// the host computer.  Returns the index of the item within the list
+	uint32_t addFilesystem(FS &disk, const char *diskname, mtp_fstype_t fstype);
+
+  	// Remove a file system from the list of storages 
+  	// Example might be if the device was removed.
 	bool removeFilesystem(uint32_t store);
 	bool clearStoreIndexItems(uint32_t store);
 	bool setIndexStore(uint32_t storage = 0);
@@ -125,24 +141,40 @@ public:
 		if (store < (uint32_t)fsCount) return name[store];
 		return nullptr;
 	}
+
 	FS *getStoreFS(uint32_t store) {
 		if (store < (uint32_t)fsCount) return fs[store];
 		return nullptr;
 	}
+
 	inline uint8_t storeMinorIndex(uint32_t store) {return store_storage_minor_index_[store];}
 
-	uint32_t getFSCount(void) {
-		return fsCount;
+
+	// Return count of files systems in storage list
+  	uint32_t get_FSCount(void) { return fsCount; }
+
+	// Return count of files systems in storage list
+	const char *get_FSName(uint32_t store) { return name[store];
 	}
-  	uint32_t get_FSCount(void) {
-		return fsCount;
+
+	// Older version, not sure if we still need.
+	uint32_t getFSCount(void) { return fsCount;	}
+	const char *getFSName(uint32_t store) {	return name[store];	}
+
+	// return the Type of the file system, Used in loop to know type of FS to
+	// determine if maybe something should be done in places like calls to loop()
+	// Currently only FSTYPE_UNKNOWN=0, FSTYPE_SD=1 are defined
+	const mtp_fstype_t get_FSType(uint32_t store) {
+		return fstype_[store];
 	}
-	const char *getFSName(uint32_t store) {
-		return name[store];
+
+	// sets the Type of the file system, Used in loop to know type of FS to
+	// determine if maybe something should be done in places like calls to loop()
+	// Currently only FSTYPE_UNKNOWN=0, FSTYPE_SD=1 are defined
+	const void set_FSType(uint32_t store, mtp_fstype_t fstype) {
+		fstype_[store] = fstype;
 	}
-	const char *get_FSName(uint32_t store) {
-		return name[store];
-	}
+
 	File open(uint32_t store, const char *filename, uint32_t mode) {
 		if (fs[store] == nullptr) return File();
 		return fs[store]->open(filename, mode);
@@ -221,13 +253,29 @@ public:
 	void printRecord(int h, Record *p);
 	void printRecordIncludeName(int h, Record *p);
 	void dumpIndexList(void);
-	void loop() {	}
+	bool loop();
 	void printClearRecordReadWriteCounts();
+
+	// returns the minimum time in ms of how often we will check the state of some devices
+	// in the loop() function.
+	uint32_t get_DeltaDeviceCheckTimeMS() { return time_between_device_checks_ms_; }
+
+	// sets the minimum time in ms of how often we will check the state of some devices
+	// in the loop() function.  Note: set to (uint32_t)-1 will disable this code
+	void set_DeltaDeviceCheckTimeMS(uint32_t delta_time) { time_between_device_checks_ms_ = delta_time; }
+
+	// This registers a function to call for class type
+	// Note if class is set to 
+	// loop at the DeltaDeviceCheckTimeMS value.
+	bool registerClassLoopCallback(mtp_fstype_t fstype, STORAGE_LOOP_CB *loop_cb, bool per_instance=true);   
+
 
 private:
 	unsigned int fsCount = 0;
 	const char *name[MTPD_MAX_FILESYSTEMS] = {nullptr};
 	FS *fs[MTPD_MAX_FILESYSTEMS] = {nullptr};
+	mtp_fstype_t fstype_[MTPD_MAX_FILESYSTEMS] = {MTP_FSTYPE_UNKNOWN};
+	bool loop_check_known_fstypes_changed_ = false;
 	uint16_t store_first_child_[MTPD_MAX_FILESYSTEMS] = {0};
 	uint8_t store_scanned_[MTPD_MAX_FILESYSTEMS] = {0};
 	uint8_t store_storage_minor_index_[MTPD_MAX_FILESYSTEMS] = {0};
@@ -252,6 +300,15 @@ private:
 	uint32_t debug_fs_read_record_count_ = 0;
 	uint32_t debug_write_record_count_ = 0;
 	uint32_t debug_fs_write_record_count_ = 0;
+
+	// experiment with building in SD Checking
+	// 0-not tested yet, 1-inserted, 0xff-not inserted
+	static STORAGE_LOOP_CB *s_loop_fstype_cbs[MTP_FSTYPE_MAX];
+	static bool s_loop_fstypes_per_instance[MTP_FSTYPE_MAX];
+
+	uint32_t millis_atlast_device_check_ = 0;  // can not use elapsedMillis as per const...
+	enum {DEFAULT_TIME_BETWEEN_DEVICE_CHECKS_MS = 500};
+	uint32_t time_between_device_checks_ms_ = DEFAULT_TIME_BETWEEN_DEVICE_CHECKS_MS;
 
 	#if MTP_RECORD_BLOCKS
 	static RecordBlock recordBlocks_[MTP_RECORD_BLOCKS];

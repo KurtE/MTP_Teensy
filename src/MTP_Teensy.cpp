@@ -96,14 +96,14 @@ int MTP_class::begin() {
   return usb_init_events();
 }
 
-uint32_t MTP_class::addFilesystem(FS &disk, const char *diskname) {
-  uint32_t store = storage_.addFilesystem(disk, diskname);
+uint32_t MTP_class::addFilesystem(FS &disk, const char *diskname, mtp_fstype_t fstype) {
+  //printStream_->println("Add **FS** file system");
+  uint32_t store = storage_.addFilesystem(disk, diskname, fstype);
   if (store != 0xFFFFFFFF) {
     send_StoreAddedEvent(store);
   }
   return store; // TODO: let's change this to bool for success / fail
 }
-
 
 void MTP_class::loop(void) {
   if (g_pmtpd_interval) {
@@ -280,8 +280,10 @@ void MTP_class::loop(void) {
     usb_mtp_status = 0x01;
   }
 
-  // See if Storage needs to do anything
-  storage_.loop();
+  // See if Storage needs to do anything - it now returns true if it thinks we should reset the device.
+  if (storage_.loop()) {
+    send_DeviceResetEvent();
+  }
 }
 
 
@@ -517,6 +519,8 @@ uint32_t MTP_class::GetObjectInfo(struct MTPContainer &cmd) {
   uint16_t store;
   storage_.GetObjectInfo(handle, filename, &size, &parent, &store);
 
+  #pragma GCC diagnostic push
+  #pragma GCC diagnostic ignored "-Wformat-truncation" /* Or "-Wformat-truncation" */
   if (storage_.getCreateTime(handle, dt)) {
     breakTime(dt, dtf);
     snprintf(ctimebuf, sizeof(ctimebuf), "%04u%02u%02uT%02u%02u%02u",
@@ -533,6 +537,7 @@ uint32_t MTP_class::GetObjectInfo(struct MTPContainer &cmd) {
   } else {
     mtimebuf[0] = 0;
   }
+#pragma GCC diagnostic pop
 
   writeDataPhaseHeader(cmd,
     4 + 2 + 2 + 4 + 2 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 2 + 4 + 4
@@ -766,11 +771,12 @@ uint32_t MTP_class::GetStorageInfo(struct MTPContainer &cmd) {
               : 0x0001); // filesystem type (generic hierarchical)
   write16(0x0000);       // access capability (read-write)
 
+  //elapsedMillis em;
   uint64_t ntotal = storage_.totalSize(store);
   write64(ntotal); // max capacity
   uint64_t nused = storage_.usedSize(store);
   write64((ntotal - nused)); // free space (100M)
-  //  printf("GetStorageInfo dt:%u tot:%lu, used: %lu\n", (uint32_t)em, ntotal, nused);
+  //printf("GetStorageInfo dt:%u tot:%lu, used: %lu\n", (uint32_t)em, ntotal, nused);
   write32(0xFFFFFFFFUL); // free space (objects)
   writestring(name); // storage descriptor
   writestring(_volumeID); // volume identifier
@@ -1694,7 +1700,7 @@ int usb_mtp_sendEvent(const void *buffer, uint32_t len, uint32_t timeout) { // T
 //  digitalWriteFast(4, LOW);
   return len;
 }
-}
+} // extern c
 
 #elif defined(__IMXRT1062__)
 // keep this here until cores is upgraded
@@ -2279,5 +2285,7 @@ void MTP_class::printContainer(const void *container, const char *msg) {
   printf("\n");
 }
 #endif // MTP_VERBOSE_PRINT_CONTAINER
+
+
 
 #endif // USB_MTPDISK
