@@ -106,10 +106,15 @@ bool MTP_USBFS_Callback::checkUSBFSChangedState(uint8_t storage_index, FS *pfs) 
 						s_map_fs_mtp[index].pusbfs = pusbfs;	// remember this one.
 						// Lets see if we can get the volume label:
 						char volName[20];
+  						#pragma GCC diagnostic push
+  						#pragma GCC diagnostic ignored "-Wformat-truncation" /* Or "-Wformat-truncation" */
 						if (pusbfs->getVolumeLabel(volName, sizeof(volName)))
 							snprintf(s_map_fs_mtp[index].storage_name, sizeof(s_map_fs_mtp[index].storage_name), "MSC%d-%s", index, volName);
 						else
 							snprintf(s_map_fs_mtp[index].storage_name, sizeof(s_map_fs_mtp[index].storage_name), "MSC%d", index);
+						s_map_fs_mtp[index].storage_name[sizeof(s_map_fs_mtp[index].storage_name) - 1] = 0; // make sure null terminated
+						#pragma GCC diagnostic pop
+
 						s_map_fs_mtp[index].store_id = MTP.addFilesystem(*pusbfs, s_map_fs_mtp[index].storage_name);
 
 						// Try to send store added. if > 0 it went through = 0 stores have not been enumerated
