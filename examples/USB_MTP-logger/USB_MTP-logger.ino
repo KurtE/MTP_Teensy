@@ -7,9 +7,7 @@
   This example code is in the public domain.
 */
 #include <MTP_Teensy.h>
-//#include <mscFS.h>
-#include <msFilesystem.h>
-#include <msDevice.h>
+#include <USBHost_t36.h>
 
 File dataFile; // Specifes that dataFile is of File type
 
@@ -26,23 +24,23 @@ USBHub hub2(myusb);
 USBHub hub(myusb);
 
 // MSC objects.
-msDevice drive1(myusb);
-msDevice drive2(myusb);
-msDevice drive3(myusb);
+USBDrive drive1(myusb);
+USBDrive drive2(myusb);
+USBDrive drive3(myusb);
 
-msFilesystem msFS1(myusb);
-msFilesystem msFS2(myusb);
-msFilesystem msFS3(myusb);
-msFilesystem msFS4(myusb);
-msFilesystem msFS5(myusb);
+USBFilesystem msFS1(myusb);
+USBFilesystem msFS2(myusb);
+USBFilesystem msFS3(myusb);
+USBFilesystem msFS4(myusb);
+USBFilesystem msFS5(myusb);
 
 // Quick and dirty
-msFilesystem *pmsFS[] = {&msFS1, &msFS2, &msFS3, &msFS4, &msFS5};
+USBFilesystem *pmsFS[] = {&msFS1, &msFS2, &msFS3, &msFS4, &msFS5};
 #define CNT_MSC  (sizeof(pmsFS)/sizeof(pmsFS[0]))
 uint32_t pmsfs_store_ids[CNT_MSC] = {0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL, 0xFFFFFFFFUL};
 char  pmsFS_display_name[CNT_MSC][20];
 
-msDevice *pdrives[] {&drive1, &drive2, &drive3};
+USBDrive *pdrives[] {&drive1, &drive2, &drive3};
 #define CNT_DRIVES  (sizeof(pdrives)/sizeof(pdrives[0]))
 bool drive_previous_connected[CNT_DRIVES] = {false, false, false};
 
@@ -173,7 +171,7 @@ void loop() {
 
 void checkMSCChanges() {
   myusb.Task();
-
+#if 0
   USBMSCDevice mscDrive;
   PFsLib pfsLIB;
   for (uint8_t i=0; i < CNT_DRIVES; i++) {
@@ -215,6 +213,7 @@ void checkMSCChanges() {
     }
   }
   if (send_device_reset) MTP.send_DeviceResetEvent();
+#endif  
 }
 
 void logData() {
