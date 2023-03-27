@@ -105,7 +105,6 @@ void loop() {
   if (Serial.available()) {
     uint8_t command = Serial.read();
     int ch = Serial.read();
-    uint32_t drive_index = CommandLineReadNextNumber(ch, 0);
     while (ch == ' ')
       ch = Serial.read();
 
@@ -129,21 +128,26 @@ void loop() {
     case 'x':
       stopLogging();
       break;
-    case '1': {
-      // first dump list of storages:
-      uint32_t fsCount = MTP.getFilesystemCount();
-      Serial.printf("\nDump Storage list(%u)\n", fsCount);
-      for (uint32_t ii = 0; ii < fsCount; ii++) {
-        Serial.printf("store:%u storage:%x name:%s fs:%x\n", ii,
-                      MTP.Store2Storage(ii), MTP.getFilesystemNameByIndex(ii),
-                      (uint32_t)MTP.getFilesystemNameByIndex(ii));
-      }
-      Serial.println("\nDump Index List");
-      MTP.storage()->dumpIndexList();
-    } break;
+    case '1': 
+      {
+        // first dump list of storages:
+        uint32_t fsCount = MTP.getFilesystemCount();
+        Serial.printf("\nDump Storage list(%u)\n", fsCount);
+        for (uint32_t ii = 0; ii < fsCount; ii++) {
+          Serial.printf("store:%u storage:%x name:%s fs:%x\n", ii,
+                        MTP.Store2Storage(ii), MTP.getFilesystemNameByIndex(ii),
+                        (uint32_t)MTP.getFilesystemNameByIndex(ii));
+        }
+        Serial.println("\nDump Index List");
+        MTP.storage()->dumpIndexList();
+      } 
+      break;
     case '2':
-      Serial.printf("Drive # %d Selected\n", drive_index);
-      mscDisk = MTP.getFilesystemByIndex(drive_index);
+      {
+        uint32_t drive_index = CommandLineReadNextNumber(ch, 0);
+        Serial.printf("Drive # %d Selected\n", drive_index);
+        mscDisk = MTP.getFilesystemByIndex(drive_index);
+     }
       break;
     case 'd':
       dumpLog();
@@ -152,11 +156,9 @@ void loop() {
       Serial.println("Send Device Reset Event");
       MTP.send_DeviceResetEvent();
       break;
-    case '\r':
-    case '\n':
-    case 'h':
-      menu();
-      break;
+    case 'w':
+      test_write_file(ch);
+      break;  
     default:
       menu();
       break;
@@ -281,6 +283,7 @@ void menu() {
                  "records to existing log)");
   Serial.println("\tx - Stop Logging data");
   Serial.println("\td - Dump Log");
+  Serial.println("\tw [write size] [size] [file name]");
   Serial.println("\tr - reset MTP");
   Serial.println("\th - Menu");
   Serial.println();
@@ -361,3 +364,45 @@ uint32_t CommandLineReadNextNumber(int &ch, uint32_t default_num) {
   }
   return return_value;
 }
+
+char test_file_name[128] = "write_test_file.txt";
+uint32_t test_file_write_size = 512;
+uint32_t test_file_size = 1048576; // 1 megabyte
+uint8_t test_file_buffer[1024*16];
+
+void test_write_file(int ch) {
+  test_file_write_size = CommandLineReadNextNumber(ch, test_file_write_size);
+  test_file_size = CommandLineReadNextNumber(ch, test_file_size);
+  if (ch >= ' ') {
+    Serial.setTimeout(0);
+    int cb = Serial.readBytesUntil( '\n', test_file_name, sizeof(test_file_name));
+  }
+  File testFile; // Specifes that dataFile is of File type
+
+  mscDisk->remove(test_file_name);  // try to remove files before as to force it to reallocate the file...
+  
+  testFile = mscDisk->open(test_file_name, FILE_WRITE_BEGIN);
+  if (!testFile) {
+    Serial.printf("Failed to open %s\n", test_file_name);
+    return;
+  }
+  Serial.printf("Start write file: %s length:%u Write Size:%u\n", test_file_name, test_file_size, test_file_write_size);  
+
+  uint32_t cb_write = test_file_write_size;
+  uint32_t cb_left = test_file_size;
+  uint8_t fill_char = '0';
+  test_file_buffer[cb_write - 2] = '\n'; // make in to text...
+
+  elapsedMillis em;
+  while (cb_left) {
+    if (cb_left < cb_write) cb_write = cb_left;
+    memset(test_file_buffer, cb_write - 1, fill_char);
+    testFile.write(test_file_buffer, cb_write);
+    fill_char = (fill_char == '9')? '0' : fill_char + 1;
+    cb_left -= cb_write;
+  }  
+  testFile.close();
+  Serial.printf("Time to write: %u\n", (uint32_t)em);
+  
+}
+
