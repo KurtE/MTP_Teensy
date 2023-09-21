@@ -53,9 +53,6 @@ LittleFS_RAM
     ramfs[nfs]; // needs to be declared if LittleFS is used in storage.h
 #endif
 
-MTPStorage storage;
-MTPD mtpd(&storage);
-
 void storage_configure() {
 #if USE_SD == 1
 #if defined SD_SCK
@@ -71,7 +68,7 @@ void storage_configure() {
         while (1)
           ;
       };
-      storage.addFilesystem(sdx[ii], sd_str[ii]);
+      MTP.addFilesystem(sdx[ii], sd_str[ii]);
     } else if (cs[ii] < BUILTIN_SDCARD) {
       pinMode(cs[ii], OUTPUT);
       digitalWriteFast(cs[ii], HIGH);
@@ -80,7 +77,7 @@ void storage_configure() {
         while (1)
           ;
       }
-      storage.addFilesystem(sdx[ii], sd_str[ii]);
+      MTP.addFilesystem(sdx[ii], sd_str[ii]);
     }
     uint64_t totalSize = sdx[ii].totalSize();
     uint64_t usedSize = sdx[ii].usedSize();
@@ -99,7 +96,7 @@ void storage_configure() {
         while (1)
           ;
       }
-      storage.addFilesystem(ramfs[ii], lfs_str[ii]);
+      MTP.addFilesystem(ramfs[ii], lfs_str[ii]);
     }
     uint64_t totalSize = ramfs[ii].totalSize();
     uint64_t usedSize = ramfs[ii].usedSize();
@@ -127,6 +124,8 @@ void setup() {
     ;
   Serial.println("MTP logger");
 
+  MTP.begin();
+
   usb_mtp_configure();
   storage_configure();
 
@@ -146,7 +145,7 @@ void loop() {
   state = check_filing(state);
   //
   if (state < 0)
-    mtpd.loop();
+    MTP.loop();
   else
     state = do_logger(0, state);
 
@@ -191,6 +190,8 @@ uint32_t *data_buffer =
     (uint32_t *)extmem_malloc(MAXBUF * 128 * sizeof(uint32_t));
 #else
 #if defined(ARDUINO_TEENSY41)
+#define MAXBUF (46) // 138 kB
+#elif defined(ARDUINO_TEENSY_MICROMOD)
 #define MAXBUF (46) // 138 kB
 #elif defined(ARDUINO_TEENSY40)
 #define MAXBUF (46) // 138 kB

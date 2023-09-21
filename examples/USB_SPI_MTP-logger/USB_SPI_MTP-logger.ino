@@ -8,16 +8,15 @@
 */
 #include <MTP_Teensy.h>
 // Classes used for MSC drives
-#include <USB_MSC_MTP.h>
-#include <mscFS.h>
+#include <USBHost_t36.h>
 
 #include "LittleFS.h"
 //=============================================================================
 // LittleFS classes
 //=============================================================================
 // Setup a callback class for Littlefs storages..
-#include <LFS_MTP_Callback.h> //callback for LittleFS format
-LittleFSMTPCB lfsmtpcb;       // sets up the pointer for LittleFs formatting
+//#include <LFS_MTP_Callback.h> //callback for LittleFS format
+//LittleFSMTPCB lfsmtpcb;       // sets up the pointer for LittleFs formatting
 
 //========================================================================
 // This puts a the index file in memory as opposed to an SD Card in memory
@@ -31,10 +30,6 @@ int record_count = 0;
 bool write_data = false;
 uint32_t diskSize;
 uint8_t current_store = 0;
-
-// Add in MTPD objects
-MTPStorage storage;
-MTPD mtpd(&storage);
 
 // This should be called after setting MTPD objects to setup MSC Drives
 USB_MSC_MTP usbmsc(mtpd, storage);
@@ -129,7 +124,7 @@ void setup() {
 
   DBGSerial.print("Initializing MSC Drives ...");
 
-  mtpd.begin(); // New method removing need to initize MTPD
+  MTP.begin(); // New method removing need to initize MTPD
 
   DBGSerial.println("Initializing LittleFS and/or SD Drives");
   storage_configure();
@@ -154,7 +149,7 @@ void loop() {
       DBGSerial.printf("\nDump Storage list(%u)\n", fsCount);
       for (uint32_t ii = 0; ii < fsCount; ii++) {
         DBGSerial.printf("store:%u storage:%x name:%s fs:%x\n", ii,
-                         mtpd.Store2Storage(ii), storage.getStoreName(ii),
+                         MTP.Store2Storage(ii), storage.getStoreName(ii),
                          (uint32_t)storage.getStoreFS(ii));
       }
       // DBGSerial.println("\nDump Index List");
@@ -192,7 +187,7 @@ void loop() {
       break;
     case 'r':
       DBGSerial.println("Reset");
-      mtpd.send_DeviceResetEvent();
+      MTP.send_DeviceResetEvent();
       break;
     case 'd':
       dumpLog();
@@ -206,7 +201,7 @@ void loop() {
     while (DBGSerial.read() != -1)
       ; // remove rest of characters.
   } else {
-    mtpd.loop();
+    MTP.loop();
     usbmsc.checkUSBStatus(false);
   }
 
@@ -246,7 +241,7 @@ void stopLogging() {
   // Closes the data file.
   dataFile.close();
   DBGSerial.printf("Records written = %d\n", record_count);
-  mtpd.send_DeviceResetEvent();
+  MTP.send_DeviceResetEvent();
 }
 
 void dumpLog() {
@@ -307,7 +302,7 @@ void eraseFiles() {
   }
   if (send_device_reset) {
     DBGSerial.println("\nFiles erased !");
-    mtpd.send_DeviceResetEvent();
+    MTP.send_DeviceResetEvent();
   } else {
     DBGSerial.println("\n failed !");
   }
@@ -320,7 +315,7 @@ void eraseFiles() {
   }
   if (pfsLIB.formatter(partVol)) {
     DBGSerial.println("\nFiles erased !");
-    mtpd.send_DeviceResetEvent();
+    MTP.send_DeviceResetEvent();
   }
 #endif
 }
