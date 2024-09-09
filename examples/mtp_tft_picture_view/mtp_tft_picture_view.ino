@@ -34,8 +34,8 @@
 //#include <SPI.h>
 //#include <RA8875.h>
 //Optional support for RA8876
-#include <FT5206.h>
- #include <RA8876_t3.h>
+//#include <FT5206.h>
+// #include <RA8876_t3.h>
 
 // If ILI9341_t3n is not included include ILI9341_t3 which is installed by Teensyduino
 #if !defined(_ILI9341_t3NH_) && !defined(_ILI9488_t3H_) && !defined(__ST7735_t3_H_) \
@@ -52,6 +52,12 @@
 #include <JPEGDEC.h>
 
 // optional PNG support requires external library
+// Note JPEGDEC and PNGDEC both define the same defines ....
+// created an issue owner... won't fix
+#undef INTELSHORT
+#undef INTELLONG
+#undef MOTOSHORT
+#undef MOTOLONG
 #include <PNGdec.h>
 
 //****************************************************************************
