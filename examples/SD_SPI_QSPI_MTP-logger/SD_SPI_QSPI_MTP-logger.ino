@@ -19,10 +19,6 @@ uint32_t diskSize;
 
 uint8_t current_store = 0;
 
-// Add in MTPD objects
-MTPStorage storage;
-MTPD mtpd(&storage);
-
 #if defined(ARDUINO_TEENSY41) || defined(ARDUINO_TEENSY36) || defined(ARDUINO_TEENSY35)
 #define USE_BUILTIN_SDCARD
 SDClass sdSDIO;
@@ -151,13 +147,13 @@ bool lfs_spi::begin() {
   void setup() {
     // setup to do quick and dirty ram stream until Serial or like is up...
     RAMStream rstream;
-    // start up MTPD early which will if asked tell the MTP
+    // start up MTP early which will if asked tell the MTP
     // host that we are busy, until we have finished setting
     // up...
     DBGSerial.begin(2000000);
-    mtpd.PrintStream(&rstream); // Setup which stream to use...
+    MTP.PrintStream(&rstream); // Setup which stream to use...
 
-    mtpd.begin();
+    MTP.begin();
 
     // Open serial communications and wait for port to open:
     while (!DBGSerial && millis() < 5000) {
@@ -165,7 +161,7 @@ bool lfs_spi::begin() {
     }
 
     // set to real stream
-    mtpd.PrintStream(&DBGSerial); // Setup which stream to use...
+    MTP.PrintStream(&DBGSerial); // Setup which stream to use...
     int ch;
     while ((ch = rstream.read()) != -1)
       DBGSerial.write(ch);
@@ -192,7 +188,7 @@ bool lfs_spi::begin() {
 #endif
     if (lfsram.begin(LFSRAM_SIZE)) {
       DBGSerial.printf("Ram Drive of size: %u initialized\n", LFSRAM_SIZE);
-      uint32_t istore = storage.addFilesystem(lfsram, "RAM");
+      uint32_t istore = MTP.addFilesystem(lfsram, "RAM");
 //    if (istore != 0xFFFFFFFFUL)
 //      storage.setIndexStore(istore);
       DBGSerial.printf("Set Storage Index drive to %u\n", istore);
@@ -200,26 +196,26 @@ bool lfs_spi::begin() {
 
 #ifdef ARDUINO_TEENSY41
     if (lfsq.begin()) {
-       storage.addFilesystem(*lfsq.fs(), lfsq.displayName());
+       MTP.addFilesystem(*lfsq.fs(), lfsq.displayName());
     }
 #endif
 
     // Now lets try our list of LittleFS SPI?
     for (uint8_t i = 0; i < (sizeof(lfs_spi_list) / sizeof(lfs_spi_list[0])); i++) {
       if (lfs_spi_list[i].begin()) {
-        storage.addFilesystem(*lfs_spi_list[i].fs(), lfs_spi_list[i].displayName());
+        MTP.addFilesystem(*lfs_spi_list[i].fs(), lfs_spi_list[i].displayName());
       }
     }
 
     SDClass sdSPI;
 #if defined(USE_BUILTIN_SDCARD)
     if (sdSDIO.begin(BUILTIN_SDCARD)) {
-      storage.addFilesystem(sdSDIO, "SD_Builtin");
+      MTP.addFilesystem(sdSDIO, "SD_Builtin");
     }
 #endif
 
     if (sdSPI.begin(SD_ChipSelect)) {
-      storage.addFilesystem(sdSPI, "SD_SPI");
+      MTP.addFilesystem(sdSPI, "SD_SPI");
     }
 
     DBGSerial.printf("%u Storage list initialized.\n", millis());
@@ -236,21 +232,19 @@ bool lfs_spi::begin() {
       switch (command) {
       case '1': {
         // first dump list of storages:
-        uint32_t fsCount = storage.getFSCount();
+        uint32_t fsCount = MTP.getFilesystemCount();
         DBGSerial.printf("\nDump Storage list(%u)\n", fsCount);
         for (uint32_t ii = 0; ii < fsCount; ii++) {
           DBGSerial.printf("store:%u storage:%x name:%s fs:%x\n", ii,
-                           mtpd.Store2Storage(ii), storage.getStoreName(ii),
-                           (uint32_t)storage.getStoreFS(ii));
+                           MTP.Store2Storage(ii), MTP.getFilesystemNameByIndex(ii),
+                           (uint32_t)MTP.getFilesystemByIndex(ii));
         }
-        DBGSerial.println("\nDump Index List");
-        storage.dumpIndexList();
       } break;
       case '2': {
-        if (storage_index < storage.getFSCount()) {
+        if (storage_index < MTP.getFilesystemCount()) {
           DBGSerial.printf("Storage Index %u Name: %s Selected\n", storage_index,
-                           storage.getStoreName(storage_index));
-          myfs = storage.getStoreFS(storage_index);
+          MTP.getFilesystemNameByIndex(storage_index));
+          myfs = MTP.getFilesystemByIndex(storage_index);
           current_store = storage_index;
         } else {
           DBGSerial.printf("Storage Index %u out of range\n", storage_index);
@@ -278,7 +272,7 @@ bool lfs_spi::begin() {
         break;
       case 'r':
         DBGSerial.println("Reset");
-        mtpd.send_DeviceResetEvent();
+        MTP.send_DeviceResetEvent();
         break;
       case 'd':
         dumpLog();
@@ -292,7 +286,7 @@ bool lfs_spi::begin() {
       while (DBGSerial.read() != -1)
         ; // remove rest of characters.
     } else {
-      mtpd.loop();
+      MTP.loop();
     }
 
     if (write_data)
@@ -331,7 +325,7 @@ bool lfs_spi::begin() {
     // Closes the data file.
     dataFile.close();
     DBGSerial.printf("Records written = %d\n", record_count);
-    mtpd.send_DeviceResetEvent();
+    MTP.send_DeviceResetEvent();
   }
 
   void dumpLog() {

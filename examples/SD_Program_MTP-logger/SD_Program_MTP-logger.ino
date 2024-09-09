@@ -25,10 +25,6 @@ uint32_t diskSize;
 
 uint8_t current_store = 0;
 
-// Add in MTPD objects
-MTPStorage storage;
-MTPD mtpd(&storage);
-
 SDClass sd;
 
 
@@ -75,13 +71,13 @@ public:
 void setup() {
   // setup to do quick and dirty ram stream until Serial or like is up...
   RAMStream rstream;
-  // start up MTPD early which will if asked tell the MTP
+  // start up MTP early which will if asked tell the MTP
   // host that we are busy, until we have finished setting
   // up...
   DBGSerial.begin(2000000);
-  mtpd.PrintStream(&rstream); // Setup which stream to use...
+  MTP.PrintStream(&rstream); // Setup which stream to use...
 
-  mtpd.begin();
+  MTP.begin();
 
   // Open serial communications and wait for port to open:
   while (!DBGSerial && millis() < 5000) {
@@ -89,7 +85,7 @@ void setup() {
   }
 
   // set to real stream
-  mtpd.PrintStream(&DBGSerial); // Setup which stream to use...
+  MTP.PrintStream(&DBGSerial); // Setup which stream to use...
   int ch;
   while ((ch = rstream.read()) != -1)
     DBGSerial.write(ch);
@@ -111,14 +107,14 @@ void setup() {
   // Lets add the Prorgram memory version:
   // checks that the LittFS program has started with the disk size specified
   if (lfsProg.begin(file_system_size)) {
-    storage.addFilesystem(lfsProg, "Program");
+    MTP.addFilesystem(lfsProg, "Program");
   } else {
     Serial.println("Error starting Program Flash storage");
   }
 
   // Lets add SD Card
   if (sd.begin(CS_SD)) {
-    storage.addFilesystem(sd, "SD");
+    MTP.addFilesystem(sd, "SD");
   }
 
 // lets initialize a RAM drive.
@@ -128,9 +124,7 @@ void setup() {
 #endif
   if (lfsram.begin(LFSRAM_SIZE)) {
     DBGSerial.printf("Ram Drive of size: %u initialized\n", LFSRAM_SIZE);
-    uint32_t istore = storage.addFilesystem(lfsram, "RAM");
-    if (istore != 0xFFFFFFFFUL)
-      storage.setIndexStore(istore);
+    uint32_t istore = MTP.addFilesystem(lfsram, "RAM");
     DBGSerial.printf("Set Storage Index drive to %u\n", istore);
   }
 
@@ -149,21 +143,19 @@ void loop() {
     switch (command) {
     case '1': {
       // first dump list of storages:
-      uint32_t fsCount = storage.getFSCount();
+      uint32_t fsCount = MTP.getFilesystemCount();
       DBGSerial.printf("\nDump Storage list(%u)\n", fsCount);
       for (uint32_t ii = 0; ii < fsCount; ii++) {
         DBGSerial.printf("store:%u storage:%x name:%s fs:%x\n", ii,
-                         mtpd.Store2Storage(ii), storage.getStoreName(ii),
-                         (uint32_t)storage.getStoreFS(ii));
+                          MTP.Store2Storage(ii), MTP.getFilesystemNameByIndex(ii),
+                          (uint32_t)MTP.getFilesystemByIndex(ii));
       }
-      DBGSerial.println("\nDump Index List");
-      storage.dumpIndexList();
     } break;
     case '2': {
-      if (storage_index < storage.getFSCount()) {
+      if (storage_index < MTP.getFilesystemCount()) {
         DBGSerial.printf("Storage Index %u Name: %s Selected\n", storage_index,
-                         storage.getStoreName(storage_index));
-        myfs = storage.getStoreFS(storage_index);
+        MTP.getFilesystemNameByIndex(storage_index));
+        myfs = MTP.getFilesystemByIndex(storage_index);
         current_store = storage_index;
       } else {
         DBGSerial.printf("Storage Index %u out of range\n", storage_index);
@@ -191,7 +183,7 @@ void loop() {
       break;
     case 'r':
       DBGSerial.println("Reset");
-      mtpd.send_DeviceResetEvent();
+      MTP.send_DeviceResetEvent();
       break;
     case 'd':
       dumpLog();
@@ -205,7 +197,7 @@ void loop() {
     while (DBGSerial.read() != -1)
       ; // remove rest of characters.
   } else {
-    mtpd.loop();
+    MTP.loop();
   }
 
   if (write_data)
@@ -244,7 +236,7 @@ void stopLogging() {
   // Closes the data file.
   dataFile.close();
   DBGSerial.printf("Records written = %d\n", record_count);
-  mtpd.send_DeviceResetEvent();
+  MTP.send_DeviceResetEvent();
 }
 
 void dumpLog() {
@@ -292,15 +284,8 @@ void listFiles() {
 
 void eraseFiles() {
 
-  FS *fsErase = storage.getStoreFS(current_store);
-  if (fsErase) {
-    if (fsErase->format(0, '.')) {
-      DBGSerial.println("\nFiles erased !");
-      mtpd.send_DeviceResetEvent();
-    } else {
-      DBGSerial.println("\n failed !");
-    }
-  }
+  DBGSerial.println("Formating not supported at this time");
+
 }
 
 void printDirectory(FS *pfs) {

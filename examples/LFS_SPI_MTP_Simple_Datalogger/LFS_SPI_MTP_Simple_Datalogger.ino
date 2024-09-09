@@ -27,10 +27,6 @@ uint32_t diskSize;
 
 const int chipSelect = 7;
 
-// Add in MTPD objects
-MTPStorage storage;
-MTPD mtpd(&storage);
-
 void setup() {
 
   // Open serial communications and wait for port to open:
@@ -50,8 +46,8 @@ void setup() {
     }
   }
 
-  mtpd.begin();
-  storage.addFilesystem(myfs, "sflash1");
+  MTP.begin();
+  MTP.addFilesystem(myfs, "sflash1");
 
   Serial.println("LittleFS initialized.");
 
@@ -94,7 +90,7 @@ void loop() {
     while (Serial.read() != -1)
       ; // remove rest of characters.
   } else
-    mtpd.loop();
+    MTP.loop();
 
   if (write_data)
     logData();
@@ -132,7 +128,7 @@ void stopLogging() {
   // Closes the data file.
   dataFile.close();
   Serial.printf("Records written = %d\n", record_count);
-  mtpd.send_DeviceResetEvent();
+  MTP.send_DeviceResetEvent();
 }
 
 void dumpLog() {
@@ -178,7 +174,7 @@ void listFiles() {
 void eraseFiles() {
   myfs.quickFormat(); // performs a quick format of the created di
   Serial.println("\nFiles erased !");
-  mtpd.send_DeviceResetEvent();
+  MTP.send_DeviceResetEvent();
 }
 
 void printDirectory(FS &fs) {
