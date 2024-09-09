@@ -10,9 +10,6 @@ int record_count = 0;
 bool write_data = false;
 uint8_t current_store = 0;
 
-MTPStorage storage;     // TODO: storage inside MTP instance, not separate class
-MTPD    MTP(&storage);  // TODO: MTP instance created by default
-
 LittleFS_RAM      ramdisk;
 LittleFS_Program  progdisk;
 LittleFS_SPIFlash flashchip;
@@ -41,7 +38,7 @@ void setup()
   // Add a RAM Disk
 #if 0
   if (ramdisk.begin(65536)) {
-    storage.addFilesystem(ramdisk, "RAM");
+    MTP.addFilesystem(ramdisk, "RAM");
     // storage.setIndexStore(istore);
     DBGSerial.println("Ram disk initialized");
   }
@@ -49,19 +46,19 @@ void setup()
   
   // Add the SD Card
   if (SD.begin(SD_ChipSelect)) {
-    storage.addFilesystem(SD, "SD_Card");
+    MTP.addFilesystem(SD, "SD_Card");
     DBGSerial.println("SD Card initialized");
   }
 
   // Add a disk with unused Program memory
   if (progdisk.begin(400000)) {
-    storage.addFilesystem(progdisk, "Program");
+    MTP.addFilesystem(progdisk, "Program");
     DBGSerial.println("Program Storage initialized");
   }
 
   // Add a SPI Flash chip
   if (flashchip.begin(Flash_ChipSelect)) {
-    storage.addFilesystem(flashchip, "SPI Flash");
+    MTP.addFilesystem(flashchip, "SPI Flash");
     DBGSerial.println("SPI Flash initialized");
   }
 
@@ -85,27 +82,26 @@ void loop()
 
     uint32_t fsCount;
     switch (command) {
-    case '1':
+    case '1': {
       // first dump list of storages:
-      fsCount = storage.getFSCount();
+      uint32_t fsCount = MTP.getFilesystemCount();
       DBGSerial.printf("\nDump Storage list(%u)\n", fsCount);
       for (uint32_t ii = 0; ii < fsCount; ii++) {
-        DBGSerial.printf("store:%u storage:%x name:%s fs:%x\n", ii, MTP.Store2Storage(ii),
-          storage.getStoreName(ii), (uint32_t)storage.getStoreFS(ii));
+        DBGSerial.printf("store:%u storage:%x name:%s fs:%x\n", ii,
+                          MTP.Store2Storage(ii), MTP.getFilesystemNameByIndex(ii),
+                          (uint32_t)MTP.getFilesystemByIndex(ii));
       }
-      DBGSerial.println("\nDump Index List");
-      storage.dumpIndexList();
-      break;
-    case '2':
-      if (storage_index < storage.getFSCount()) {
+    } break;
+    case '2': {
+      if (storage_index < MTP.getFilesystemCount()) {
         DBGSerial.printf("Storage Index %u Name: %s Selected\n", storage_index,
-          storage.getStoreName(storage_index));
-        myfs = storage.getStoreFS(storage_index);
+        MTP.getFilesystemNameByIndex(storage_index));
+        myfs = MTP.getFilesystemByIndex(storage_index);
         current_store = storage_index;
       } else {
         DBGSerial.printf("Storage Index %u out of range\n", storage_index);
       }
-      break;
+    } break;
 
     case 'l': listFiles(); break;
     case 's':
